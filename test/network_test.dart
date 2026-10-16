@@ -921,21 +921,22 @@ void main() {
       await expectLater(client.listMedia(), throwsFormatException);
     });
 
-    test(
-      'incorrect byte offsets and premature normal EOF reject a range',
-      () async {
-        service.wrongOffset = true;
-        await expectLater(
-          client.readRange('safe-id', 0, 10).toList(),
-          throwsFormatException,
-        );
-        service.wrongOffset = false;
-        await expectLater(
-          client.readRange('safe-id', 0, 10).toList(),
-          throwsFormatException,
-        );
-      },
-    );
+    test('incorrect byte offsets reject a range', () async {
+      service.wrongOffset = true;
+      await expectLater(
+        client.readRange('safe-id', 0, 10).toList(),
+        throwsFormatException,
+      );
+    });
+
+    test('premature normal EOF rejects a range', () async {
+      // Use this test's fresh connection: rejecting a malformed chunk cancels
+      // its RPC and must not affect the independent normal-EOF fixture.
+      await expectLater(
+        client.readRange('safe-id', 0, 10).toList(),
+        throwsFormatException,
+      );
+    });
 
     test(
       'unsupported protocol versions fail before importing metadata',

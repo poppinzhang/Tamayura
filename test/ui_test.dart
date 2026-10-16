@@ -20,6 +20,10 @@ class _FakeModel extends TamayuraModel {
   @override
   bool backgroundSharingRunning = false;
   @override
+  bool backgroundSharingStarting = false;
+  @override
+  String? backgroundSharingError;
+  @override
   bool backgroundSharingSaving = false;
   @override
   bool batteryOptimizationExempt = true;
@@ -156,6 +160,8 @@ class _FakeModel extends TamayuraModel {
       }
       backgroundSharingEnabled = enabled;
       backgroundSharingRunning = enabled;
+      backgroundSharingStarting = false;
+      backgroundSharingError = null;
     } finally {
       backgroundSharingSaving = false;
       notifyListeners();
@@ -657,13 +663,139 @@ void main() {
     model.backgroundSharingRunning = false;
     model.notifyListeners();
     await tester.pumpAndSettle();
-    expect(find.text('后台共享尚未运行，请关闭后重新开启。'), findsOneWidget);
+    expect(find.text('后台共享尚未运行。'), findsOneWidget);
+    expect(find.byKey(const Key('background-sharing-retry')), findsOneWidget);
     await tester.tap(toggle);
     await tester.pumpAndSettle();
     expect(model.backgroundSharingRequests, [true, false]);
     expect(tester.widget<SwitchListTile>(toggle).value, isFalse);
     expect(find.text('后台共享已关闭。'), findsOneWidget);
+    expect(find.byKey(const Key('background-sharing-retry')), findsNothing);
   });
+
+  testWidgets(
+    'background sharing startup waits for readiness and can be cancelled',
+    (tester) async {
+      final model = _FakeModel()
+        ..backgroundSharingEnabled = true
+        ..backgroundSharingStarting = true;
+      await _pump(tester, model);
+      await tester.tap(find.byKey(const Key('settings-tab')));
+      await tester.pumpAndSettle();
+      final toggle = find.byKey(const Key('background-sharing-switch'));
+      await _scrollSettingsTo(tester, toggle);
+      expect(find.text('正在启动后台共享…'), findsOneWidget);
+      expect(find.text('后台共享正在运行，锁屏后仍可访问已选目录。'), findsNothing);
+      expect(find.byKey(const Key('background-sharing-retry')), findsNothing);
+      expect(tester.widget<SwitchListTile>(toggle).value, isTrue);
+      expect(tester.widget<SwitchListTile>(toggle).onChanged, isNotNull);
+      model.backgroundSharingStarting = false;
+      model.backgroundSharingRunning = true;
+      model.notifyListeners();
+      await tester.pumpAndSettle();
+      expect(find.text('正在启动后台共享…'), findsNothing);
+      expect(find.text('后台共享正在运行，锁屏后仍可访问已选目录。'), findsOneWidget);
+      model.backgroundSharingStarting = true;
+      model.backgroundSharingRunning = false;
+      model.notifyListeners();
+      await tester.pumpAndSettle();
+      await tester.tap(toggle);
+      await tester.pumpAndSettle();
+      expect(model.backgroundSharingRequests, [false]);
+      expect(find.text('后台共享已关闭。'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'failed background rebuild retains the error and retries directly',
+    (tester) async {
+      final model = _FakeModel()
+        ..backgroundSharingEnabled = true
+        ..backgroundSharingError = '无法监听共享端口，请稍后重试。';
+      await _pump(tester, model);
+      await tester.tap(find.byKey(const Key('settings-tab')));
+      await tester.pumpAndSettle();
+      final retry = find.byKey(const Key('background-sharing-retry'));
+      await _scrollSettingsTo(tester, retry);
+      expect(find.text('后台共享启动失败，请重试。'), findsOneWidget);
+      expect(find.text('无法监听共享端口，请稍后重试。'), findsOneWidget);
+      expect(find.text('后台共享正在运行，锁屏后仍可访问已选目录。'), findsNothing);
+      final toggle = find.byKey(const Key('background-sharing-switch'));
+      expect(tester.widget<SwitchListTile>(toggle).value, isTrue);
+      await tester.tap(retry);
+      await tester.pumpAndSettle();
+      expect(model.backgroundSharingRequests, [true]);
+      expect(find.byKey(const Key('background-sharing-error')), findsNothing);
+      tester
+          .state<ScrollableState>(
+            find
+                .descendant(
+                  of: find.byKey(const PageStorageKey('settings-scroll')),
+                  matching: find.byType(Scrollable),
+                )
+                .first,
+          )
+          .position
+          .jumpTo(0);
+      await tester.pumpAndSettle();
+      await _scrollSettingsTo(tester, toggle);
+      expect(find.text('后台共享正在运行，锁屏后仍可访问已选目录。'), findsOneWidget);
+      expect(retry, findsNothing);
+    },
+  );
+
+  testWidgets('background sharing startup can be cancelled while saving', (
+    tester,
+  ) async {
+    final model = _FakeModel()
+      ..backgroundSharingEnabled = true
+      ..backgroundSharingStarting = true
+      ..backgroundSharingSaving = true;
+    await _pump(tester, model);
+    await tester.tap(find.byKey(const Key('settings-tab')));
+    await tester.pumpAndSettle();
+    final toggle = find.byKey(const Key('background-sharing-switch'));
+    await _scrollSettingsTo(tester, toggle);
+    expect(tester.widget<SwitchListTile>(toggle).onChanged, isNotNull);
+    expect(find.byKey(const Key('background-sharing-retry')), findsNothing);
+    await tester.tap(toggle);
+    await tester.pumpAndSettle();
+    expect(model.backgroundSharingRequests, [false]);
+    expect(find.text('后台共享已关闭。'), findsOneWidget);
+  });
+
+  testWidgets(
+    'settings can cancel a background rebuild during initialization',
+    (tester) async {
+      final model = _FakeModel()
+        ..loading = true
+        ..backgroundSharingEnabled = true
+        ..backgroundSharingStarting = true
+        ..backgroundSharingSaving = true;
+      await tester.pumpWidget(TamayuraApp(model: model));
+      expect(find.text('正在打开你的随身相册…'), findsOneWidget);
+      await tester.tap(find.byKey(const Key('settings-tab')));
+      await tester.pumpAndSettle();
+      final addFolder = find.byKey(const Key('add-shared-folder'));
+      await _scrollSettingsTo(tester, addFolder);
+      expect(tester.widget<FilledButton>(addFolder).onPressed, isNull);
+      final toggle = find.byKey(const Key('background-sharing-switch'));
+      await _scrollSettingsTo(tester, toggle);
+      expect(find.text('正在启动后台共享…'), findsOneWidget);
+      expect(tester.widget<SwitchListTile>(toggle).onChanged, isNotNull);
+      await tester.tap(toggle);
+      await tester.pump();
+      expect(model.backgroundSharingRequests, [false]);
+      expect(model.backgroundSharingEnabled, isFalse);
+      expect(find.text('正在打开你的随身相册…'), findsOneWidget);
+      expect(toggle, findsNothing);
+      model.loading = false;
+      model.notifyListeners();
+      await tester.pumpAndSettle();
+      await _scrollSettingsTo(tester, toggle);
+      expect(find.text('后台共享已关闭。'), findsOneWidget);
+    },
+  );
 
   testWidgets('background sharing disables while loading or saving', (
     tester,

@@ -84,6 +84,8 @@ abstract class TamayuraModel extends ChangeNotifier {
   bool get themeModeSaving => false;
   bool get backgroundSharingEnabled => false;
   bool get backgroundSharingRunning => false;
+  bool get backgroundSharingStarting => false;
+  String? get backgroundSharingError => null;
   bool get backgroundSharingSaving => false;
   bool get batteryOptimizationExempt => true;
   bool get loading;

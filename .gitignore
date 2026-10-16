@@ -9,6 +9,7 @@ coverage/
 .idea/
 .DS_Store
 android/.gradle/
+android/.kotlin/
 android/local.properties
 android/key.properties
 *.jks

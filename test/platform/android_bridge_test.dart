@@ -7,7 +7,12 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   const methods = MethodChannel('test/tamayura/platform');
   const events = EventChannel('test/tamayura/discovery');
-  const bridge = AndroidBridge(methods: methods, events: events);
+  const sharing = EventChannel('test/tamayura/sharing');
+  const bridge = AndroidBridge(
+    methods: methods,
+    events: events,
+    sharing: sharing,
+  );
   final messenger =
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
   final calls = <MethodCall>[];
@@ -28,6 +33,10 @@ void main() {
     messenger.setMockMethodCallHandler(methods, null);
     messenger.setMockMethodCallHandler(
       const MethodChannel('test/tamayura/discovery'),
+      null,
+    );
+    messenger.setMockMethodCallHandler(
+      const MethodChannel('test/tamayura/sharing'),
       null,
     );
   });
@@ -56,6 +65,8 @@ void main() {
       expect(calls.single.arguments, {'enabled': true});
       expect(enabled.enabled, isTrue);
       expect(enabled.running, isTrue);
+      expect(enabled.starting, isFalse);
+      expect(enabled.sessionId, isNull);
       expect(enabled.batteryExempt, isFalse);
       await bridge.sharingStatus();
       expect(calls.last.method, 'sharingStatus');
@@ -79,12 +90,115 @@ void main() {
   );
 
   test(
+    'sharing startup reports are scoped to the native service session',
+    () async {
+      messenger.setMockMethodCallHandler(methods, (call) async {
+        calls.add(call);
+        return true;
+      });
+      expect(await bridge.reportSharingReady('start-1'), isTrue);
+      expect(calls.last.method, 'reportSharingReady');
+      expect(calls.last.arguments, {'sessionId': 'start-1'});
+      expect(await bridge.reportSharingFailure('start-2', '无法监听共享端口'), isTrue);
+      expect(calls.last.method, 'reportSharingFailure');
+      expect(calls.last.arguments, {
+        'sessionId': 'start-2',
+        'error': '无法监听共享端口',
+      });
+      messenger.setMockMethodCallHandler(methods, (_) async => false);
+      expect(await bridge.reportSharingReady('stale-start'), isFalse);
+      expect(await bridge.reportSharingFailure('stale-start', '启动失败'), isFalse);
+      messenger.setMockMethodCallHandler(methods, (_) async => null);
+      expect(await bridge.reportSharingReady('missing-response'), isFalse);
+      expect(
+        await bridge.reportSharingFailure('missing-response', '启动失败'),
+        isFalse,
+      );
+      messenger.setMockMethodCallHandler(methods, (_) async {
+        throw PlatformException(code: 'SHARING_REPORT_FAILED');
+      });
+      await expectLater(
+        bridge.reportSharingReady('start-1'),
+        throwsA(isA<PlatformException>()),
+      );
+      await expectLater(
+        bridge.reportSharingFailure('start-1', '启动失败'),
+        throwsA(isA<PlatformException>()),
+      );
+    },
+  );
+
+  test(
+    'sharing startup events preserve readiness, session and failure',
+    () async {
+      messenger.setMockMethodCallHandler(
+        const MethodChannel('test/tamayura/sharing'),
+        (_) async => null,
+      );
+      final states = <SharingStatus>[];
+      final subscription = bridge.sharingEvents.listen(states.add);
+      await Future<void>.delayed(Duration.zero);
+      for (final state in [
+        {'starting': true, 'running': false, 'sessionId': 'start-1'},
+        {'starting': false, 'running': true, 'sessionId': 'start-1'},
+        {'starting': false, 'running': false, 'error': '共享初始化失败'},
+      ]) {
+        await messenger.handlePlatformMessage(
+          'test/tamayura/sharing',
+          const StandardMethodCodec().encodeSuccessEnvelope({
+            'enabled': true,
+            'batteryExempt': true,
+            ...state,
+          }),
+          (_) {},
+        );
+      }
+      await Future<void>.delayed(Duration.zero);
+      expect(states, hasLength(3));
+      expect(states[0].starting, isTrue);
+      expect(states[0].running, isFalse);
+      expect(states[0].sessionId, 'start-1');
+      expect(states[1].starting, isFalse);
+      expect(states[1].running, isTrue);
+      expect(states[2].enabled, isTrue);
+      expect(states[2].running, isFalse);
+      expect(states[2].error, '共享初始化失败');
+      await subscription.cancel();
+    },
+  );
+
+  test(
     'missing native state never silently reports successful sharing',
     () async {
       for (final value in [
         null,
         <String, Object>{},
         {'enabled': true, 'running': 'yes', 'batteryExempt': true},
+        {
+          'enabled': true,
+          'running': false,
+          'batteryExempt': true,
+          'starting': null,
+        },
+        {
+          'enabled': true,
+          'running': false,
+          'batteryExempt': true,
+          'starting': 'yes',
+        },
+        {
+          'enabled': true,
+          'running': true,
+          'batteryExempt': true,
+          'starting': true,
+        },
+        {
+          'enabled': true,
+          'running': false,
+          'batteryExempt': true,
+          'sessionId': 42,
+        },
+        {'enabled': true, 'running': false, 'batteryExempt': true, 'error': 42},
       ]) {
         messenger.setMockMethodCallHandler(methods, (_) async => value);
         await expectLater(bridge.sharingStatus(), throwsFormatException);

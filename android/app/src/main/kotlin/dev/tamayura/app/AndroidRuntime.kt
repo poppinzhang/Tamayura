@@ -104,6 +104,9 @@ internal class AndroidRuntime private constructor(private val context: Context) 
                 }
                 "localInfo" -> background(result) { localInfo() }
                 "sharingStatus" -> result.success(sharing.status())
+                "reportSharingReady" -> result.success(sharing.ready(call.requiredString("sessionId")))
+                "reportSharingFailure" -> result.success(sharing.failed(
+                    call.requiredString("sessionId"), call.requiredString("error")))
                 "setBackgroundSharing" -> {
                     val enabled = call.argument<Boolean>("enabled")
                         ?: throw IllegalArgumentException("Missing enabled")

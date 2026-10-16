@@ -2,6 +2,7 @@
 
 #include <flutter/standard_method_codec.h>
 #include <flutter/event_stream_handler_functions.h>
+#include <objbase.h>
 
 #include <algorithm>
 #include <cwctype>

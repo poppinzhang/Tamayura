@@ -319,7 +319,11 @@ class _HomeState extends State<_Home> {
                                     : () => _run(model.refresh),
                               ),
                             Expanded(
-                              child: model.loading
+                              child:
+                                  model.loading &&
+                                      !(_tab == 2 &&
+                                          model.backgroundSharingEnabled &&
+                                          model.backgroundSharingStarting)
                                   ? const Center(
                                       child: Column(
                                         mainAxisSize: MainAxisSize.min,
@@ -981,7 +985,7 @@ class _HomeState extends State<_Home> {
                         ),
                       ],
                       selected: {model.themeMode},
-                      onSelectionChanged: model.themeModeSaving
+                      onSelectionChanged: model.loading || model.themeModeSaving
                           ? null
                           : (selection) => _run(
                               () => model.setThemeMode(selection.single),
@@ -1047,7 +1051,7 @@ class _HomeState extends State<_Home> {
                   trailing: IconButton(
                     key: Key('remove-shared-folder-${folder.id}'),
                     tooltip: '移除 ${folder.name}',
-                    onPressed: model.busy
+                    onPressed: model.loading || model.busy
                         ? null
                         : () => _run(() => model.removeSharedFolder(folder.id)),
                     icon: const Icon(Icons.remove_circle_outline_rounded),
@@ -1056,7 +1060,7 @@ class _HomeState extends State<_Home> {
               const SizedBox(height: 12),
               FilledButton.tonalIcon(
                 key: const Key('add-shared-folder'),
-                onPressed: model.busy
+                onPressed: model.loading || model.busy
                     ? null
                     : () => _run(model.chooseSharedFolder),
                 icon: const Icon(Icons.add_rounded),
@@ -1087,7 +1091,10 @@ class _HomeState extends State<_Home> {
                 style: TextStyle(fontSize: 12, height: 1.6),
               ),
               value: model.backgroundSharingEnabled,
-              onChanged: model.loading || model.backgroundSharingSaving
+              onChanged:
+                  (model.loading || model.backgroundSharingSaving) &&
+                      !(model.backgroundSharingEnabled &&
+                          model.backgroundSharingStarting)
                   ? null
                   : (enabled) =>
                         _run(() => model.setBackgroundSharing(enabled)),
@@ -1098,8 +1105,12 @@ class _HomeState extends State<_Home> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    model.backgroundSharingSaving
+                    model.backgroundSharingStarting
+                        ? '正在启动后台共享…'
+                        : model.backgroundSharingSaving
                         ? '正在更新后台共享…'
+                        : model.backgroundSharingError != null
+                        ? '后台共享启动失败，请重试。'
                         : !model.backgroundSharingEnabled
                         ? '后台共享已关闭。'
                         : model.backgroundSharingRunning
@@ -1108,7 +1119,7 @@ class _HomeState extends State<_Home> {
                               : isMacDesktop
                               ? '后台共享正在运行。Mac 睡眠或退出玉响后，共享会停止。'
                               : '后台共享正在运行，锁屏后仍可访问已选目录。'
-                        : '后台共享尚未运行，请关闭后重新开启。',
+                        : '后台共享尚未运行。',
                     key: const Key('background-sharing-status'),
                     style: TextStyle(
                       color: Theme.of(context).colorScheme.onSurfaceVariant,
@@ -1116,6 +1127,34 @@ class _HomeState extends State<_Home> {
                       height: 1.6,
                     ),
                   ),
+                  if (model.backgroundSharingError != null &&
+                      !model.backgroundSharingStarting &&
+                      !model.backgroundSharingSaving) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      model.backgroundSharingError!,
+                      key: const Key('background-sharing-error'),
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                        fontSize: 12,
+                        height: 1.6,
+                      ),
+                    ),
+                  ],
+                  if (model.backgroundSharingEnabled &&
+                      !model.backgroundSharingRunning &&
+                      !model.backgroundSharingStarting &&
+                      !model.backgroundSharingSaving) ...[
+                    const SizedBox(height: 8),
+                    TextButton.icon(
+                      key: const Key('background-sharing-retry'),
+                      onPressed: model.loading
+                          ? null
+                          : () => _run(() => model.setBackgroundSharing(true)),
+                      icon: const Icon(Icons.refresh_rounded),
+                      label: const Text('重试后台共享'),
+                    ),
+                  ],
                   if (!isDesktop &&
                       model.backgroundSharingEnabled &&
                       !model.batteryOptimizationExempt) ...[
@@ -1149,7 +1188,9 @@ class _HomeState extends State<_Home> {
         title: '接收目录',
         subtitle: model.downloadFolder ?? '尚未选择 · 下载的原文件会保存在这里',
         icon: Icons.save_alt_rounded,
-        onTap: model.busy ? null : () => _run(model.chooseDownloadFolder),
+        onTap: model.loading || model.busy
+            ? null
+            : () => _run(model.chooseDownloadFolder),
       ),
       const SizedBox(height: 12),
       Text(

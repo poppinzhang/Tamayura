@@ -22,6 +22,7 @@ class MediaRpcServer {
 
   final _MediaService _service;
   Server? _server;
+  int _lifecycleGeneration = 0;
 
   int get port => _server?.port ?? 0;
   List<MediaMetadata> get localMedia =>
@@ -36,18 +37,25 @@ class MediaRpcServer {
 
   Future<void> start({int port = 0}) async {
     if (_server != null) throw StateError('Server is already running');
+    final generation = ++_lifecycleGeneration;
     try {
       await refresh();
     } catch (_) {
       // Receiving from other devices must still work if this device's shared
       // directory permission expired. ListMedia reports the scan failure.
     }
+    if (generation != _lifecycleGeneration) return;
     final server = _InterruptibleServer(services: [_service]);
     try {
       await server.serve(address: InternetAddress.anyIPv4, port: port);
+      if (generation != _lifecycleGeneration) {
+        await server.shutdown();
+        return;
+      }
       _server = server;
     } catch (_) {
       await server.shutdown();
+      if (generation != _lifecycleGeneration) return;
       rethrow;
     }
   }
@@ -57,6 +65,8 @@ class MediaRpcServer {
   Future<void> refresh() => _service.refresh();
 
   Future<void> stop() async {
+    _lifecycleGeneration++;
+    _service.invalidateRefresh();
     final server = _server;
     _server = null;
     await server?.shutdown();
@@ -125,10 +135,15 @@ class _MediaService extends wire.MediaLibraryServiceBase {
   int _thumbnailActive = 0;
   final _thumbnailWaiters = <Completer<void>>[];
 
+  // A provider may finish after stop() has returned or another scan has begun.
+  // Keep the last completed snapshot, but revoke every pending scan's commit.
+  void invalidateRefresh() => _refreshGeneration++;
+
   Future<void> refresh() async {
     final generation = ++_refreshGeneration;
     try {
       final scanned = await source.scan();
+      if (generation != _refreshGeneration) return;
       final next = <String, MediaMetadata>{};
       for (final item in scanned) {
         if (!_validMetadata(item) || next.containsKey(item.id)) {
@@ -178,12 +193,11 @@ class _MediaService extends wire.MediaLibraryServiceBase {
       revision = digest.value.toString();
       scanError = null;
     } catch (error) {
-      if (generation == _refreshGeneration) {
-        snapshot = {};
-        _ordered = [];
-        revision = '';
-        scanError = error;
-      }
+      if (generation != _refreshGeneration) return;
+      snapshot = {};
+      _ordered = [];
+      revision = '';
+      scanError = error;
       rethrow;
     }
   }

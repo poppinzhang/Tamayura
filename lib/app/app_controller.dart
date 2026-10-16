@@ -50,8 +50,16 @@ class AppController extends TamayuraModel {
     batteryExempt: false,
   );
   bool _backgroundSharingSaving = false;
+  int _sharingCommand = 0;
   int _sharingStatusRevision = 0;
+  String? _failedSharingSession, _sharingFailure;
   StreamSubscription<SharingStatus>? _sharingSubscription;
+  Future<void>? _initializing;
+  bool _initialized = false;
+  bool _initializationCancelled = false;
+  _SharingStartup? _initializationStartup, _networkStartup;
+  Future<TamayuraRepository>? _openingRepository;
+  Future<TransferStore>? _openingTransfers;
   Future<void> _networkTail = Future.value();
   final Set<String> _scheduling = {};
   MediaCursor? _cursor;
@@ -92,14 +100,29 @@ class AppController extends TamayuraModel {
   @override
   bool get backgroundSharingEnabled => _sharingStatus.enabled;
   @override
-  bool get backgroundSharingRunning => _sharingStatus.running;
+  bool get backgroundSharingRunning =>
+      _sharingStatus.running && _sharingFailure == null;
+  @override
+  bool get backgroundSharingStarting =>
+      _sharingStatus.starting && _sharingFailure == null;
+  @override
+  String? get backgroundSharingError => _sharingStatus.error ?? _sharingFailure;
   @override
   bool get backgroundSharingSaving => _backgroundSharingSaving;
   @override
   bool get batteryOptimizationExempt => _sharingStatus.batteryExempt;
 
+  // A preference or a pending start is not permission to run headlessly. Only
+  // an accepted native service session owns the foreground service/wake lock.
+  bool get _hasSharingSession =>
+      _sharingStatus.enabled &&
+      _sharingStatus.sessionId != null &&
+      _sharingStatus.sessionId != _failedSharingSession;
   bool get _shouldShare =>
-      !_disposed && (_foreground || _sharingStatus.running);
+      !_disposed &&
+      (_foreground ||
+          _hasSharingSession ||
+          (_sharingStatus.running && _sharingFailure == null));
   @override
   bool get themeModeSaving => _themeModeSaving;
   @override
@@ -172,15 +195,12 @@ class AppController extends TamayuraModel {
   Future<void> setForeground(bool foreground) async {
     if (_disposed) return;
     _foreground = foreground;
-    _transferPoll?.cancel();
-    if (foreground && _taskStore != null && !_disposed) {
-      unawaited(_refreshTransfers());
-      _transferPoll = Timer.periodic(
-        const Duration(seconds: 1),
-        (_) => unawaited(_refreshTransfers()),
-      );
+    _updateTransferPolling();
+    if (_loading) return;
+    if (!_initialized) {
+      if (foreground) await initialize();
+      return;
     }
-    if (_loading || _repository == null) return;
     if (foreground) {
       try {
         await _readSharingStatus();
@@ -190,6 +210,17 @@ class AppController extends TamayuraModel {
       }
     }
     await _reconcileSharing();
+  }
+
+  void _updateTransferPolling() {
+    _transferPoll?.cancel();
+    if (_foreground && _initialized && !_disposed) {
+      unawaited(_refreshTransfers());
+      _transferPoll = Timer.periodic(
+        const Duration(seconds: 1),
+        (_) => unawaited(_refreshTransfers()),
+      );
+    }
   }
 
   Future<void> _readSharingStatus() async {
@@ -203,35 +234,76 @@ class AppController extends TamayuraModel {
   void _applySharingStatus(SharingStatus status) {
     if (_disposed) return;
     _sharingStatusRevision++;
+    final previousError = backgroundSharingError;
+    final wasStarting = _sharingStatus.starting;
+    if (status.sessionId != _sharingStatus.sessionId || !status.enabled) {
+      _sharingFailure = null;
+    }
     _sharingStatus = status;
+    for (final startup in [_initializationStartup, _networkStartup]) {
+      if (startup == null || startup.cancelled) continue;
+      startup.sessionId ??= status.sessionId;
+      if ((startup.sessionId != null &&
+              startup.sessionId != status.sessionId) ||
+          (wasStarting &&
+              status.error != null &&
+              !status.starting &&
+              !status.running)) {
+        startup.cancel();
+        ++_pageGeneration;
+      }
+    }
+    if (_error == previousError) _error = null;
     if (status.error != null) _error = status.error;
     _notify();
-    if (!_loading && _repository != null) unawaited(_reconcileSharing());
+    if (!_loading) {
+      if (_initialized) {
+        unawaited(_reconcileSharing());
+      } else if (_hasSharingSession || (_foreground && !status.enabled)) {
+        unawaited(initialize());
+      }
+    }
   }
 
   @override
   Future<void> setBackgroundSharing(bool enabled) async {
-    if (_disposed || _loading || _backgroundSharingSaving) return;
+    final cancelStarting =
+        !enabled && _sharingStatus.enabled && _sharingStatus.starting;
+    if (_disposed ||
+        ((_loading || _backgroundSharingSaving) && !cancelStarting)) {
+      return;
+    }
+    final command = ++_sharingCommand;
     _backgroundSharingSaving = true;
     _error = null;
     _notify();
     try {
       final revision = _sharingStatusRevision;
       final status = await _bridge.setBackgroundSharing(enabled);
+      if (_disposed || command != _sharingCommand) return;
       if (!_disposed && revision == _sharingStatusRevision) {
         _applySharingStatus(status);
       }
       await _readSharingStatus();
     } catch (e) {
-      // Native owns the preference and rolls failed starts back to disabled.
+      if (_disposed || command != _sharingCommand) return;
+      // Native preserves the user's choice and its diagnostic for retry.
       try {
         await _readSharingStatus();
       } catch (_) {}
+      if (_disposed || command != _sharingCommand) return;
       _error = describeError(e);
     } finally {
-      await _reconcileSharing();
-      _backgroundSharingSaving = false;
-      _notify();
+      if (command == _sharingCommand) {
+        // A stop must stay responsive even if a scan is still completing.
+        if (!cancelStarting && backgroundSharingError == null) {
+          await _reconcileSharing();
+        } else {
+          unawaited(_reconcileSharing());
+        }
+        _backgroundSharingSaving = false;
+        _notify();
+      }
     }
   }
 
@@ -257,19 +329,100 @@ class AppController extends TamayuraModel {
   }
 
   Future<void> _reconcileSharing() async {
-    if (_loading || _repository == null) return;
-    try {
-      await _networkOperation(() async {
+    if (_loading || !_initialized) return;
+    await _networkOperation(() async {
+      final startup = _SharingStartup(_sharingStatus.sessionId);
+      final needsReady = _hasSharingSession && !_sharingStatus.running;
+      _networkStartup = startup;
+      try {
         if (_shouldShare) {
-          if ((_server?.port ?? 0) == 0) await _startNetwork();
+          if (needsReady &&
+              (_server?.port ?? 0) != 0 &&
+              _server!.scanError != null) {
+            // A new service session may retry after a directory permission or
+            // provider failure without recreating the application engine.
+            await startup.wait(_server!.refresh);
+            _localCount = _server!.localMedia.length;
+          }
+          if ((_server?.port ?? 0) == 0 || needsReady) {
+            await _startNetwork(startup: startup);
+          }
+          await _confirmSharingReady(startup.sessionId, startup: startup);
         } else {
           await _stopNetwork();
         }
-      });
-    } catch (e) {
+      } on _SharingStartupCancelled {
+        // Stop invalidates an outstanding server start/refresh before releasing
+        // the serialized queue, so its late completion cannot reopen a socket.
+        await _stopNetwork();
+      } catch (e) {
+        await _failSharing(startup.sessionId, e);
+        if (!_shouldShare) await _stopNetwork();
+      } finally {
+        if (identical(_networkStartup, startup)) _networkStartup = null;
+      }
+    }).catchError((Object e) {
       _error = describeError(e);
       _notify();
+    });
+  }
+
+  bool _ownsSharingSession(String? sessionId) =>
+      !_disposed &&
+      sessionId != null &&
+      sessionId == _sharingStatus.sessionId &&
+      _hasSharingSession;
+
+  Future<void> _confirmSharingReady(
+    String? sessionId, {
+    _SharingStartup? startup,
+  }) async {
+    if (!_ownsSharingSession(sessionId) || _sharingStatus.running) return;
+    final server = _server;
+    if (!_initialized || server == null || server.port == 0) return;
+    if (server.scanError != null) throw server.scanError!;
+    // Binding a socket alone does not prove Dart's service can handle RPCs.
+    final probe = MediaRpcClient(
+      Peer(id: _id, name: _deviceName, host: '127.0.0.1', port: server.port),
+    );
+    try {
+      Future<Peer> identityRequest() =>
+          probe.identity().timeout(const Duration(seconds: 5));
+      final identity = await (startup == null
+          ? identityRequest()
+          : startup.wait(identityRequest));
+      if (identity.id != _id) throw StateError('共享服务身份核验失败');
+    } finally {
+      await probe.close();
     }
+    if (!_ownsSharingSession(sessionId)) return;
+    Future<bool> report() => _bridge.reportSharingReady(sessionId!);
+    final accepted = await (startup == null ? report() : startup.wait(report));
+    if (!_ownsSharingSession(sessionId)) return;
+    await _readSharingStatus();
+    if (!accepted && _ownsSharingSession(sessionId)) {
+      throw StateError('后台共享启动确认失败，请重试');
+    }
+  }
+
+  Future<void> _failSharing(String? sessionId, Object error) async {
+    // Never let a late failure from a stopped session cancel a newer start.
+    if (sessionId != null && !_ownsSharingSession(sessionId)) return;
+    final message = describeError(error);
+    _error = message;
+    if (sessionId != null) {
+      _failedSharingSession = sessionId;
+      _sharingFailure = message;
+      _notify();
+      try {
+        await _bridge.reportSharingFailure(sessionId, message);
+        await _readSharingStatus();
+      } catch (_) {
+        // Keep the failure visible even if the channel fails. The native ready
+        // deadline also releases the service's resources in this case.
+      }
+    }
+    _notify();
   }
 
   Future<void> _stopNetwork() async {
@@ -381,14 +534,53 @@ class AppController extends TamayuraModel {
   }
 
   @override
-  Future<void> initialize() async {
-    if (_repository != null) return;
-    await _guard(() async {
+  Future<void> initialize() {
+    if (_disposed || _initialized) return Future.value();
+    return _initializing ??= _initialize().whenComplete(() {
+      _initializing = null;
+      // A new native start may arrive while an older initialization is still
+      // unwinding. Retry that new session, never the failed session itself.
+      if (!_initialized &&
+          !_disposed &&
+          (_hasSharingSession ||
+              (_initializationCancelled &&
+                  _foreground &&
+                  !_sharingStatus.enabled))) {
+        unawaited(initialize());
+      }
+    });
+  }
+
+  Future<void> _initialize() async {
+    final startup = _SharingStartup(_sharingStatus.sessionId);
+    _initializationStartup = startup;
+    _initializationCancelled = false;
+    _loading = true;
+    _busy = true;
+    _error = null;
+    _notify();
+    try {
+      // Subscribe before identity/database work so even early cold-engine
+      // failures can be reported to the native service waiting for readiness.
+      _sharingSubscription ??= _bridge.sharingEvents.listen(
+        _applySharingStatus,
+        onError: (Object error) {
+          _error = describeError(error);
+          _notify();
+        },
+      );
+      try {
+        await startup.wait(_readSharingStatus);
+      } on _SharingStartupCancelled {
+        rethrow;
+      } catch (e) {
+        _error = describeError(e);
+      }
       // Identity belongs to the platform installation/device, not the media cache.
       // Resolve it before opening stores so a failed read can be retried.
-      _id = await _bridge.deviceId();
-      _taskStore ??= await _openTransfers();
-      _repository = await _openRepository();
+      _id = await startup.wait(_bridge.deviceId);
+      await startup.wait(_ensureTransfers);
+      await startup.wait(_ensureRepository);
       _transferScheduler ??= _bridge.usesInProcessTransfers
           ? InProcessTransferScheduler(
               store: _taskStore!,
@@ -399,24 +591,14 @@ class AppController extends TamayuraModel {
             )
           : NativeTransferScheduler(_bridge);
       final db = _repository!;
-      _sharingSubscription ??= _bridge.sharingEvents.listen(
-        _applySharingStatus,
-        onError: (Object error) {
-          _error = describeError(error);
-          _notify();
-        },
-      );
-      try {
-        await _readSharingStatus();
-      } catch (e) {
-        _error = describeError(e);
-      }
-      _themeMode = switch (await db.getSetting('themeMode')) {
+      _themeMode = switch (await startup.wait(
+        () => db.getSetting('themeMode'),
+      )) {
         'light' => ThemeMode.light,
         'dark' => ThemeMode.dark,
         _ => ThemeMode.system,
       };
-      final folders = await db.getSetting('sharedFolders');
+      final folders = await startup.wait(() => db.getSetting('sharedFolders'));
       _sharedFolders = folders == null
           ? []
           : (jsonDecode(folders) as List)
@@ -426,11 +608,15 @@ class AppController extends TamayuraModel {
                   ),
                 )
                 .toList();
-      _downloadUri = await db.getSetting('downloadUri');
-      _downloadFolder = await db.getSetting('downloadFolder');
-      for (final peer in await db.listPeers()) {
+      _downloadUri = await startup.wait(() => db.getSetting('downloadUri'));
+      _downloadFolder = await startup.wait(
+        () => db.getSetting('downloadFolder'),
+      );
+      _peers.clear();
+      _syncProgress.clear();
+      for (final peer in await startup.wait(db.listPeers)) {
         _peers[peer.id] = peer;
-        final checkpoint = await db.findPeerSnapshot(peer);
+        final checkpoint = await startup.wait(() => db.findPeerSnapshot(peer));
         if (checkpoint != null) {
           _syncProgress[peer.id] = SyncProgress(
             peerId: peer.id,
@@ -442,31 +628,73 @@ class AppController extends TamayuraModel {
           );
         }
       }
-      await _taskStore!.reconcile(
-        (await _transferScheduler!.scheduledTransferIds()).toSet(),
+      final scheduled = await startup.wait(
+        _transferScheduler!.scheduledTransferIds,
       );
-      await _refreshTransfers();
-      await _loadCachedMedia();
-      unawaited(setForeground(_foreground));
-      _loading = false;
-      _notify();
+      await startup.wait(() => _taskStore!.reconcile(scheduled.toSet()));
+      await startup.wait(_refreshTransfers);
+      // Initialization may retry after a stalled read. Page generations discard
+      // late results, without making the new attempt wait behind the old read.
+      await startup.wait(() => _readCachedMedia(preserveWindow: false));
       _source = _PlatformMediaSource(_bridge, _id, () => sharedFolders);
-      await _networkOperation(() async {
-        if (_shouldShare) await _startNetwork();
-      });
-    });
-    _loading = false;
-    _notify();
+      _initialized = true;
+      _loading = false;
+      _updateTransferPolling();
+      _notify();
+      await _reconcileSharing();
+    } on _SharingStartupCancelled {
+      // Native already published the stop/timeout. Preserve that diagnostic.
+      _initializationCancelled = true;
+    } catch (e) {
+      await _failSharing(startup.sessionId, e);
+    } finally {
+      if (identical(_initializationStartup, startup)) {
+        _initializationStartup = null;
+      }
+      _loading = false;
+      _busy = false;
+      _notify();
+    }
     // The UI can browse its cache and choose folders during network requests.
-    if (_repository != null && _foreground && !_disposed) {
+    if (_initialized && _foreground && !_disposed) {
       await _syncRemembered();
     }
   }
 
-  Future<void> _startNetwork() async {
+  Future<void> _ensureRepository() async {
+    if (_repository != null) return;
+    await (_openingRepository ??= _openRepository()
+        .then((repository) async {
+          if (_disposed) {
+            await repository.close();
+          } else {
+            _repository = repository;
+          }
+          return repository;
+        })
+        .whenComplete(() => _openingRepository = null));
+  }
+
+  Future<void> _ensureTransfers() async {
+    if (_taskStore != null) return;
+    await (_openingTransfers ??= _openTransfers()
+        .then((transfers) async {
+          if (_disposed) {
+            await transfers.close();
+          } else {
+            _taskStore = transfers;
+          }
+          return transfers;
+        })
+        .whenComplete(() => _openingTransfers = null));
+  }
+
+  Future<void> _startNetwork({_SharingStartup? startup}) async {
     if (!_shouldShare) return;
+    Future<T> wait<T>(Future<T> Function() action) =>
+        startup == null ? action() : startup.wait(action);
     _source ??= _PlatformMediaSource(_bridge, _id, () => sharedFolders);
-    final info = await _bridge.localInfo();
+    final info = await wait(_bridge.localInfo);
     _deviceName = info['name'] as String? ?? _bridge.platformName;
     _addresses = (info['addresses'] as List? ?? []).cast<String>();
     _server ??= MediaRpcServer(
@@ -476,9 +704,9 @@ class AppController extends TamayuraModel {
     _server!.updateDeviceName(_deviceName);
     if (_server!.port == 0) {
       try {
-        await _server!.start(port: _preferredPort);
+        await wait(() => _server!.start(port: _preferredPort));
       } on SocketException {
-        await _server!.start();
+        await wait(() => _server!.start());
       }
     }
     _localCount = _server!.localMedia.length;
@@ -494,7 +722,9 @@ class AppController extends TamayuraModel {
         _notify();
       },
     );
-    await _bridge.startDiscovery(id: _id, name: _deviceName, port: port);
+    await wait(
+      () => _bridge.startDiscovery(id: _id, name: _deviceName, port: port),
+    );
     if (!_shouldShare) await _stopNetwork();
     _notify();
   }
@@ -988,7 +1218,7 @@ class AppController extends TamayuraModel {
 
   @override
   Future<void> refresh() async {
-    if (_repository == null) {
+    if (!_initialized) {
       await initialize();
       return;
     }
@@ -1218,6 +1448,8 @@ class AppController extends TamayuraModel {
 
   Future<void> shutdown() async {
     _disposed = true;
+    _initializationStartup?.cancel();
+    _networkStartup?.cancel();
     _invalidatePresenceChecks();
     _transferPoll?.cancel();
     await _sharingSubscription?.cancel();
@@ -1236,6 +1468,30 @@ class AppController extends TamayuraModel {
   void dispose() {
     unawaited(shutdown());
     super.dispose();
+  }
+}
+
+class _SharingStartupCancelled implements Exception {}
+
+/// Stop awaiting a failed native session while leaving shared resources owned
+/// by the controller. Each caller commits state only after this wait succeeds.
+class _SharingStartup {
+  _SharingStartup(this.sessionId);
+  String? sessionId;
+  final _cancelled = Completer<void>();
+  bool get cancelled => _cancelled.isCompleted;
+  void cancel() {
+    if (!cancelled) _cancelled.complete();
+  }
+
+  Future<T> wait<T>(Future<T> Function() action) async {
+    if (cancelled) throw _SharingStartupCancelled();
+    final value = await Future.any([
+      action(),
+      _cancelled.future.then<T>((_) => throw _SharingStartupCancelled()),
+    ]);
+    if (cancelled) throw _SharingStartupCancelled();
+    return value;
   }
 }
 

@@ -29,8 +29,8 @@ std::string String(const EncodableMap& args, const char* key) {
 
 int64_t Integer(const EncodableMap& args, const char* key) {
   const auto& value = Argument(args, key);
-  if (const auto* small = std::get_if<int32_t>(&value)) return *small;
-  if (const auto* large = std::get_if<int64_t>(&value)) return *large;
+  if (const auto* value32 = std::get_if<int32_t>(&value)) return *value32;
+  if (const auto* value64 = std::get_if<int64_t>(&value)) return *value64;
   throw StorageError("INVALID_ARGUMENT", std::string("Invalid integer: ") + key);
 }
 
@@ -89,7 +89,7 @@ void Launch(const std::string& uri, HWND window, bool reveal) {
     PIDLIST_ABSOLUTE item = nullptr;
     ShellCheck(SHParseDisplayName(file.path().c_str(), nullptr, &item, 0, nullptr),
                 "Cannot locate media in File Explorer");
-    struct PidlGuard { ITEMIDLIST* value; ~PidlGuard() { CoTaskMemFree(value); } } item_guard{item};
+    struct PidlGuard { PIDLIST_ABSOLUTE value; ~PidlGuard() { CoTaskMemFree(value); } } item_guard{item};
     PIDLIST_ABSOLUTE parent = ILCloneFull(item);
     if (!parent) throw StorageError("PLATFORM_ERROR", "Cannot allocate Explorer selection");
     PidlGuard parent_guard{parent};

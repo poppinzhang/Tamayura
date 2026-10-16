@@ -2,13 +2,13 @@
 
 把另一台设备里的照片，带到手边。
 
-Tamayura 是使用 Flutter 开发的局域网媒体共享应用。当前试用版本为 **0.3.0，支持 Android 16+（API 36）与 macOS Sequoia 15.0+**，支持 Tahoe 26 及后续版本。同一局域网内的设备可以发现彼此，浏览共享照片和视频的缩略图，点击下载原文件，再通过系统分享面板发送给其它应用。
+Tamayura 是使用 Flutter 开发的局域网媒体共享应用。当前统一版本为 **0.4.0+7，支持 Android 16+（API 36）、macOS Sequoia 15.0+ 与 Windows x64**，支持 Tahoe 26 及后续版本。同一局域网内的设备可以发现彼此，浏览共享照片和视频的缩略图，点击下载原文件；Android 与 macOS 还可通过系统分享面板发送给其它应用。
 
-两端均支持相册断点恢复：同步中断或应用重启后，已收到的照片预览和分页进度保留，恢复连接后继续缺失部分。macOS 提供 arm64 / x86_64 通用 App，使用本地 ad-hoc 签名，尚未公证；真实双向断网恢复等验收仍待完成。产物和本次验证记录见 [0.3.0 试用版本说明](docs/releases/0.3.0.md)。
+各端均支持相册断点恢复：同步中断或应用重启后，已收到的照片预览和分页进度保留，恢复连接后继续缺失部分。macOS 提供 arm64 / x86_64 通用 App，使用本地 ad-hoc 签名，尚未公证；真实双向断网恢复等验收仍待完成。产物和本次验证记录见 [0.4.0 试用版本说明](docs/releases/0.4.0.md)。
 
-## 运行 Windows（未发布）
+## 运行 Windows
 
-当前工作区基于 **0.3.0+6** 增加 Windows x64 支持，目标为 Windows 10 1809+ / Windows 11。Windows 构建、运行和真实双向互传尚需在 Windows 上验证；此次 macOS 开发环境提供实现与源码交接包，未生成 Windows 可执行文件。
+Windows x64 与 Android、macOS 统一使用 **0.4.0+7**，目标为 Windows 10 1809+ / Windows 11。已在 Windows 11 完成全量测试、原生 CTest 和 Release 构建，提供完整 ZIP 试用包；详细验证范围见版本说明。
 
 在 Windows 安装 Flutter **3.47.6** 和 **Visual Studio 2022** 的「使用 C++ 的桌面开发」工作负载（包含 Windows SDK 与 CMake），解压源码后在根目录运行：
 
@@ -20,7 +20,7 @@ flutter run -d windows
 
 Windows 支持系统目录选择、mDNS 自动发现、手动 IP、本机二维码、离线相册、按需下载和续传，使用 Ctrl 桌面快捷键；已下载文件可以默认应用打开或在资源管理器定位。当前没有 Windows 相机扫码或系统分享面板。首次联网仅在可信的专用网络中允许应用通过防火墙；下载和共享需要应用运行且系统清醒。
 
-完整检查和 Release ZIP 打包：`powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\package-windows.ps1`。Mac 可执行 `python3 scripts/package-windows-source.py` 生成 `dist/0.3.0/Tamayura-0.3.0-windows-source.zip`，传到 Windows 调试。工具链、完整步骤、运行库与验收清单见 [Windows 实现与调试](docs/Windows原型.md)。
+完整检查和 Release ZIP 打包：`powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\package-windows.ps1`。Mac 可执行 `python3 scripts/package-windows-source.py` 生成 `dist/0.4.0/Tamayura-0.4.0-windows-source.zip`，传到 Windows 调试。工具链、完整步骤、运行库与验收清单见 [Windows 实现与调试](docs/Windows原型.md)。
 
 ## 运行 macOS
 
@@ -33,31 +33,36 @@ FLUTTER_SWIFT_PACKAGE_MANAGER=true flutter run -d macos
 
 在设置中添加共享目录、选择接收目录，允许系统的本地网络访问，然后与同局域网的 Android 或另一台 Mac 互相发现。也支持输入私有 IPv4 地址、显示二维码及相机扫码。下载可在切换应用或最小化后继续；后台共享开启时，Mac 在应用运行且系统清醒期间继续提供文件。退出应用或系统睡眠会中断，未完成下载可以重试续传。相册元数据与缩略图支持持久断点，已出现的照片在中断和重启后保留，恢复连接可继续同步；实现与首次升级注意事项见 [同步进度](docs/同步进度.md)。
 
-打包入口为 `scripts/package-macos.sh`，输出 `dist/0.3.0/Tamayura-0.3.0-macos.zip` 及 `SHA256SUMS-macos` 独立校验文件；若 `xcode-select` 仍指向 Command Line Tools，脚本会自动使用 `/Applications/Xcode.app`，不更改系统设置。完整 Xcode 是必要条件，公开分发还需 Developer ID 签名和公证。平台实现与验收清单见 [macOS 实现](docs/macOS原型.md)。
+打包入口为 `scripts/package-macos.sh`，输出 `dist/0.4.0/Tamayura-0.4.0-macos.zip` 及 `SHA256SUMS-macos` 独立校验文件；若 `xcode-select` 仍指向 Command Line Tools，脚本会自动使用 `/Applications/Xcode.app`，不更改系统设置。完整 Xcode 是必要条件，公开分发还需 Developer ID 签名和公证。平台实现与验收清单见 [macOS 实现](docs/macOS原型.md)。
 
-## 安装 0.3.0 试用版
+## 安装 0.4.0 试用版
 
-- Android：[Tamayura-0.3.0-android.apk](dist/0.3.0/Tamayura-0.3.0-android.apk)，沿用专用本地 release 证书，versionCode 为 **6**。
-- macOS：[Tamayura-0.3.0-macos.zip](dist/0.3.0/Tamayura-0.3.0-macos.zip)，最低 macOS 15.0，包含 arm64 / x86_64 通用 App，ad-hoc 签名、未公证。
-- 双端校验：[SHA256SUMS](dist/0.3.0/SHA256SUMS)。功能、验证记录与限制：[0.3.0 试用版本说明](docs/releases/0.3.0.md)。
+- Android：[Tamayura-0.4.0-android.apk](dist/0.4.0/Tamayura-0.4.0-android.apk)，沿用专用本地 release 证书，versionCode 为 **7**。
+- macOS：[Tamayura-0.4.0-macos.zip](dist/0.4.0/Tamayura-0.4.0-macos.zip)，最低 macOS 15.0，包含 arm64 / x86_64 通用 App，ad-hoc 签名、未公证。
+- Windows：[Tamayura-0.4.0-windows-x64.zip](dist/0.4.0/Tamayura-0.4.0-windows-x64.zip)，x64 完整运行目录，EXE 版本 **0.4.0.7**；未签名，需 Visual C++ x64 运行库。
+- 三平台产物校验：[SHA256SUMS](dist/0.4.0/SHA256SUMS)。功能、验证记录与限制：[0.4.0 试用版本说明](docs/releases/0.4.0.md)。
 
 Android 可将 APK 传到手机后通过文件管理器安装，也可使用 USB 调试安装。同签名 release 版支持覆盖安装：
 
 ```sh
-adb install -r dist/0.3.0/Tamayura-0.3.0-android.apk
+adb install -r dist/0.4.0/Tamayura-0.4.0-android.apk
 ```
 
 macOS 解压 ZIP，将 `Tamayura.app` 放入「应用程序」后打开。该本地包未进行 Apple 公证；系统可能阻止首次打开，请只在确认来源与校验结果后通过系统「隐私与安全性」页面确认打开。无需修改全局 Gatekeeper 设置。
 
-**两端都应更新到 0.3.0。本次媒体库升到 schema 4，会重建旧缓存和设置，需要重新选择共享与接收目录、发现设备。** 原始共享照片及已保存到外部接收目录的文件会保留；之后建立的相册断点可跨中断、重启恢复。协议仍为 v3，下载任务库仍为 schema 2；v1.0.0 前不提供旧数据库迁移。
+**互联设备应使用相同的 0.4.0 版本。** 本次媒体库保持 schema 4，下载任务库保持 schema 2，协议保持 v3，不新增数据库重建。允许同签名覆盖安装；v1.0.0 前不保证旧数据兼容，若遇不兼容可清理数据并重新配置，不提供历史迁移。外部原始照片与已保存的接收文件保留。
 
 Android debug 与 release 证书不同，安装过调试版时需先卸载。卸载会清除应用设置、目录授权、离线缓存、下载记录和未完成分片，外部共享与接收目录中的文件保留。
 
-这是本地签名试用发布，未创建 Git tag、远端 Release 或应用商店版本。真实双机断网/睡眠恢复、完整系统授权与双向原文件传输，以及干净环境 / CI 重建仍待验证。
+2026-10-17 完成 Android、macOS、Windows 三平台本地试用包交付；仓库未配置远端，未创建 Git tag、远端 Release 或应用商店版本。真实双机断网/睡眠恢复、完整系统授权与双向原文件传输、无开发工具的 Windows 安装环境及远端 CI 仍待验证。
 
-## 0.3.0 功能
+## 0.4.0 功能
 
-本版新增 macOS 支持，并让 Android 与 macOS 的相册同步跨中断、重启继续。后台共享、多目录共享、层级接收、相册合集和原文件分片续传继续保留。
+本版接入 Windows x64，并修复 macOS App Nap 下的后台网络活动与 Android 后台重建的就绪状态。相册断点恢复、多目录共享、层级接收和原文件分片续传继续保留。
+
+- Android 后台共享先显示「正在启动」，初始化、目录扫描与本机 gRPC 核验通过后才显示「运行中」；失败和超时显示具体原因，支持取消及重试，迟到结果不会覆盖新会话。
+- macOS 共享和下载运行期间抑制 App Nap 限速，窗口隐藏后恢复可见也能正确恢复共享；仍允许系统正常睡眠。
+- Windows 提供桌面目录选择、媒体扫描预览、系统 DNS-SD、默认应用打开及资源管理器定位；已完成 Windows 原生测试与 Release 打包，实际 GUI 与跨设备验收范围见版本说明。
 
 - 相册同步时逐步显示已收到的照片和合集，按设备显示已就绪数量；中断后保留预览与分页位置，恢复后「继续同步」。相同目录不重复接收完成页和缩略图；目录变化时复用匹配缩略图，完整成功后才应用删除。详见 [同步进度](docs/同步进度.md)。
 - macOS 增加桌面侧栏、系统目录授权、Bonjour 发现、缩略图和预览、系统打开与分享，下载任务可取消、重试和退出后恢复。下载和共享需要应用运行且系统清醒。
@@ -83,10 +88,10 @@ Android debug 与 release 证书不同，安装过调试版时需先卸载。卸
 
 ## 两台设备使用
 
-1. 在 Android 16+ 或 macOS 15.0+ 设备上安装相同版本，连接同一局域网，打开双方应用。
+1. 在 Android 16+、macOS 15.0+ 或 Windows x64 设备上安装相同版本，连接同一局域网，打开双方应用。
 2. 在每台设备「设置」中添加一个或多个共享目录，例如 **内部存储 / DCIM** 和 **Pictures**。选择 DCIM 后无需再添加其 Camera 子目录。接收目录建议新建 **Pictures / Tamayura**。
 3. 在「设备」中等待自动发现。发现不了时，输入另一台设备显示的 `IP:端口`，或扫描它的二维码。
-4. 在「相册」中打开对应共享目录合集，再点照片开始下载并进入预览。下载不要求通知权限，也不会弹出通知授权请求；需要下载提醒时，可在系统设置中允许应用通知。接收手机可以退到后台；Android 来源端在「设置 → 后台共享」开启后可锁屏共享；Mac 来源端需应用运行且系统清醒。完成后可系统分享。
+4. 在「相册」中打开对应共享目录合集，再点照片开始下载并进入预览。下载不要求通知权限，也不会弹出通知授权请求；需要下载提醒时，可在系统设置中允许应用通知。接收手机可以退到后台；Android 来源端在「设置 → 后台共享」开启后可锁屏共享；Mac 与 Windows 来源端需应用运行且系统清醒。Android、macOS 完成后可系统分享；Windows 可默认应用打开或在资源管理器定位。
 5. 拍摄/删除照片后，在来源设备返回应用或点击刷新，再在接收设备刷新。缓存更新不依赖实时目录监听。
 
 Android 系统文件夹选择器不允许直接授权存储根目录或 Download 根目录，请选择子目录。部分路由器的访客网络、AP 隔离会阻止设备互联。

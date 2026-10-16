@@ -7,25 +7,33 @@ class SharingStatus {
     required this.enabled,
     required this.running,
     required this.batteryExempt,
+    this.starting = false,
+    this.sessionId,
     this.error,
   });
 
   factory SharingStatus.fromMap(Map<dynamic, dynamic> value) {
     if (value['enabled'] is! bool ||
         value['running'] is! bool ||
-        value['batteryExempt'] is! bool) {
+        value['batteryExempt'] is! bool ||
+        (value.containsKey('starting') && value['starting'] is! bool) ||
+        (value['sessionId'] != null && value['sessionId'] is! String) ||
+        (value['error'] != null && value['error'] is! String) ||
+        (value['starting'] == true && value['running'] == true)) {
       throw const FormatException('无法读取后台共享状态，请重试');
     }
     return SharingStatus(
       enabled: value['enabled'] as bool,
       running: value['running'] as bool,
       batteryExempt: value['batteryExempt'] as bool,
+      starting: value['starting'] as bool? ?? false,
+      sessionId: value['sessionId'] as String?,
       error: value['error'] as String?,
     );
   }
 
-  final bool enabled, running, batteryExempt;
-  final String? error;
+  final bool enabled, running, batteryExempt, starting;
+  final String? sessionId, error;
 }
 
 /// Native storage, media and DNS-SD contract shared by supported platforms.
@@ -67,6 +75,13 @@ abstract class PlatformBridge {
             ) ??
             {},
       );
+
+  /// Android acknowledges a specific service start only after Dart is ready.
+  /// Desktop sharing is owned by its application process and needs no handshake.
+  Future<bool> reportSharingReady(String sessionId) async => false;
+
+  Future<bool> reportSharingFailure(String sessionId, String error) async =>
+      false;
 
   Future<void> openBatteryOptimizationSettings() =>
       _methods.invokeMethod<void>('openBatteryOptimizationSettings');

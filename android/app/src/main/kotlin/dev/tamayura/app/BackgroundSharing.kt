@@ -7,6 +7,7 @@ import android.os.Looper
 import android.os.PowerManager
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
+import java.util.UUID
 
 /** User preference and acknowledged service state. All mutations happen on the main thread. */
 internal class BackgroundSharing private constructor(private val context: Context) : EventChannel.StreamHandler {
@@ -15,14 +16,19 @@ internal class BackgroundSharing private constructor(private val context: Contex
     private var sink: EventChannel.EventSink? = null
     private var service: BackgroundSharingService? = null
     private var starting = false
+    private var running = false
+    private var sessionId: String? = null
     private var generation = 0L
-    private var error: String? = null
+    private var error: String? = preferences.getString("error", null)
+    private var restartSuppressed = preferences.getBoolean("restartSuppressed", false)
     private val waiting = mutableListOf<MethodChannel.Result>()
     private val enabled get() = preferences.getBoolean("enabled", false)
 
     fun status(): Map<String, Any?> = mapOf(
         "enabled" to enabled,
-        "running" to (service != null),
+        "running" to running,
+        "starting" to starting,
+        "sessionId" to sessionId,
         "batteryExempt" to context.getSystemService(PowerManager::class.java)
             .isIgnoringBatteryOptimizations(context.packageName),
         "error" to error)
@@ -37,21 +43,20 @@ internal class BackgroundSharing private constructor(private val context: Contex
     fun setEnabled(value: Boolean, result: MethodChannel.Result? = null) {
         if (!value) {
             preferences.edit().putBoolean("enabled", false).apply()
-            generation += 1
-            starting = false
-            error = null
-            service?.stopSharing()
+            clearError()
+            detachService()?.stopSharing()
             context.stopService(Intent(context, BackgroundSharingService::class.java))
+            BackgroundSharingService.clearNotification(context)
             publish()
             finishWaiting(null)
             result?.success(status())
             return
         }
-        error = null
-        if (service != null) { result?.success(status()); publish(); return }
+        if (running) { result?.success(status()); publish(); return }
         result?.let(waiting::add)
         if (starting) return
         preferences.edit().putBoolean("enabled", true).apply()
+        clearError()
         starting = true
         val current = ++generation
         publish()
@@ -60,12 +65,11 @@ internal class BackgroundSharing private constructor(private val context: Contex
                 "系统未接受后台共享服务"
             }
             main.postDelayed({
-                if (generation == current && starting) {
-                    failed("后台共享服务启动超时，请重新打开应用后重试")
-                    context.stopService(Intent(context, BackgroundSharingService::class.java))
+                if (generation == current && starting && service == null) {
+                    fail("后台共享服务启动超时，请重新打开应用后重试")
                 }
             }, 10_000)
-        } catch (failure: Exception) { failed(failure.message ?: "无法启动后台共享") }
+        } catch (failure: Exception) { fail(failure.message ?: "无法启动后台共享") }
     }
 
     /** Restore only while the user has an Activity in the foreground; no boot auto-start. */
@@ -74,31 +78,90 @@ internal class BackgroundSharing private constructor(private val context: Contex
         else publish() // Battery exemption can have changed in system settings.
     }
 
-    fun isEnabled(): Boolean = enabled
+    fun canStartService(): Boolean = enabled && !restartSuppressed
+    fun isRunning(current: BackgroundSharingService): Boolean = service === current && running
 
-    fun started(current: BackgroundSharingService) {
-        if (!enabled) { current.stopSharing(); return }
+    /** A foreground Service permits startup; Dart must still acknowledge a usable gRPC listener. */
+    fun started(current: BackgroundSharingService): String? {
+        if (!canStartService()) { current.stopSharing(); return null }
+        if (service === current) return sessionId
+        detachService()?.stopSharing()
         service = current
-        starting = false
-        generation += 1
-        error = null
+        starting = true
+        val session = UUID.randomUUID().toString()
+        sessionId = session
+        val currentGeneration = ++generation
+        clearError()
+        main.postDelayed({
+            if (generation == currentGeneration && starting && sessionId == session) {
+                fail("后台共享初始化超时，请打开应用后重试")
+            }
+        }, 120_000)
         publish()
+        return session
     }
 
-    fun ready() { finishWaiting(null) }
+    fun ready(session: String): Boolean {
+        if (!isCurrent(session)) return false
+        if (running) return true
+        running = true
+        starting = false
+        generation += 1
+        service?.showReadyNotification()
+        publish()
+        finishWaiting(null)
+        return true
+    }
+
+    fun failed(session: String, message: String): Boolean {
+        if (!isCurrent(session)) return false
+        fail(message)
+        return true
+    }
+
+    /** Failures before a session exists must also release resources owned by the Service. */
+    fun failedToStart(current: BackgroundSharingService, message: String) {
+        if (service == null || service === current) fail(message)
+        current.stopSharing()
+    }
 
     fun stopped(current: BackgroundSharingService) {
         if (service !== current) return
-        service = null
-        publish()
+        // An ordinary lifecycle teardown may be followed by a system sticky restart.
+        fail("后台共享服务已停止，请打开应用后重试", suppressRestart = false, stopNativeService = false)
     }
 
-    fun failed(message: String) {
-        preferences.edit().putBoolean("enabled", false).apply()
+    private fun isCurrent(session: String): Boolean =
+        enabled && service != null && sessionId == session
+
+    private fun clearError() {
+        error = null
+        restartSuppressed = false
+        preferences.edit().remove("error").remove("restartSuppressed").apply()
+    }
+
+    private fun detachService(): BackgroundSharingService? {
+        val current = service
+        service = null
         starting = false
+        running = false
+        sessionId = null
         generation += 1
+        return current
+    }
+
+    private fun fail(message: String, suppressRestart: Boolean = true, stopNativeService: Boolean = true) {
+        // Preserve the user's preference so returning to the Activity can retry once.
         error = message
-        service?.stopSharing()
+        restartSuppressed = suppressRestart
+        preferences.edit().putString("error", message)
+            .putBoolean("restartSuppressed", suppressRestart).apply()
+        val current = detachService()
+        if (stopNativeService) {
+            current?.stopSharing()
+            context.stopService(Intent(context, BackgroundSharingService::class.java))
+        }
+        BackgroundSharingService.showFailureNotification(context, message)
         publish()
         finishWaiting(message)
     }

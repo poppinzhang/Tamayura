@@ -6,6 +6,9 @@ Set-StrictMode -Version Latest
 if ($env:OS -ne 'Windows_NT') {
     throw 'Build the Windows app on Windows with Flutter 3.47.6 and Visual Studio 2022.'
 }
+if ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString() -ne 'X64') {
+    throw 'The Windows release bundle requires an x64 Windows build host.'
+}
 
 # PowerShell 5.1 does not turn a native process failure into a terminating error.
 # Check every Flutter/Dart exit code explicitly, so failed tests cannot be packaged.
@@ -34,14 +37,18 @@ try {
     Invoke-Checked -Command $flutter -Arguments @('analyze', '--no-pub')
     Invoke-Checked -Command $flutter -Arguments @('test', '--no-pub')
     & (Join-Path $PSScriptRoot 'test-windows-native.ps1')
-    Invoke-Checked -Command $flutter -Arguments @('build', 'windows', '--release', '--no-pub', '--target-platform', 'windows-x64')
+    # Flutter 3.47 selects the Windows target from the host architecture.
+    Invoke-Checked -Command $flutter -Arguments @('build', 'windows', '--release', '--no-pub')
 
     $releaseDir = Join-Path $repoRoot 'build\windows\x64\runner\Release'
     $executable = Join-Path $releaseDir 'Tamayura.exe'
-    foreach ($required in @($executable, (Join-Path $releaseDir 'flutter_windows.dll'), (Join-Path $releaseDir 'data\icudtl.dat'), (Join-Path $releaseDir 'data\app.so'), (Join-Path $releaseDir 'data\flutter_assets'))) {
+    foreach ($required in @($executable, (Join-Path $releaseDir 'flutter_windows.dll'), (Join-Path $releaseDir 'sqlite3.dll'), (Join-Path $releaseDir 'data\icudtl.dat'), (Join-Path $releaseDir 'data\app.so'), (Join-Path $releaseDir 'data\flutter_assets'))) {
         if (-not (Test-Path -LiteralPath $required)) {
             throw "The release bundle is incomplete: $required"
         }
+    }
+    if (Test-Path -LiteralPath (Join-Path $releaseDir 'native_assets.json')) {
+        throw 'The release bundle contains the host-only Flutter test native-assets manifest.'
     }
     $fileVersion = [Diagnostics.FileVersionInfo]::GetVersionInfo($executable)
     $expectedVersion = "$version.$buildNumber"
@@ -77,7 +84,7 @@ try {
     }
     $hash = (Get-FileHash -LiteralPath $archivePath -Algorithm SHA256).Hash.ToLowerInvariant()
     # Keep the existing Android/macOS release manifest and checksums intact.
-    "$hash  $archiveName" | Set-Content -LiteralPath (Join-Path $outputDir 'SHA256SUMS-windows') -Encoding ascii
+    [IO.File]::WriteAllText((Join-Path $outputDir 'SHA256SUMS-windows'), "$hash  $archiveName`n", [Text.Encoding]::ASCII)
     Write-Host "Windows preview bundle: $archivePath"
     Write-Host 'Unsigned ZIP for local testing. Extract the whole bundle before running Tamayura.exe.'
 } finally {
