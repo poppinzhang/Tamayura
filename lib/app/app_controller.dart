@@ -27,16 +27,22 @@ class AppController extends TamayuraModel {
     Future<TransferStore> Function()? openTransfers,
     MediaRpcClient Function(Peer)? clientFactory,
     int preferredPort = LanEndpoint.defaultPort,
+    DateTime Function()? clock,
+    Duration resumeRescanInterval = const Duration(seconds: 30),
   }) : _bridge = bridge ?? defaultPlatformBridge(),
        _transferScheduler = transferScheduler,
        _preferredPort = preferredPort,
        _openRepository = openRepository ?? TamayuraRepository.open,
        _openTransfers = openTransfers ?? TransferStore.open,
-       _clientFactory = clientFactory ?? MediaRpcClient.new;
+       _clientFactory = clientFactory ?? MediaRpcClient.new,
+       _clock = clock ?? DateTime.now,
+       _resumeRescanInterval = resumeRescanInterval;
   final PlatformBridge _bridge;
   TransferScheduler? _transferScheduler;
   final int _preferredPort;
   final MediaRpcClient Function(Peer) _clientFactory;
+  final DateTime Function() _clock;
+  final Duration _resumeRescanInterval;
   final Map<String, Peer> _activePeers = {}, _pendingPeers = {};
   final Future<TamayuraRepository> Function() _openRepository;
   final Future<TransferStore> Function() _openTransfers;
@@ -454,7 +460,31 @@ class AppController extends TamayuraModel {
           await _taskStore!.reconcile(scheduled, candidates: candidates);
         }
       }
-      for (final task in await _taskStore!.recent()) {
+      final currentTasks = await _taskStore!.recent();
+      final keys = currentTasks.map((task) => task.item.key).toSet();
+      for (final removed in _transferTaskKeys.difference(keys)) {
+        final previous = _transfers[removed];
+        final item = previous?.item;
+        final saved = item == null
+            ? null
+            : await _repository!.getDownload(item.deviceId, item.id);
+        if (saved == null) {
+          _transfers.remove(removed);
+        } else {
+          // A final native write may win a race with discard, or a completed
+          // task may age out of recent history. The saved URI stays authoritative.
+          _transfers[removed] = TransferView(
+            progress: 1,
+            savedUri: saved.uri,
+            status: TransferStatus.completed,
+            item: item,
+            receivedBytes: item!.size,
+            totalBytes: item.size,
+          );
+        }
+      }
+      _transferTaskKeys = keys;
+      for (final task in currentTasks) {
         _transfers[task.item.key] = TransferView(
           progress: task.item.size == 0
               ? (task.state == DownloadState.completed ? 1 : 0)
@@ -482,6 +512,25 @@ class AppController extends TamayuraModel {
         _transferRefreshPending = false;
         unawaited(_refreshTransfers());
       }
+    }
+  }
+
+  Set<String> _transferTaskKeys = {};
+
+  Future<void> _cleanupTransferStaging() async {
+    try {
+      for (final task in await _taskStore!.recent()) {
+        if (task.state == DownloadState.discarded) {
+          await _transferScheduler!.cancelTransfer(task.id);
+        }
+      }
+      final directory = Directory(await _bridge.transferDirectory());
+      final active = (await _transferScheduler!.scheduledTransferIds()).toSet();
+      await _taskStore!.cleanupStaging(directory, activeIds: active);
+    } on MissingPluginException {
+      // Platforms without native storage do not own a transfer directory.
+    } catch (error) {
+      _error = '部分下载暂存未能清理，可重试删除任务。${describeError(error)}';
     }
   }
 
@@ -632,11 +681,12 @@ class AppController extends TamayuraModel {
         _transferScheduler!.scheduledTransferIds,
       );
       await startup.wait(() => _taskStore!.reconcile(scheduled.toSet()));
+      await startup.wait(_cleanupTransferStaging);
       await startup.wait(_refreshTransfers);
       // Initialization may retry after a stalled read. Page generations discard
       // late results, without making the new attempt wait behind the old read.
       await startup.wait(() => _readCachedMedia(preserveWindow: false));
-      _source = _PlatformMediaSource(_bridge, _id, () => sharedFolders);
+      _source = _PlatformMediaSource(_bridge, _id, () => sharedFolders, _clock);
       _initialized = true;
       _loading = false;
       _updateTransferPolling();
@@ -693,7 +743,7 @@ class AppController extends TamayuraModel {
     if (!_shouldShare) return;
     Future<T> wait<T>(Future<T> Function() action) =>
         startup == null ? action() : startup.wait(action);
-    _source ??= _PlatformMediaSource(_bridge, _id, () => sharedFolders);
+    _source ??= _PlatformMediaSource(_bridge, _id, () => sharedFolders, _clock);
     final info = await wait(_bridge.localInfo);
     _deviceName = info['name'] as String? ?? _bridge.platformName;
     _addresses = (info['addresses'] as List? ?? []).cast<String>();
@@ -1217,7 +1267,24 @@ class AppController extends TamayuraModel {
   }
 
   @override
-  Future<void> refresh() async {
+  Future<void> refresh() => _refresh(rescan: true);
+
+  /// Activation (unlocking, returning from a share sheet, focusing a desktop
+  /// window) refreshes peers but rescans local folders at most once per
+  /// interval while sharing is healthy. Failed scans retry on activation;
+  /// manual refresh and folder changes always rescan.
+  Future<void> refreshAfterResume() async {
+    if (_loading || _busy || _disposed) return;
+    final scanned = _source?.scannedAt;
+    await _refresh(
+      rescan:
+          _server?.scanError != null ||
+          scanned == null ||
+          _clock().difference(scanned) >= _resumeRescanInterval,
+    );
+  }
+
+  Future<void> _refresh({required bool rescan}) async {
     if (!_initialized) {
       await initialize();
       return;
@@ -1231,7 +1298,7 @@ class AppController extends TamayuraModel {
         }
         Object? scanError;
         try {
-          if ((_server?.port ?? 0) != 0) await _server!.refresh();
+          if (rescan && (_server?.port ?? 0) != 0) await _server!.refresh();
           await _startNetwork();
         } catch (e) {
           scanError = e;
@@ -1386,17 +1453,44 @@ class AppController extends TamayuraModel {
 
   @override
   Future<void> cancelDownload(String key) async {
-    final task = (await _taskStore?.recent())
-        ?.where((task) => task.item.key == key)
-        .firstOrNull;
-    if (task == null || !task.active) return;
+    if (!_scheduling.add(key)) return;
     try {
-      await _taskStore!.cancel(task.id);
-      await _transferScheduler!.cancelTransfer(task.id);
-    } catch (e) {
-      _error = describeError(e);
+      final task = (await _taskStore?.recent())
+          ?.where((task) => task.item.key == key)
+          .firstOrNull;
+      if (task == null || !task.active) return;
+      try {
+        await _taskStore!.cancel(task.id);
+        await _transferScheduler!.cancelTransfer(task.id);
+      } catch (e) {
+        _error = describeError(e);
+      }
+      await _refreshTransfers();
+    } finally {
+      _scheduling.remove(key);
     }
-    await _refreshTransfers();
+  }
+
+  @override
+  Future<void> discardDownload(String key) async {
+    if (_disposed || _taskStore == null || !_scheduling.add(key)) return;
+    try {
+      final task = (await _taskStore!.recent())
+          .where((task) => task.item.key == key)
+          .firstOrNull;
+      if (task == null || !await _taskStore!.requestDiscard(task.id)) return;
+      await _refreshTransfers();
+      await _transferScheduler!.cancelTransfer(task.id);
+      final directory = Directory(await _bridge.transferDirectory());
+      await _taskStore!.finishDiscard(task.id, directory);
+      // Refresh removes the task and restores any save committed just before stop.
+    } catch (error) {
+      _error = describeError(error);
+    } finally {
+      _scheduling.remove(key);
+      await _refreshTransfers();
+      _notify();
+    }
   }
 
   @override
@@ -1496,18 +1590,32 @@ class _SharingStartup {
 }
 
 class _PlatformMediaSource implements LocalMediaSource {
-  _PlatformMediaSource(this.bridge, this.deviceId, this.sharedFolders);
+  _PlatformMediaSource(
+    this.bridge,
+    this.deviceId,
+    this.sharedFolders,
+    this.clock,
+  );
   final PlatformBridge bridge;
   final String deviceId;
   final List<SharedFolder> Function() sharedFolders;
+  final DateTime Function() clock;
+
+  /// When the last successful scan started; failed scans retry on activation.
+  DateTime? scannedAt;
+
   @override
   Future<List<MediaMetadata>> scan() async {
+    final started = clock();
     final folders = sharedFolders();
     if (folders.isEmpty) {
       await bridge.clearSharedDirectory();
+      scannedAt = started;
       return [];
     }
-    return (await bridge.scanDirectoriesMetadata(folders))
+    final entries = await bridge.scanDirectoriesMetadata(folders);
+    scannedAt = started;
+    return entries
         .map(
           (entry) => MediaMetadata(
             id: entry['id'] as String,
@@ -1528,6 +1636,13 @@ class _PlatformMediaSource implements LocalMediaSource {
   Future<Uint8List> readThumbnail(String id) => bridge.thumbnail(id);
 
   @override
-  Future<Uint8List> readRange(String id, int offset, int length) =>
-      bridge.readRange(id, offset, length);
+  Future<Uint8List> readRange(String id, int offset, int length) async {
+    try {
+      return await bridge.readRange(id, offset, length);
+    } on PlatformException catch (error) {
+      // Native catalogs report a replaced or revoked snapshot this way.
+      if (error.code == 'SCAN_CANCELLED') throw const MediaSourceInterrupted();
+      rethrow;
+    }
+  }
 }

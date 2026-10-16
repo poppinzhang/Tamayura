@@ -9,11 +9,13 @@ import android.database.Cursor
 import android.database.MatrixCursor
 import android.net.Uri
 import android.os.ParcelFileDescriptor
+import android.os.Bundle
 import android.provider.DocumentsContract
 import android.provider.DocumentsContract.Document
 import java.io.File
 import java.io.FileNotFoundException
 import java.io.IOException
+import java.util.concurrent.CancellationException
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Rule
@@ -200,6 +202,153 @@ class SafMediaStoreTest {
         assertThrows(SecurityException::class.java) { scan() }
     }
 
+    @Test fun rescanKeepsServingPreviousFilesUntilItPublishes() {
+        val media = temporaryFolder.newFile("photo.jpg").apply { writeBytes(byteArrayOf(1, 2, 3, 4)) }
+        provider.children["root"] = listOf(Row("photo", "photo.jpg", "image/jpeg", 4L))
+        provider.files["photo"] = media
+        val id = scan().single()["id"] as String
+
+        // A peer's read arriving while the provider is still listing must not fail.
+        var duringScan: ByteArray? = null
+        provider.onQuery = { duringScan = store.readRange(id, 1, 2) }
+        store.scanMetadata(shared, store.beginScan(shared))
+
+        assertArrayEquals(byteArrayOf(2, 3), duringScan)
+        assertArrayEquals(byteArrayOf(1, 2, 3, 4), store.readRange(id, 0, 4))
+    }
+
+    @Test fun removedRootStopsAtOnceAndFailedRescanRevokesEverything() {
+        val media = temporaryFolder.newFile("photo.jpg").apply { writeBytes(byteArrayOf(1, 2, 3, 4)) }
+        provider.children["root"] = listOf(Row("photo", "photo.jpg", "image/jpeg", 4L))
+        provider.files["photo"] = media
+        val id = scan().single()["id"] as String
+
+        store.beginScan(emptyList())
+        assertThrows(FileNotFoundException::class.java) { store.readRange(id, 0, 4) }
+
+        assertEquals(id, scan().single()["id"])
+        provider.children["root"] = null
+        assertThrows(FileNotFoundException::class.java) { store.scanMetadata(shared, store.beginScan(shared)) }
+        assertThrows(SecurityException::class.java) { store.readRange(id, 0, 4) }
+    }
+
+    @Test fun latePermissionFailureForRemovedFilePreservesRescannedFilesAndNextScan() {
+        val kept = Row("kept", "kept.jpg", "image/jpeg", 4L)
+        provider.children["root"] = listOf(Row("moved", "moved.jpg", "image/jpeg", 4L), kept)
+        provider.files["kept"] = temporaryFolder.newFile("kept.jpg").apply {
+            writeBytes(byteArrayOf(1, 2, 3, 4))
+        }
+        val ids = scan().associate { it["name"] to it["id"] as String }
+        var nextScan = -1L
+        provider.onOpen = { documentId ->
+            assertEquals("moved", documentId)
+            provider.onOpen = null
+            // Model a document moved outside its tree while its old open call
+            // is in flight. DocumentsProvider can deny that document alone.
+            provider.children["root"] = listOf(kept)
+            store.scanMetadata(shared, store.beginScan(shared))
+            nextScan = store.beginScan(shared)
+            throw SecurityException("Document moved is not a descendant of root")
+        }
+
+        assertThrows(SecurityException::class.java) { store.readRange(ids.getValue("moved.jpg"), 0, 4) }
+
+        assertArrayEquals(byteArrayOf(1, 2, 3, 4), store.readRange(ids.getValue("kept.jpg"), 0, 4))
+        assertEquals(listOf("kept.jpg"), store.scanMetadata(shared, nextScan).map { it["name"] })
+        assertThrows(FileNotFoundException::class.java) { store.readRange(ids.getValue("moved.jpg"), 0, 4) }
+    }
+
+    @Test fun currentReadLosingItsGrantRevokesAllFilesAndPendingScan() {
+        provider.children["root"] = listOf(
+            Row("photo", "photo.jpg", "image/jpeg", 4L),
+            Row("other", "other.jpg", "image/jpeg", 4L))
+        provider.files["photo"] = temporaryFolder.newFile("photo.jpg").apply {
+            writeBytes(byteArrayOf(1, 2, 3, 4))
+        }
+        val ids = scan().associate { it["name"] to it["id"] as String }
+        val nextScan = store.beginScan(shared)
+        provider.onOpen = {
+            provider.onOpen = null
+            application.contentResolver.releasePersistableUriPermission(tree, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+
+        assertThrows(SecurityException::class.java) { store.readRange(ids.getValue("photo.jpg"), 0, 4) }
+
+        assertThrows(SecurityException::class.java) { store.readRange(ids.getValue("other.jpg"), 0, 4) }
+        assertThrows(CancellationException::class.java) { store.scanMetadata(shared, nextScan) }
+    }
+
+    private fun allowSaving() {
+        application.contentResolver.takePersistableUriPermission(tree,
+            Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+        provider.children["root"] = emptyList()
+    }
+
+    private fun part(name: String, bytes: ByteArray) = File(application.filesDir, name).apply { writeBytes(bytes) }
+
+    @Test fun saveWritesOrderedPartsWithoutAnIntermediateFile() {
+        allowSaving()
+        val a = part("a.part", byteArrayOf(1, 2))
+        val b = part("b.part", byteArrayOf(3, 4, 5))
+        val uri = store.saveDownload(listOf(a.path, b.path), 5, tree.toString(), "photo.jpg", "image/jpeg", emptyList())
+        val id = DocumentsContract.getDocumentId(Uri.parse(uri))
+        assertArrayEquals(byteArrayOf(1, 2, 3, 4, 5), provider.files.getValue(id)!!.readBytes())
+        assertTrue(a.exists() && b.exists())
+        assertEquals(listOf("photo.jpg"), provider.children.getValue("root")!!.map { it.name })
+
+        val next = store.saveDownload(listOf(a.path, b.path), 5, tree.toString(), "photo.jpg", "image/jpeg", emptyList())
+        assertNotEquals(uri, next)
+        assertEquals(listOf("photo.jpg", "photo (2).jpg"), provider.children.getValue("root")!!.map { it.name })
+    }
+
+    @Test fun saveValidatesAllPartsAndSupportsEmptyFiles() {
+        allowSaving()
+        val a = part("a.part", byteArrayOf(1, 2))
+        for (size in listOf(-1L, 1L, 3L)) {
+            assertThrows(IllegalArgumentException::class.java) {
+                store.saveDownload(listOf(a.path), size, tree.toString(), "bad.jpg", "image/jpeg", emptyList())
+            }
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            store.saveDownload(listOf(temporaryFolder.newFile("external.part").path), 0,
+                tree.toString(), "outside.jpg", "image/jpeg", emptyList())
+        }
+        assertTrue(provider.files.isEmpty())
+        val empty = part("empty.part", byteArrayOf())
+        val uri = store.saveDownload(listOf(empty.path), 0, tree.toString(), "empty.jpg", "image/jpeg", emptyList())
+        assertEquals(0L, provider.files.getValue(DocumentsContract.getDocumentId(Uri.parse(uri)))!!.length())
+    }
+
+    @Test fun cancellationAndLateSourceChangesDeleteTheNewDocument() {
+        allowSaving()
+        val a = part("a.part", byteArrayOf(1, 2))
+        val b = part("b.part", byteArrayOf(3, 4))
+        provider.onOpen = { b.writeBytes(byteArrayOf(3)) }
+        assertThrows(IllegalArgumentException::class.java) {
+            store.saveDownload(listOf(a.path, b.path), 4, tree.toString(), "changed.jpg", "image/jpeg", emptyList())
+        }
+        assertTrue(provider.files.isEmpty())
+        b.writeBytes(byteArrayOf(3, 4))
+        var cancelled = false
+        provider.onOpen = { cancelled = true }
+        assertThrows(CancellationException::class.java) {
+            store.saveDownload(listOf(a.path, b.path), 4, tree.toString(), "cancelled.jpg", "image/jpeg", emptyList()) { cancelled }
+        }
+        assertTrue(provider.files.isEmpty())
+        assertTrue(provider.children.getValue("root")!!.isEmpty())
+        assertTrue(a.exists() && b.exists())
+    }
+
+    @Test fun spaceReportsPrivateCapacityWithoutGuessingSafCapacity() {
+        allowSaving()
+        val space = store.transferSpace(tree.toString())
+        assertTrue((space["stagingAvailableBytes"] as Long) >= 0)
+        assertFalse(space.containsKey("destinationAvailableBytes"))
+        assertFalse(space.containsKey("sameVolume"))
+        application.contentResolver.releasePersistableUriPermission(tree, Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+        assertThrows(SecurityException::class.java) { store.transferSpace(tree.toString()) }
+    }
+
     private fun scan() = store.scanMetadata(shared, store.clear())
 
     private data class Row(
@@ -225,6 +374,7 @@ class SafMediaStoreTest {
         val queriedDirectories = mutableListOf<String>()
         val openedDocuments = mutableListOf<String>()
         var onQuery: (() -> Unit)? = null
+        var onOpen: ((String) -> Unit)? = null
 
         override fun onCreate() = true
 
@@ -245,8 +395,30 @@ class SafMediaStoreTest {
         override fun openFile(uri: Uri, mode: String): ParcelFileDescriptor? {
             val id = DocumentsContract.getDocumentId(uri)
             openedDocuments.add(id)
+            onOpen?.invoke(id)
             check(files.containsKey(id)) { "Unexpected file read: $id" }
-            return files[id]?.let { ParcelFileDescriptor.open(it, ParcelFileDescriptor.MODE_READ_ONLY) }
+            return files[id]?.let { ParcelFileDescriptor.open(it, ParcelFileDescriptor.parseMode(mode)) }
+        }
+
+        override fun call(method: String, arg: String?, extras: Bundle?): Bundle? {
+            val uri = extras?.getParcelable("uri", Uri::class.java) ?: error("Missing document URI")
+            val id = DocumentsContract.getDocumentId(uri)
+            return when (method) {
+                "android:createDocument" -> {
+                    val child = "saved-${files.size}-${System.nanoTime()}"
+                    val name = requireNotNull(extras.getString(Document.COLUMN_DISPLAY_NAME))
+                    val mime = requireNotNull(extras.getString(Document.COLUMN_MIME_TYPE))
+                    children[id] = children.getValue(id).orEmpty() + Row(child, name, mime)
+                    files[child] = File.createTempFile("saved-", ".bin", requireNotNull(context).cacheDir)
+                    Bundle().apply { putParcelable("uri", DocumentsContract.buildDocumentUriUsingTree(uri, child)) }
+                }
+                "android:deleteDocument" -> {
+                    files.remove(id)?.delete()
+                    children.keys.toList().forEach { parent -> children[parent] = children[parent]?.filter { it.id != id } }
+                    Bundle()
+                }
+                else -> error("Unexpected provider call: $method")
+            }
         }
 
         override fun getType(uri: Uri): String? = null

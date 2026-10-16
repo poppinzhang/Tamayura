@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import android.graphics.ImageDecoder
 import android.media.MediaMetadataRetriever
 import android.net.Uri
+import android.os.StatFs
 import android.provider.DocumentsContract
 import android.provider.DocumentsContract.Document
 import android.system.ErrnoException
@@ -31,8 +32,20 @@ internal class SafMediaStore(private val context: Context) {
 
     fun clear(): Long = catalog.clear()
 
-    private fun assertGeneration(expected: Long) {
-        catalog.assertGeneration(expected)
+    /** Peers keep reading the previous catalogue until this scan publishes. */
+    fun beginScan(shared: List<SharedDirectory>): Long = catalog.beginScan(shared.map { it.uri }.toSet())
+
+    private fun assertScan(ticket: Long) {
+        catalog.assertScan(ticket)
+        assertNotInterrupted()
+    }
+
+    private fun assertCurrent(id: String, snapshot: SharedCatalog.Snapshot<SharedFile>) {
+        catalog.assertCurrent(id, snapshot)
+        assertNotInterrupted()
+    }
+
+    private fun assertNotInterrupted() {
         if (Thread.currentThread().isInterrupted) {
             throw CancellationException("共享目录已改变，请重新扫描")
         }
@@ -91,8 +104,16 @@ internal class SafMediaStore(private val context: Context) {
         }
     }
 
-    fun scanMetadata(shared: List<SharedDirectory>, expected: Long): List<Map<String, Any>> {
-        assertGeneration(expected)
+    fun scanMetadata(shared: List<SharedDirectory>, ticket: Long): List<Map<String, Any>> = try {
+        scanAuthorized(shared, ticket)
+    } catch (error: Exception) {
+        // Like a lost grant, a failed current scan leaves nothing servable.
+        catalog.failScan(ticket)
+        throw error
+    }
+
+    private fun scanAuthorized(shared: List<SharedDirectory>, expected: Long): List<Map<String, Any>> {
+        assertScan(expected)
         require(shared.all { it.id.isNotBlank() && it.name.isNotBlank() }) { "共享目录缺少标识或名称" }
         require(shared.map { it.id }.toSet().size == shared.size) { "共享目录标识重复" }
         shared.forEachIndexed { index, directory ->
@@ -106,7 +127,7 @@ internal class SafMediaStore(private val context: Context) {
             val visited = mutableSetOf<String>()
             directories.add(PendingDirectory(DocumentsContract.getTreeDocumentId(tree), ""))
             while (!directories.isEmpty()) {
-                assertGeneration(expected)
+                assertScan(expected)
                 val current = directories.removeFirst()
                 if (!visited.add(current.documentId)) continue
                 val children = DocumentsContract.buildChildDocumentsUriUsingTree(tree, current.documentId)
@@ -114,7 +135,7 @@ internal class SafMediaStore(private val context: Context) {
                     ?: throw FileNotFoundException("无法读取目录，请检查目录是否仍存在")
                 cursor.use {
                     while (it.moveToNext()) {
-                        assertGeneration(expected)
+                        assertScan(expected)
                         val documentId = it.getString(0) ?: continue
                         val name = it.getString(1)
                         var mimeType = it.getString(2) ?: "application/octet-stream"
@@ -154,33 +175,36 @@ internal class SafMediaStore(private val context: Context) {
     }
 
     fun thumbnail(id: String): ByteArray {
-        val (expected, directory, file) = catalog.lookup(id)
+        val snapshot = catalog.lookup(id)
+        val file = snapshot.entry
         return try {
-            authorizedTree(directory)
-            assertGeneration(expected)
+            authorizedTree(snapshot.directory)
+            assertCurrent(id, snapshot)
             val bytes = createThumbnail(file.uri, file.mimeType)
-            authorizedTree(directory)
-            assertGeneration(expected)
+            authorizedTree(snapshot.directory)
+            assertCurrent(id, snapshot)
             bytes
         } catch (error: SecurityException) {
-            catalog.revoke(expected)
+            catalog.revoke(id, snapshot)
             throw error
         }
     }
 
     fun readRange(id: String, offset: Long, length: Int): ByteArray {
         require(offset >= 0 && length in 0..MAX_RANGE_BYTES) { "无效的文件分块范围" }
-        val (expected, directory, file) = catalog.lookup(id)
-        val tree = Uri.parse(directory)
+        val snapshot = catalog.lookup(id)
         return try {
-            readAuthorizedRange(tree, file, expected, offset, length)
+            readAuthorizedRange(id, snapshot, offset, length)
         } catch (error: SecurityException) {
-            catalog.revoke(expected)
+            catalog.revoke(id, snapshot)
             throw error
         }
     }
 
-    private fun readAuthorizedRange(tree: Uri, file: SharedFile, expected: Long, offset: Long, length: Int): ByteArray {
+    private fun readAuthorizedRange(id: String, snapshot: SharedCatalog.Snapshot<SharedFile>,
+                                    offset: Long, length: Int): ByteArray {
+        val tree = Uri.parse(snapshot.directory)
+        val file = snapshot.entry
         authorizedTree(tree.toString())
         require(offset <= file.size) { "请求偏移量超出文件大小" }
         val count = minOf(length.toLong(), file.size - offset).toInt()
@@ -195,7 +219,7 @@ internal class SafMediaStore(private val context: Context) {
             try {
                 var read = 0
                 while (read < count) {
-                    assertGeneration(expected)
+                    assertCurrent(id, snapshot)
                     val size = Os.pread(it.fileDescriptor, bytes, read, count - read, offset + read)
                     if (size <= 0) throw java.io.EOFException("文件提前结束，请刷新相册")
                     read += size
@@ -207,7 +231,7 @@ internal class SafMediaStore(private val context: Context) {
                     var remaining = offset
                     val skipBuffer = ByteArray(16 * 1024)
                     while (remaining > 0) {
-                        assertGeneration(expected)
+                        assertCurrent(id, snapshot)
                         val skipped = stream.skip(remaining)
                         if (skipped > 0) { remaining -= skipped; continue }
                         val consumed = stream.read(skipBuffer, 0, minOf(remaining, skipBuffer.size.toLong()).toInt())
@@ -216,7 +240,7 @@ internal class SafMediaStore(private val context: Context) {
                     }
                     var read = 0
                     while (read < count) {
-                        assertGeneration(expected)
+                        assertCurrent(id, snapshot)
                         val size = stream.read(bytes, read, count - read)
                         if (size <= 0) throw java.io.EOFException("文件提前结束")
                         read += size
@@ -226,7 +250,7 @@ internal class SafMediaStore(private val context: Context) {
         }
         // Do not return an old read that completed after sharing was revoked or changed.
         authorizedTree(tree.toString())
-        assertGeneration(expected)
+        assertCurrent(id, snapshot)
         return bytes
     }
 
@@ -245,7 +269,15 @@ internal class SafMediaStore(private val context: Context) {
         }
     }
 
-    fun saveDownload(sourcePath: String, directoryUri: String, name: String, mimeType: String,
+    fun transferSpace(directoryUri: String): Map<String, Any> {
+        authorizedTree(directoryUri, write = true)
+        // A SAF provider may be remote or span volumes; its capacity and volume
+        // identity are unknown unless the provider exposes a reliable contract.
+        return try { mapOf("stagingAvailableBytes" to StatFs(context.filesDir.path).availableBytes) }
+        catch (_: IllegalArgumentException) { emptyMap() }
+    }
+
+    fun saveDownload(sourcePaths: List<String>, expectedSize: Long, directoryUri: String, name: String, mimeType: String,
                      directories: List<String>,
                      cancelled: () -> Boolean = { Thread.currentThread().isInterrupted }): String {
         fun checkCancelled() {
@@ -254,12 +286,21 @@ internal class SafMediaStore(private val context: Context) {
         checkCancelled()
         StoragePaths.requireSegment(name)
         directories.forEach(StoragePaths::requireSegment)
-        val source = File(sourcePath).canonicalFile
+        require(expectedSize >= 0 && sourcePaths.isNotEmpty()) { "下载分片或大小无效" }
         val roots = listOf(context.cacheDir, context.filesDir, context.noBackupFilesDir)
-        require(roots.any { source.path.startsWith(it.canonicalPath + File.separator) }) {
-            "下载源文件必须在应用私有目录中"
+        var total = 0L
+        val sources = sourcePaths.map { path ->
+            val source = File(path).canonicalFile
+            require(roots.any { source.path.startsWith(it.canonicalPath + File.separator) }) {
+                "下载源文件必须在应用私有目录中"
+            }
+            require(source.isFile) { "下载临时文件不存在" }
+            val size = source.length()
+            require(size <= expectedSize - total) { "下载分片大小与预期不符" }
+            total += size
+            source
         }
-        require(source.isFile) { "下载临时文件不存在" }
+        require(total == expectedSize) { "下载分片大小与预期不符" }
         val tree = authorizedTree(directoryUri, write = true)
         // The lock spans all SafMediaStore instances, including headless transfer engines.
         // Reserve the final document before allowing another save to inspect this path.
@@ -289,15 +330,24 @@ internal class SafMediaStore(private val context: Context) {
         try {
             val output = resolver.openOutputStream(document, "w")
                 ?: throw java.io.IOException("无法写入接收目录")
-            output.use { target -> source.inputStream().use { input ->
+            output.use { target ->
                 val buffer = ByteArray(256 * 1024)
-                while (true) {
+                var copied = 0L
+                for (source in sources) {
                     checkCancelled()
-                    val count = input.read(buffer)
-                    if (count < 0) break
-                    target.write(buffer, 0, count)
+                    source.inputStream().use { input ->
+                        while (true) {
+                            checkCancelled()
+                            val count = input.read(buffer)
+                            if (count < 0) break
+                            require(count.toLong() <= expectedSize - copied) { "下载分片在保存时已变化" }
+                            target.write(buffer, 0, count)
+                            copied += count
+                        }
+                    }
                 }
-            } }
+                require(copied == expectedSize) { "下载分片在保存时已变化" }
+            }
             checkCancelled()
             return document.toString()
         } catch (error: Exception) {

@@ -344,6 +344,11 @@ class _MediaService extends wire.MediaLibraryServiceBase {
     ServiceCall call,
     wire.ReadRequest request,
   ) async* {
+    if (scanError != null) {
+      throw const GrpcError.failedPrecondition(
+        'Shared folder is unavailable; refresh on the source device',
+      );
+    }
     final item = snapshot[request.id];
     if (item == null) throw const GrpcError.notFound('Media is not shared');
     final offset = request.offset.toInt();
@@ -364,6 +369,12 @@ class _MediaService extends wire.MediaLibraryServiceBase {
       Uint8List data;
       try {
         data = await source.readRange(item.id, cursor, wanted);
+      } on MediaSourceInterrupted {
+        // The source replaced its catalog or revoked a grant mid-read. The
+        // receiver retries; a then-missing file fails as NOT_FOUND.
+        throw const GrpcError.unavailable(
+          'Shared catalog changed during the read; retry shortly',
+        );
       } catch (_) {
         throw const GrpcError.notFound(
           'Shared file is unavailable; refresh the library',
@@ -705,9 +716,10 @@ class MediaRpcClient implements MediaTransferClient {
     _identity ??= await identity();
     var cursor = offset;
     final end = offset + length;
+    // No total deadline: a large range on slow Wi-Fi may legitimately take
+    // longer than any fixed bound. MediaDownloader's idle watchdog ends stalls.
     final response = _client.readFile(
       wire.ReadRequest(id: id, offset: Int64(offset), length: Int64(length)),
-      options: CallOptions(timeout: const Duration(minutes: 30)),
     );
     await for (final chunk in response) {
       if (chunk.offset.toInt() != cursor ||

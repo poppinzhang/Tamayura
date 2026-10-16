@@ -220,6 +220,9 @@ class _DownloadsPageState extends State<DownloadsPage> {
                                 onCancel: () => _run(
                                   () => widget.model.cancelDownload(entry.key),
                                 ),
+                                onDiscard: () => _run(
+                                  () => widget.model.discardDownload(entry.key),
+                                ),
                                 onShare: () =>
                                     _run(() => widget.model.share(item)),
                                 onOpen: () =>

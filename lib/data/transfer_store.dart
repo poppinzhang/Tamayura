@@ -1,10 +1,11 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
 import 'package:uuid/uuid.dart';
 import '../core/models.dart';
 import '../core/transfer_task.dart';
-import '../network/downloader.dart' show safeMediaFilename;
+import '../network/downloader.dart' show MediaDownloader, safeMediaFilename;
 import 'platform_database.dart';
 
 /// Shared by the UI and independent Android job engines. Claims and progress
@@ -20,7 +21,7 @@ class TransferStore {
     final db = await f.openDatabase(
       path ?? p.join(await f.getDatabasesPath(), 'tamayura_transfers.db'),
       options: OpenDatabaseOptions(
-        version: 2,
+        version: 3,
         singleInstance: false,
         onConfigure: (db) async {
           await db.rawQuery('PRAGMA busy_timeout = 5000');
@@ -48,6 +49,7 @@ class TransferStore {
             directory_uri TEXT NOT NULL, state TEXT NOT NULL,
             received INTEGER NOT NULL DEFAULT 0, attempt INTEGER NOT NULL DEFAULT 1,
             saved_uri TEXT, error TEXT, run_token TEXT, updated_ms INTEGER NOT NULL,
+            outage_since_ms INTEGER,
             UNIQUE(device_id, media_id))''');
     await db.execute(
       'CREATE INDEX transfers_recency ON transfers(updated_ms DESC)',
@@ -74,9 +76,9 @@ class TransferStore {
   }
 
   Future<List<TransferTask>> recent() async {
-    // Include every active job even when the recent history exceeds 100 entries.
+    // Keep every unfinished task reachable so its storage can be released.
     final rows = await _db.rawQuery(
-      "SELECT * FROM transfers WHERE state IN ('queued','downloading','saving') OR id IN (SELECT id FROM transfers ORDER BY updated_ms DESC LIMIT 100) ORDER BY updated_ms DESC",
+      "SELECT * FROM transfers WHERE state != 'completed' OR id IN (SELECT id FROM transfers ORDER BY updated_ms DESC LIMIT 100) ORDER BY updated_ms DESC",
     );
     return rows.map(TransferTask.fromRow).toList();
   }
@@ -98,6 +100,9 @@ class TransferStore {
         whereArgs: [peer.id, item.id],
       );
       final old = rows.isEmpty ? null : TransferTask.fromRow(rows.single);
+      if (old?.state == DownloadState.discarded) {
+        throw StateError('暂存文件尚未清理，请先重试删除任务');
+      }
       if (old?.active == true || old?.state == DownloadState.completed) {
         return old!.id;
       }
@@ -211,7 +216,7 @@ class TransferStore {
       {...values, 'updated_ms': DateTime.now().millisecondsSinceEpoch},
       where: runToken == null
           ? 'id = ?'
-          : "id = ? AND run_token = ? AND state != 'cancelled'",
+          : "id = ? AND run_token = ? AND state NOT IN ('cancelled','discarded')",
       whereArgs: runToken == null ? [id] : [id, runToken],
     );
     return count != 0;
@@ -242,6 +247,109 @@ class TransferStore {
       where: "id = ? AND state IN ('queued','downloading','saving')",
       whereArgs: [id],
     );
+  }
+
+  /// Fence the old worker before asking its scheduler to stop. Keep a durable
+  /// tombstone until deletion succeeds, including across process termination.
+  Future<bool> requestDiscard(String id) async =>
+      await _db.update(
+        'transfers',
+        {
+          'state': 'discarded',
+          'run_token': null,
+          'error': null,
+          'updated_ms': DateTime.now().millisecondsSinceEpoch,
+        },
+        where: "id = ? AND state != 'completed'",
+        whereArgs: [id],
+      ) !=
+      0;
+
+  /// Call only after the scheduler and native writer have released their files.
+  Future<void> finishDiscard(String id, Directory directory) async {
+    try {
+      await _db.transaction((txn) async {
+        final rows = await txn.query(
+          'transfers',
+          where: 'id = ?',
+          whereArgs: [id],
+        );
+        if (rows.firstOrNull?['state'] != 'discarded') return;
+        await MediaDownloader.discard(directory, id);
+        await txn.delete(
+          'transfers',
+          where: "id = ? AND state = 'discarded'",
+          whereArgs: [id],
+        );
+      });
+    } catch (_) {
+      await _db.update(
+        'transfers',
+        {'error': '暂存清理失败，请重试删除任务'},
+        where: "id = ? AND state = 'discarded'",
+        whereArgs: [id],
+      );
+      rethrow;
+    }
+  }
+
+  /// Recover completed/discarded jobs and orphan folders on startup. Preserve
+  /// queued, failed and paused downloads, including tasks older than UI history.
+  Future<void> cleanupStaging(
+    Directory directory, {
+    required Set<String> activeIds,
+  }) async {
+    Object? failure;
+    final entries = await directory.exists()
+        ? directory.list(followLinks: false)
+        : const Stream<FileSystemEntity>.empty();
+    await for (final entry in entries) {
+      if (entry is! Directory) continue;
+      final id = p.basename(entry.path);
+      if (!RegExp(r'^[a-zA-Z0-9_-]{1,80}$').hasMatch(id) ||
+          activeIds.contains(id)) {
+        continue;
+      }
+      try {
+        await _db.transaction((txn) async {
+          final rows = await txn.query(
+            'transfers',
+            where: 'id = ?',
+            whereArgs: [id],
+          );
+          final state = rows.firstOrNull?['state'];
+          if (state != null && state != 'completed' && state != 'discarded') {
+            return;
+          }
+          await MediaDownloader.discard(directory, id);
+          if (state == 'discarded') {
+            await txn.delete(
+              'transfers',
+              where: "id = ? AND state = 'discarded'",
+              whereArgs: [id],
+            );
+          }
+        });
+      } catch (error) {
+        failure ??= error;
+      }
+    }
+    // A discard may have crashed after deleting the folder but before its row.
+    final pending = await _db.query(
+      'transfers',
+      columns: ['id'],
+      where: "state = 'discarded'",
+    );
+    for (final row in pending) {
+      final id = row['id']! as String;
+      if (activeIds.contains(id)) continue;
+      try {
+        await finishDiscard(id, directory);
+      } catch (error) {
+        failure ??= error;
+      }
+    }
+    if (failure != null) throw failure;
   }
 
   Future<void> invalidate(String deviceId, String mediaId) async {

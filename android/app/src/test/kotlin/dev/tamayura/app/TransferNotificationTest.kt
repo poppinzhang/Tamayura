@@ -69,9 +69,7 @@ class TransferNotificationTest(private val access: NotificationAccess) {
             // Drain the service's bookkeeping without running the queued native engine startup.
             val sessions = ReflectionHelpers.getField<Map<Int, Any>>(current, "sessions")
             sessions.values.toList().forEach { session ->
-                current.javaClass.getDeclaredMethod("finish", session.javaClass,
-                    Boolean::class.javaPrimitiveType, String::class.java, Boolean::class.javaPrimitiveType)
-                    .apply { isAccessible = true }.invoke(current, session, false, null, true)
+                finish(current, session, success = false, error = null, cancelled = true, retry = false)
             }
         }
         scheduler.cancelAll()
@@ -118,6 +116,29 @@ class TransferNotificationTest(private val access: NotificationAccess) {
         assertNull(shadowOf(activity).lastRequestedPermission)
     }
 
+    @Test fun cancelReplyWaitsUntilTheOldNativeWriterIsDrained() {
+        val current = Robolectric.buildService(BackgroundTransferService::class.java).create().get()
+        service = current
+        val params = Shadow.newInstanceOf(JobParameters::class.java).apply {
+            ReflectionHelpers.setField(this, "jobId", 74)
+            ReflectionHelpers.setField(this, "extras", PersistableBundle().apply {
+                putString(TransferScheduler.TASK_ID, "draining-download")
+                putString(TransferScheduler.RUN_ID, "run-1")
+            })
+        }
+        assertTrue(current.onStartJob(params))
+        val session = ReflectionHelpers.getField<Map<Int, Any>>(current, "sessions").getValue(74)
+        ReflectionHelpers.setField(session, "ioCount", 1)
+        val result = call("cancelTransfer", "draining-download")
+        assertEquals(0, result.replies)
+        finish(current, session, success = false, error = null, cancelled = true, retry = false)
+        assertEquals("Engine disposal alone must not release a running save", 0, result.replies)
+        ReflectionHelpers.setField(session, "ioCount", 0)
+        current.javaClass.getDeclaredMethod("releaseIfDrained", session.javaClass)
+            .apply { isAccessible = true }.invoke(current, session)
+        result.assertSuccess()
+    }
+
     @Test fun activeJobAlwaysAssociatesNotificationAndStoppedJobRespectsVisibility() {
         val current = Robolectric.buildService(BackgroundTransferService::class.java).create().get()
         service = current
@@ -151,6 +172,59 @@ class TransferNotificationTest(private val access: NotificationAccess) {
         } else {
             assertNull(visible)
         }
+    }
+
+    @Test fun peerOutageAsksJobSchedulerToRetryWithBackoff() {
+        val current = Robolectric.buildService(BackgroundTransferService::class.java).create().get()
+        service = current
+        val params = Shadow.newInstanceOf(JobParameters::class.java).apply {
+            ReflectionHelpers.setField(this, "jobId", 72)
+            ReflectionHelpers.setField(this, "extras", PersistableBundle().apply {
+                putString(TransferScheduler.TASK_ID, "outage-download")
+                putString(TransferScheduler.RUN_ID, "run-1")
+            })
+        }
+        assertTrue(current.onStartJob(params))
+        val session = ReflectionHelpers.getField<Map<Int, Any>>(current, "sessions").getValue(72)
+
+        finish(current, session, success = false, error = "暂时连不上这台设备；稍后会自动重试",
+            cancelled = false, retry = true)
+
+        val jobService = Shadow.extract<RecordingJobServiceShadow>(current)
+        assertTrue(jobService.getIsJobFinished())
+        assertTrue("A temporarily unreachable peer must use JobScheduler backoff",
+            jobService.getIsRescheduleNeeded())
+        assertEquals(BackgroundTransferService.RETRY_TEXT,
+            jobService.associations.last().notification.extras.getString(Notification.EXTRA_TEXT))
+        assertTrue(ReflectionHelpers.getField<Map<Int, Any>>(current, "sessions").isEmpty())
+    }
+
+    @Test fun ordinaryFailureFinishesWithoutReschedule() {
+        val current = Robolectric.buildService(BackgroundTransferService::class.java).create().get()
+        service = current
+        val params = Shadow.newInstanceOf(JobParameters::class.java).apply {
+            ReflectionHelpers.setField(this, "jobId", 73)
+            ReflectionHelpers.setField(this, "extras", PersistableBundle().apply {
+                putString(TransferScheduler.TASK_ID, "failed-download")
+                putString(TransferScheduler.RUN_ID, "run-1")
+            })
+        }
+        assertTrue(current.onStartJob(params))
+        val session = ReflectionHelpers.getField<Map<Int, Any>>(current, "sessions").getValue(73)
+
+        finish(current, session, success = false, error = "对端文件已删除或不可访问，请刷新相册",
+            cancelled = false, retry = false)
+
+        val jobService = Shadow.extract<RecordingJobServiceShadow>(current)
+        assertTrue(jobService.getIsJobFinished())
+        assertFalse(jobService.getIsRescheduleNeeded())
+    }
+
+    private fun finish(service: BackgroundTransferService, session: Any, success: Boolean, error: String?,
+                       cancelled: Boolean, retry: Boolean) {
+        val flag = Boolean::class.javaPrimitiveType
+        service.javaClass.getDeclaredMethod("finish", session.javaClass, flag, String::class.java, flag, flag)
+            .apply { isAccessible = true }.invoke(service, session, success, error, cancelled, retry)
     }
 
     private fun call(method: String, taskId: String): Result = Result().also { result ->

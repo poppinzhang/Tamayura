@@ -2,6 +2,17 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import '../core/models.dart';
 
+/// Capacity is advisory: document providers may not expose their backing volume.
+class TransferSpaceInfo {
+  const TransferSpaceInfo({
+    this.stagingAvailableBytes,
+    this.destinationAvailableBytes,
+    this.sameVolume,
+  });
+  final int? stagingAvailableBytes, destinationAvailableBytes;
+  final bool? sameVolume;
+}
+
 class SharingStatus {
   const SharingStatus({
     required this.enabled,
@@ -180,14 +191,16 @@ abstract class PlatformBridge {
   }
 
   Future<String> saveDownload({
-    required String sourcePath,
+    required List<String> sourcePaths,
+    required int expectedSize,
     required String directoryUri,
     required String name,
     required String mimeType,
     required List<String> directories,
   }) async {
     final uri = await _methods.invokeMethod<String>('saveDownload', {
-      'sourcePath': sourcePath,
+      'sourcePaths': sourcePaths,
+      'expectedSize': expectedSize,
       'directoryUri': directoryUri,
       'name': name,
       'mimeType': mimeType,
@@ -197,6 +210,31 @@ abstract class PlatformBridge {
       throw PlatformException(code: 'SAVE_FAILED', message: '未能保存文件');
     }
     return uri;
+  }
+
+  Future<TransferSpaceInfo> transferSpace({
+    required String directoryUri,
+  }) async {
+    Map<String, dynamic>? value;
+    try {
+      value = await _methods.invokeMapMethod<String, dynamic>('transferSpace', {
+        'directoryUri': directoryUri,
+      });
+    } on MissingPluginException {
+      return const TransferSpaceInfo();
+    }
+    int? capacity(String key) {
+      final bytes = value?[key];
+      return bytes is int && bytes >= 0 ? bytes : null;
+    }
+
+    return TransferSpaceInfo(
+      stagingAvailableBytes: capacity('stagingAvailableBytes'),
+      destinationAvailableBytes: capacity('destinationAvailableBytes'),
+      sameVolume: value?['sameVolume'] is bool
+          ? value!['sameVolume'] as bool
+          : null,
+    );
   }
 
   Future<void> share(String uri, String mimeType) =>

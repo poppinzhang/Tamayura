@@ -1,16 +1,16 @@
 # Windows 实现与本机调试
 
-Windows 与 Android、macOS 统一使用 `0.4.0+7`，变更记录在 `CHANGELOG.md` 的 `0.4.0`。已完成 Windows x64 可执行 ZIP 构建与核验；源码交接包仅作辅助构建输入。目标系统为 **Windows 10 1809（build 17763）及以上、Windows 11，x64**。当前不提供 Windows ARM64、32 位或 MSIX 安装包。
+Windows 与 Android、macOS 统一使用 `0.5.0+8`，变更记录在 `CHANGELOG.md` 的 `0.5.0`。已完成 Windows x64 可执行 ZIP 构建与核验；源码交接包仅作辅助构建输入。目标系统为 **Windows 10 1809（build 17763）及以上、Windows 11，x64**。当前不提供 Windows ARM64、32 位或 MSIX 安装包。
 
-Windows 构建必须在 Windows 主机执行。本次已通过 SSH 在一台 Windows 11 x64 主机部署独立工具链，构建与测试日志保留在构建机；GUI、自动发现和真实设备互传验收仍需分别执行，不能由编译或单元测试代替。最终产物状态与实际验收范围见 [0.4.0 发布记录](releases/0.4.0.md)。
+Windows 构建必须在 Windows 主机执行。本次 Windows x64 构建与测试已通过，发布记录仅保留通用工具链要求和脱敏结果；GUI、自动发现和真实设备互传验收仍需分别执行，不能由编译或单元测试代替。最终产物状态与实际验收范围见 [0.5.0 发布记录](releases/0.5.0.md)。
 
 ## 本次验证记录
 
-2026-10-16 至 17 日使用正式 Flutter 3.47.6 / Dart 3.13.5：`dart format` 检查 58 个 Dart 文件无改动，`flutter analyze` 无问题，Flutter 全量 **322 项测试分别在 macOS 与 Windows 通过**；Windows 源码交接白名单 **4 项 Python 测试通过**。错误分片偏移与正常提前 EOF 使用独立 gRPC 连接分别验证，避免前一个异常响应的取消影响后一个测试。
+2026-10-17使用正式 Flutter 3.47.6 / Dart 3.13.5：`dart format` 检查 64 个 Dart 文件无改动，`flutter analyze` 无问题，Flutter 全量 **370 项测试分别在 macOS 与 Windows 通过**；Windows 源码交接白名单 **4 项 Python 测试通过**。本次修正了测试临时路径拼接和 Android worker 平台 mock 初始化的跨平台假设，修正后两端全量测试通过，业务断言保持不变。
 
-Windows 原生 CTest 已 **2/2 通过**：`discovery_core_test` 与 `windows_storage_test`，后者包含 **13 组存储测试**，使用真实 WIC、文件读写与目录联接边界。发现核心测试覆盖 ID、局域网 IPv4 和 UTF-8 等纯逻辑，不执行 Windows DNS API；实际 DNS-SD、GUI、跨设备传输及远端 CI 仍需单独验收。
+Windows 原生 CTest 已 **2/2 通过**：`discovery_core_test` 与 `windows_storage_test`，后者包含 **17 组存储测试**，使用真实 WIC、文件读写与目录联接边界。发现核心测试覆盖 ID、局域网 IPv4 和 UTF-8 等纯逻辑，不执行 Windows DNS API；实际 DNS-SD、GUI、跨设备传输及远端 CI 仍需单独验收。
 
-最终 ZIP 已验证 13 个文件完整解压并与 Release 逐文件 SHA-256 一致，EXE 版本为 `0.4.0.7`。解压后的 EXE 在 SSH 会话存活，并由真实本机 gRPC 返回有效设备身份与协议 3；检查结束关闭本次进程。这是进程与服务启动冒烟，不计作远程桌面 GUI 或跨设备验收。
+最终 ZIP 已验证 13 个文件完整解压并与 Release 逐文件 SHA-256 一致，EXE 版本为 `0.5.0.8`。解压后的 EXE 在隔离应用数据下启动，由真实本机 gRPC 返回有效设备身份、协议 3 和空目录分页；系统 PATH 和其它工作目录下确认 SQLite 从解压包加载，检查后关闭本次进程并恢复原状态。这是进程与服务启动冒烟，不计作远程桌面 GUI 或跨设备验收。
 
 ## 功能与平台接入
 
@@ -21,13 +21,19 @@ Windows 原生 CTest 已 **2/2 通过**：`discovery_core_test` 与 `windows_sto
 - Windows SQLite 使用 `sqflite_common_ffi`；`sqlite3` 的 Windows 原生资产随 Flutter 构建输出打包，数据库不依赖另行手动安装 SQLite。目录、媒体缓存和下载任务与现有桌面控制器共用。
 - 桌面侧栏、可调整窗口及 Ctrl 快捷键：`Ctrl+1/2/3` 切换相册/设备/设置，`Ctrl+,` 打开设置，`Ctrl+R` 刷新。已下载文件可通过默认应用打开，或在资源管理器中定位；当前未接入 Windows 系统分享面板。
 - 保留本机连接二维码，Android 或 Mac 可扫码连接这台 Windows；Windows 不显示相机扫码入口，因为当前扫码插件没有 Windows 实现。Windows 可用自动发现或手动输入对端 `IP:端口`。
-- 下载由应用进程执行，窗口失去焦点或最小化后可继续。开启「后台共享」后，应用运行且系统清醒期间继续提供文件；关闭后，退到后台会停止共享。退出应用或系统睡眠会中断传输，回到应用可重试续传。没有系统服务、托盘常驻、开机自启或防睡眠机制。
+- 下载由应用进程执行，窗口失去焦点或最小化后可继续。开启「后台共享」后，应用运行且系统清醒期间继续提供文件；关闭后，退到后台会停止共享。退出应用或系统睡眠会中断传输；对端暂时不可达或唤醒后连接失效时，进程内自动重试最长 30 分钟，超过后回到应用可重试续传，详见 [传输恢复](传输恢复.md)。没有系统服务、托盘常驻、开机自启或防睡眠机制。
 
 Windows 的平台通道 `uri` 字段实际传递本机绝对路径，不转为 `file://`；这些路径只供本机存储与打开操作，不发送给对端。对端使用不透明媒体 ID 与相对目录元信息，通过 gRPC 请求文件。数据库位于 `%LOCALAPPDATA%\Tamayura\databases`，预览/临时文件位于 `cache`，未完成下载分片位于 `transfers`。设备 UUID 和后台共享设置保存于当前用户的 `HKEY_CURRENT_USER\Software\Tamayura`；移动源码或 EXE 不会改变这些位置。清理应用数据库会失去缓存、目录配置与记录，清理 `transfers` 会失去未完成续传；外部共享目录和接收目录里的原文件不属于这些缓存。
 
 原生入口为 `windows/runner/windows_platform.cpp`，发现由 `lan_discovery.cpp` 与 `discovery_core.cpp` 处理，目录/文件与预览由 `windows_storage.cpp`、`storage_core.cpp` 处理；`lib/data/platform_database.dart` 在 Windows 配置共享的 FFI 数据库工厂。`windows/tests` 独立测试发现元数据校验及原生存储边界，`test` 保留跨平台业务与界面回归。
 
 实际 Windows Runner 编译还需要显式包含命令行解析与 COM 的系统头文件，避免借用其他头文件的间接包含；局部变量避开 Windows RPC 的 `small` 宏。资源管理器定位使用的 PIDL 保留 SDK 的指针限定符和所有权，并在结束时调用 `CoTaskMemFree`。这些接入由完整 Runner 构建验证，独立存储 CTest 不覆盖 Flutter 宿主编译。
+
+## 下载分片与容量
+
+当前未发布源码的 `saveDownload` 接收有序 `sourcePaths` 和 64 位 `expectedSize`。原生预先验证并持有所有私有分片句柄，按顺序直接写入接收文件，校验最终总量；不再生成 `complete.partial`。失败尝试删除新建目标，分片由任务生命周期管理。`transferSpace` 用系统 API 查询两卷可用容量及同卷标识，未知值省略。暂停或删除等待原生保存返回后才释放暂存，完成保存与删除竞争时保留实际保存记录。详见 [下载存储与清理](下载存储与清理.md)。
+
+已补有序分片、大小不符、缺失/越界分片、零字节文件及容量测试；本轮在 macOS 执行了 Dart Windows 桥接、源码白名单及可移植发现核心检查，Windows 专属存储测试与完整 Runner 编译仍需 Windows 主机。
 
 ## 准备 Windows 开发环境
 
@@ -76,15 +82,15 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\test-windows-nativ
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\package-windows.ps1
 ```
 
-输出为 `dist/0.4.0/Tamayura-0.4.0-windows-x64.zip` 和独立 `SHA256SUMS-windows`，版本始终取自 `pubspec.yaml`。脚本核对 EXE 的数字版本，并打包、核对完整 `build/windows/x64/runner/Release` 文件清单，包括 Flutter 引擎、插件、SQLite 原生资产与 `data`。不可只发送 `Tamayura.exe`。脚本不改已有 Android/macOS 产物的联合校验文件。
+输出为 `dist/0.5.0/Tamayura-0.5.0-windows-x64.zip` 和独立 `SHA256SUMS-windows`，版本始终取自 `pubspec.yaml`。脚本核对 EXE 的数字版本，并打包、核对完整 `build/windows/x64/runner/Release` 文件清单，包括 Flutter 引擎、插件、SQLite 原生资产与 `data`。不可只发送 `Tamayura.exe`。脚本不改已有 Android/macOS 产物的联合校验文件。
 
 Flutter 测试会在 `build/native_assets/windows/native_assets.json` 写入构建机绝对 DLL 路径，该清单只供测试使用。CMake 安装时排除它并清除旧 Release 目录的同名残留；正式程序继续使用 `data/flutter_assets/NativeAssetsManifest.json` 和包根目录的 `sqlite3.dll`。打包入口要求 SQLite 存在且测试清单未残留，解压启动时核验实际加载的 SQLite 来自解压目录。
 
 接收者完整解压 ZIP 后运行 `Tamayura.exe`。机器需具备 Microsoft Visual C++ x64 运行库；缺少 `VCRUNTIME140.dll` 或 `MSVCP140.dll` 时安装微软官方 [最新支持的 Visual C++ Redistributable](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist)，不要从不明站点单独下载 DLL。当前 ZIP 未签名、未制作安装器、未发布到 Microsoft Store，系统可能提示来源未知；确认包来源与 SHA-256 后再运行。
 
 ```powershell
-Get-FileHash .\dist\0.4.0\Tamayura-0.4.0-windows-x64.zip -Algorithm SHA256
-Get-Content .\dist\0.4.0\SHA256SUMS-windows
+Get-FileHash .\dist\0.5.0\Tamayura-0.5.0-windows-x64.zip -Algorithm SHA256
+Get-Content .\dist\0.5.0\SHA256SUMS-windows
 ```
 
 `.github/workflows/windows.yml` 使用 `windows-2022` 和 Flutter 3.47.6 执行同一打包入口，并保存 ZIP 与校验文件。只有实际工作流成功才能记为 CI 验证通过。
@@ -98,11 +104,11 @@ python3 scripts/test-windows-source.py
 python3 scripts/package-windows-source.py
 ```
 
-生成 `dist/0.4.0/Tamayura-0.4.0-windows-source.zip` 及 `SHA256SUMS-windows-source`。该包是当前工作区的源码快照，包含尚未提交的 Windows 实现，不能当作 Windows 可执行包。脚本用目录与扩展名白名单纳入 Windows 构建所需源码、资源、文档、锁文件和脚本，排除其它平台原生工程、签名密钥、`key.properties`、`local.properties`、`.git`、`.dart_tool`、Flutter 临时目录、`build`、`dist` 与缓存，并拒绝源码符号链接。交接前重新生成，使 ZIP 与最终修改一致。
+生成 `dist/0.5.0/Tamayura-0.5.0-windows-source.zip` 及 `SHA256SUMS-windows-source`。该包是当前工作区的源码快照，不能当作 Windows 可执行包。脚本用目录与扩展名白名单纳入 Windows 构建所需源码、资源、文档、锁文件和脚本，排除其它平台原生工程、签名密钥、`key.properties`、`local.properties`、`.git`、`.dart_tool`、Flutter 临时目录、`build`、`dist` 与缓存，并拒绝源码符号链接。交接前重新生成，使 ZIP 与最终修改一致。
 
 ## Windows 验收清单
 
-- [x] 已记录 Windows 11 x64 与工具链版本；Windows / Visual Studio 工具链检查、格式、分析、322 项 Flutter 测试、Windows CTest 2/2、Release 构建均通过（2026-10-17）。
+- [x] 已记录通用工具链要求和脱敏验证结果；Windows / Visual Studio 工具链检查、格式、分析、370 项 Flutter 测试、Windows CTest 2/2、Release 构建均通过（2026-10-17）。
 - [ ] 从完整 Release ZIP 启动并显示正确版本，窗口缩放、最小化、浅色/深色、Ctrl 快捷键、关闭窗口正常。
 - [ ] 目录选择器选择与取消、中文/日文/空格路径、多个共享根、父子目录拒绝、失效目录和权限不足提示正常；目录联接、符号链接与非法保存路径无法越出授权目录。
 - [ ] Windows ↔ Android 16+、Windows ↔ macOS 15+ 双向自动发现、手动 IP、设备名更新、记住设备、离线预览正常；Android/Mac 扫描 Windows 连接二维码正常。

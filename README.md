@@ -2,13 +2,13 @@
 
 把另一台设备里的照片，带到手边。
 
-Tamayura 是使用 Flutter 开发的局域网媒体共享应用。当前统一版本为 **0.4.0+7，支持 Android 16+（API 36）、macOS Sequoia 15.0+ 与 Windows x64**，支持 Tahoe 26 及后续版本。同一局域网内的设备可以发现彼此，浏览共享照片和视频的缩略图，点击下载原文件；Android 与 macOS 还可通过系统分享面板发送给其它应用。
+Tamayura 是使用 Flutter 开发的局域网媒体共享应用。当前统一版本为 **0.5.0+8，支持 Android 16+（API 36）、macOS Sequoia 15.0+ 与 Windows x64**，支持 Tahoe 26 及后续版本。同一局域网内的设备可以发现彼此，浏览共享照片和视频的缩略图，点击下载原文件；Android 与 macOS 还可通过系统分享面板发送给其它应用。
 
-各端均支持相册断点恢复：同步中断或应用重启后，已收到的照片预览和分页进度保留，恢复连接后继续缺失部分。macOS 提供 arm64 / x86_64 通用 App，使用本地 ad-hoc 签名，尚未公证；真实双向断网恢复等验收仍待完成。产物和本次验证记录见 [0.4.0 试用版本说明](docs/releases/0.4.0.md)。
+各端均支持相册断点恢复：同步中断或应用重启后，已收到的照片预览和分页进度保留，恢复连接后继续缺失部分。macOS 提供 arm64 / x86_64 通用 App，使用本地 ad-hoc 签名，尚未公证；真实双向断网恢复等验收仍待完成。产物和本次验证记录见 [0.5.0 试用版本说明](docs/releases/0.5.0.md)。
 
 ## 运行 Windows
 
-Windows x64 与 Android、macOS 统一使用 **0.4.0+7**，目标为 Windows 10 1809+ / Windows 11。已在 Windows 11 完成全量测试、原生 CTest 和 Release 构建，提供完整 ZIP 试用包；详细验证范围见版本说明。
+Windows x64 与 Android、macOS 统一使用 **0.5.0+8**，目标为 Windows 10 1809+ / Windows 11。本次 370 项 Flutter 测试、原生 CTest、Release 构建和 ZIP 核验通过，解压后的程序与本机 gRPC 启动冒烟通过；完整 GUI 和真实跨设备验证范围见版本说明。
 
 在 Windows 安装 Flutter **3.47.6** 和 **Visual Studio 2022** 的「使用 C++ 的桌面开发」工作负载（包含 Windows SDK 与 CMake），解压源码后在根目录运行：
 
@@ -20,7 +20,7 @@ flutter run -d windows
 
 Windows 支持系统目录选择、mDNS 自动发现、手动 IP、本机二维码、离线相册、按需下载和续传，使用 Ctrl 桌面快捷键；已下载文件可以默认应用打开或在资源管理器定位。当前没有 Windows 相机扫码或系统分享面板。首次联网仅在可信的专用网络中允许应用通过防火墙；下载和共享需要应用运行且系统清醒。
 
-完整检查和 Release ZIP 打包：`powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\package-windows.ps1`。Mac 可执行 `python3 scripts/package-windows-source.py` 生成 `dist/0.4.0/Tamayura-0.4.0-windows-source.zip`，传到 Windows 调试。工具链、完整步骤、运行库与验收清单见 [Windows 实现与调试](docs/Windows原型.md)。
+完整检查和 Release ZIP 打包：`powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\package-windows.ps1`。Mac 可执行 `python3 scripts/package-windows-source.py` 生成 `dist/0.5.0/Tamayura-0.5.0-windows-source.zip`，传到 Windows 调试。工具链、完整步骤、运行库与验收清单见 [Windows 实现与调试](docs/Windows原型.md)。
 
 ## 运行 macOS
 
@@ -33,36 +33,49 @@ FLUTTER_SWIFT_PACKAGE_MANAGER=true flutter run -d macos
 
 在设置中添加共享目录、选择接收目录，允许系统的本地网络访问，然后与同局域网的 Android 或另一台 Mac 互相发现。也支持输入私有 IPv4 地址、显示二维码及相机扫码。下载可在切换应用或最小化后继续；后台共享开启时，Mac 在应用运行且系统清醒期间继续提供文件。退出应用或系统睡眠会中断，未完成下载可以重试续传。相册元数据与缩略图支持持久断点，已出现的照片在中断和重启后保留，恢复连接可继续同步；实现与首次升级注意事项见 [同步进度](docs/同步进度.md)。
 
-打包入口为 `scripts/package-macos.sh`，输出 `dist/0.4.0/Tamayura-0.4.0-macos.zip` 及 `SHA256SUMS-macos` 独立校验文件；若 `xcode-select` 仍指向 Command Line Tools，脚本会自动使用 `/Applications/Xcode.app`，不更改系统设置。完整 Xcode 是必要条件，公开分发还需 Developer ID 签名和公证。平台实现与验收清单见 [macOS 实现](docs/macOS原型.md)。
+打包入口为 `scripts/package-macos.sh`，输出 `dist/0.5.0/Tamayura-0.5.0-macos.zip` 及 `SHA256SUMS-macos` 独立校验文件；若 `xcode-select` 仍指向 Command Line Tools，脚本会自动使用 `/Applications/Xcode.app`，不更改系统设置。完整 Xcode 是必要条件，公开分发还需 Developer ID 签名和公证。平台实现与验收清单见 [macOS 实现](docs/macOS原型.md)。
 
-## 安装 0.4.0 试用版
+## 安装 0.5.0 试用版
 
-- Android：[Tamayura-0.4.0-android.apk](dist/0.4.0/Tamayura-0.4.0-android.apk)，沿用专用本地 release 证书，versionCode 为 **7**。
-- macOS：[Tamayura-0.4.0-macos.zip](dist/0.4.0/Tamayura-0.4.0-macos.zip)，最低 macOS 15.0，包含 arm64 / x86_64 通用 App，ad-hoc 签名、未公证。
-- Windows：[Tamayura-0.4.0-windows-x64.zip](dist/0.4.0/Tamayura-0.4.0-windows-x64.zip)，x64 完整运行目录，EXE 版本 **0.4.0.7**；未签名，需 Visual C++ x64 运行库。
-- 三平台产物校验：[SHA256SUMS](dist/0.4.0/SHA256SUMS)。功能、验证记录与限制：[0.4.0 试用版本说明](docs/releases/0.4.0.md)。
+本次三个平台的自动化测试、Release 构建和最终产物核验均已通过，安装包与校验文件如下。
+
+- Android：[Tamayura-0.5.0-android.apk](dist/0.5.0/Tamayura-0.5.0-android.apk)，沿用专用本地 release 证书，versionCode 为 **8**。
+- macOS：[Tamayura-0.5.0-macos.zip](dist/0.5.0/Tamayura-0.5.0-macos.zip)，最低 macOS 15.0，包含 arm64 / x86_64 通用 App，ad-hoc 签名、未公证。
+- Windows：[Tamayura-0.5.0-windows-x64.zip](dist/0.5.0/Tamayura-0.5.0-windows-x64.zip)，x64 完整运行目录，EXE 版本 **0.5.0.8**；未签名，需 Visual C++ x64 运行库。
+- 三平台产物校验：[SHA256SUMS](dist/0.5.0/SHA256SUMS)。功能、验证记录与限制：[0.5.0 试用版本说明](docs/releases/0.5.0.md)。
 
 Android 可将 APK 传到手机后通过文件管理器安装，也可使用 USB 调试安装。同签名 release 版支持覆盖安装：
 
 ```sh
-adb install -r dist/0.4.0/Tamayura-0.4.0-android.apk
+adb install -r dist/0.5.0/Tamayura-0.5.0-android.apk
 ```
 
 macOS 解压 ZIP，将 `Tamayura.app` 放入「应用程序」后打开。该本地包未进行 Apple 公证；系统可能阻止首次打开，请只在确认来源与校验结果后通过系统「隐私与安全性」页面确认打开。无需修改全局 Gatekeeper 设置。
 
-**互联设备应使用相同的 0.4.0 版本。** 本次媒体库保持 schema 4，下载任务库保持 schema 2，协议保持 v3，不新增数据库重建。允许同签名覆盖安装；v1.0.0 前不保证旧数据兼容，若遇不兼容可清理数据并重新配置，不提供历史迁移。外部原始照片与已保存的接收文件保留。
+**互联设备应使用相同的 0.5.0 版本。** 本次媒体库升至 schema 5（独立缩略图引用），下载任务库升至 schema 3，协议保持 v3。旧库直接清空重建，不迁移：设置、记住的设备、离线相册与缩略图、下载历史索引和下载任务列表会清空，需要重新选择目录并发现设备；旧的未完成分片由启动清理回收。**外部原始媒体与已保存的接收文件保留。** 允许同签名覆盖安装；若遇不兼容可清理数据或卸载重装。实现见 [缩略图存储](docs/缩略图存储.md) 和 [下载存储与清理](docs/下载存储与清理.md)。
 
 Android debug 与 release 证书不同，安装过调试版时需先卸载。卸载会清除应用设置、目录授权、离线缓存、下载记录和未完成分片，外部共享与接收目录中的文件保留。
 
-2026-10-17 完成 Android、macOS、Windows 三平台本地试用包交付；仓库未配置远端，未创建 Git tag、远端 Release 或应用商店版本。真实双机断网/睡眠恢复、完整系统授权与双向原文件传输、无开发工具的 Windows 安装环境及远端 CI 仍待验证。
+2026-10-17 完成 Android、macOS、Windows 三平台本地试用包交付；仓库未配置远端，未创建 Git tag、远端 Release 或应用商店版本。Android / macOS 最终安装包尚未做真机启动；Windows 已通过进程与本机 gRPC 冒烟。真实双机断网/睡眠恢复、完整 GUI、系统授权与双向原文件传输、无开发工具的 Windows 安装环境及远端 CI 仍待验证。
 
-## 0.4.0 功能
+## 0.5.0 功能
 
-本版接入 Windows x64，并修复 macOS App Nap 下的后台网络活动与 Android 后台重建的就绪状态。相册断点恢复、多目录共享、层级接收和原文件分片续传继续保留。
+本版改进下载占用、暂停与清理、临时断线后的自动恢复，以及来源端重新扫描期间的共享连续性；三平台统一使用相同版本。
+
+- 原文件由有序分片直接写入接收目录，避免完整合并暂存，峰值占用由约三倍降至约两倍；下载与保存前检查可查询容量，保存失败保留分片，来源离线时也可重试保存完整分片。
+- 下载页区分「暂停下载」与「取消并删除」，显示已暂存字节，支持清理失败和暂停任务；启动时清理已完成、待删除及孤立暂存。清理任务不删除已保存的接收文件。
+- 缩略图改为独立表，正式与暂存目录复用图片，避免同步、目录增删及续传时复制已缓存图片。
+- 下载连续 30 秒无数据时重连并续传，对端暂时不可用时显示「等待下载」并自动退避重试；持续 30 分钟没有收到数据才失败，有进度的慢速大文件不受固定总时限限制。
+- 来源端重新扫描期间继续提供旧目录文件，成功后整体替换；被移除目录立即停止共享，失败或授权失效撤销共享。返回应用时距最近成功扫描不足 30 秒不重复扫描，手动刷新和目录变更仍立即扫描。
+- macOS 单个媒体被删除、大小变化或无法解码时返回空缩略图，让其它目录条目继续同步；原文件下载仍严格校验。
+
+详细实现见 [下载存储与清理](docs/下载存储与清理.md)、[缩略图存储](docs/缩略图存储.md)、[传输恢复](docs/传输恢复.md) 和 [单张缩略图容错](docs/单张缩略图容错.md)。
+
+此前已实现的功能继续保留：
 
 - Android 后台共享先显示「正在启动」，初始化、目录扫描与本机 gRPC 核验通过后才显示「运行中」；失败和超时显示具体原因，支持取消及重试，迟到结果不会覆盖新会话。
 - macOS 共享和下载运行期间抑制 App Nap 限速，窗口隐藏后恢复可见也能正确恢复共享；仍允许系统正常睡眠。
-- Windows 提供桌面目录选择、媒体扫描预览、系统 DNS-SD、默认应用打开及资源管理器定位；已完成 Windows 原生测试与 Release 打包，实际 GUI 与跨设备验收范围见版本说明。
+- Windows 提供桌面目录选择、媒体扫描预览、系统 DNS-SD、默认应用打开及资源管理器定位；本次原生测试与 Release 打包状态、实际 GUI 与跨设备验收范围见版本说明。
 
 - 相册同步时逐步显示已收到的照片和合集，按设备显示已就绪数量；中断后保留预览与分页位置，恢复后「继续同步」。相同目录不重复接收完成页和缩略图；目录变化时复用匹配缩略图，完整成功后才应用删除。详见 [同步进度](docs/同步进度.md)。
 - macOS 增加桌面侧栏、系统目录授权、Bonjour 发现、缩略图和预览、系统打开与分享，下载任务可取消、重试和退出后恢复。下载和共享需要应用运行且系统清醒。
@@ -83,7 +96,7 @@ Android debug 与 release 证书不同，安装过调试版时需先卸载。卸
 - 点一次媒体即下载；大于 50 MiB 使用四个 gRPC 范围流并发下载。
 - Android 用户发起的后台传输任务；允许通知时显示进度，关闭通知仍可下载。分片持久保存，断网重试可续传。完整接收后保存到指定目录并支持系统分享。
 - 相册按对端共享目录展示合集，合集内按页浏览全部子目录照片；支持离线缓存，元数据按版本同步，仅为新增条目下载缩略图。
-- 图片预览、双指/双击缩放、下滑返回与转场动画；下载任务页支持取消和重试。
+- 图片预览、双指/双击缩放、下滑返回与转场动画；下载任务页支持暂停、取消并删除和重试。
 - 仅同步增删，不跟踪原文件内容编辑，不自动下载整本相册。
 
 ## 两台设备使用
@@ -98,7 +111,7 @@ Android 系统文件夹选择器不允许直接授权存储根目录或 Download
 
 ## 本地开发
 
-需要 Flutter stable（本次使用 3.47.6 / Dart 3.13.5）、JDK 21、Android SDK 36。Android 16 原生回归测试需要 Java 21 或更新版本，应用编译目标仍为 Java 17。
+需要 Flutter stable（统一工具链为 3.47.6 / Dart 3.13.5）、JDK 21、Android SDK 36。Android 16 原生回归测试需要 Java 21 或更新版本，应用编译目标仍为 Java 17。
 
 ```sh
 flutter pub get
@@ -122,12 +135,13 @@ flutter build apk --debug
 
 ## 当前边界
 
-- Android 支持 16+，不支持 Android 15 及更早版本。接收任务使用 JobScheduler 的 UIDT；来源端可开启[后台共享](docs/后台共享.md)，长时间息屏需结合电池优化豁免及厂商策略验证。macOS 支持 Sequoia 15.0+，下载和共享依赖应用进程存活与系统清醒，已验证 Release 启动及 Android 相册同步，完整双向验收待完成。两端都不提供开机自启或纯局域网远程唤醒，退出后需主动打开。
+- Android 支持 16+，不支持 Android 15 及更早版本。接收任务使用 JobScheduler 的 UIDT；来源端可开启[后台共享](docs/后台共享.md)，长时间息屏需结合电池优化豁免及厂商策略验证。macOS 支持 Sequoia 15.0+，下载和共享依赖应用进程存活与系统清醒，完整双向验收待完成。Windows 当前支持 x64，目标 Windows 10 1809+ / Windows 11，共享和下载同样依赖应用运行且系统清醒。三端都不提供开机自启或纯局域网远程唤醒，退出后需主动打开。
 - IPv4 局域网；无账号、鉴权或 TLS，只在自己的可信局域网使用。
 - 非实时扫描；本地扫描仍需遍历整个目录的轻量元数据。网络分页和 SQLite 暂存事务取消了旧的 2,000 条/32 MiB 缩略图限制；极大目录的扫描耗时仍受存储提供者影响。
 - 支持分片续传，不跟踪文件内容编辑或跨设备内容去重。用户在系统任务管理器停止任务或强行停止应用后，需要回到应用重试。
-- 未完成分片会占用应用存储，完成后清理；保存到外部目录与数据库登记之间若进程被强杀，可能留下完整但未登记的副本，重试可能重名另存。
+- 未完成分片会占用应用存储，完成、取消并删除或启动清理时回收；保存时分片与接收文件共存，峰值仍约为原文件两倍。容量预检不预留空间，部分 Android 文档提供者容量未知；保存到外部目录与数据库登记之间若进程被强杀，可能留下完整但未登记的副本，重试可能重名另存。
+- 停滞判定需要连续 30 秒无数据；持续 30 分钟没有收到数据后需要手动重试，实际断网、睡眠和系统强制终止场景仍待验收。
 - 缩略图解码失败显示占位，原文件仍可尝试下载；媒体可用格式由所在平台的解码能力决定。
 - 本机已下载文件被其它应用删除后，需要重新下载。无自动删除本机原文件功能。
 
-自动化测试不能替代真实 Android 与 Mac 的 Wi-Fi、系统目录权限、扫码、断网恢复和分享验收；验收清单见开发文档。
+自动化测试不能替代真实 Android、Mac 与 Windows 的 Wi-Fi、系统目录权限、断网恢复及各平台支持的扫码、分享验收；验收清单见开发文档。

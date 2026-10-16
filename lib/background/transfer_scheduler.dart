@@ -43,6 +43,10 @@ class InProcessTransferScheduler implements TransferScheduler {
     this.clientFactory,
     this.onChanged,
     this.retryDelay = const Duration(seconds: 1),
+    this.stallTimeout = defaultStallTimeout,
+    this.outageWindow = transferOutageWindow,
+    this.autoRetryDelay = const Duration(seconds: 10),
+    this.maxAutoRetryDelay = const Duration(minutes: 2),
   });
 
   final TransferStore store;
@@ -50,7 +54,10 @@ class InProcessTransferScheduler implements TransferScheduler {
   final PlatformBridge bridge;
   final MediaRpcClient Function(Peer)? clientFactory;
   final Future<void> Function()? onChanged;
-  final Duration retryDelay;
+  final Duration retryDelay, stallTimeout, outageWindow;
+
+  /// Desktop counterpart of JobScheduler's backoff while a peer is away.
+  final Duration autoRetryDelay, maxAutoRetryDelay;
   final Map<String, _Execution> _runs = {};
   final Map<String, Future<void>> _commands = {};
   bool _closed = false;
@@ -90,19 +97,30 @@ class InProcessTransferScheduler implements TransferScheduler {
       execution.cancellation.check();
       final directory = Directory(await bridge.transferDirectory());
       execution.cancellation.check();
-      await TransferRunner(
+      final runner = TransferRunner(
         store: store,
         repository: repository,
         bridge: bridge,
         directory: directory,
         clientFactory: clientFactory,
         retryDelay: retryDelay,
+        stallTimeout: stallTimeout,
+        outageWindow: outageWindow,
         progress: (_, _, _) => _changed(),
-      ).run(
-        id,
-        cancellation: execution.cancellation,
-        isUserCancelled: () => execution.userCancelled,
       );
+      var delay = autoRetryDelay;
+      // The task stays in _runs while waiting, so reconciliation keeps it
+      // queued; the activity assertion also keeps the wait timer on time.
+      while (await runner.run(
+            id,
+            cancellation: execution.cancellation,
+            isUserCancelled: () => execution.userCancelled,
+          ) ==
+          TransferOutcome.retryLater) {
+        await _changed();
+        await execution.cancellation.sleep(delay);
+        delay = delay * 2 > maxAutoRetryDelay ? maxAutoRetryDelay : delay * 2;
+      }
     } catch (error) {
       if (attempt != null && !execution.cancellation.cancelled) {
         try {

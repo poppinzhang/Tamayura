@@ -11,7 +11,14 @@ struct PlatformFailure: LocalizedError {
     PlatformFailure(code: "INVALID_ARGUMENT", message: message)
   }
   static func io(_ message: String) -> PlatformFailure {
-    let code = errno == EACCES || errno == EPERM ? "PERMISSION_LOST" : "FILE_NOT_FOUND"
+    let code: String
+    switch errno {
+    case ENOENT, ENOTDIR: code = "FILE_NOT_FOUND"
+    case EACCES, EPERM: code = "PERMISSION_LOST"
+    case ENOSPC, EDQUOT: code = "STORAGE_FULL"
+    case EMFILE, ENFILE: code = "RESOURCE_EXHAUSTED"
+    default: code = "IO_ERROR"
+    }
     return PlatformFailure(code: code, message: message)
   }
 }
@@ -112,7 +119,8 @@ final class SafeFile {
 
   func info() throws -> stat {
     var value = stat()
-    guard fstat(fd, &value) == 0, value.st_mode & S_IFMT == S_IFREG else {
+    guard fstat(fd, &value) == 0 else { throw PlatformFailure.io("无法读取媒体文件信息") }
+    guard value.st_mode & S_IFMT == S_IFREG else {
       throw PlatformFailure(code: "FILE_NOT_FOUND", message: "媒体文件不存在或不是普通文件")
     }
     return value
@@ -150,7 +158,7 @@ struct SharedDirectory {
   let name: String
 }
 
-struct SharedMedia {
+struct SharedMedia: Equatable {
   let directoryURI: String
   let relativePath: String
   let mimeType: String
@@ -160,20 +168,47 @@ struct SharedMedia {
 final class MediaCatalog {
   private let access: DirectoryAccess
   private let lock = NSLock()
+  // Changes only when sharing stops or a scan fails; every read then ends.
   private var generation: UInt64 = 0
+  // The latest scan ticket; starting another scan or clearing cancels older ones.
+  private var ticket: UInt64 = 0
   private var files: [String: SharedMedia] = [:]
   init(access: DirectoryAccess) { self.access = access }
 
+  /// Stops serving every file and cancels running scans.
   @discardableResult func clear() -> UInt64 {
     lock.lock(); defer { lock.unlock() }
-    generation &+= 1
-    files.removeAll()
-    return generation
+    revokeLocked()
+    return ticket
   }
 
-  func assertGeneration(_ expected: UInt64) throws {
+  /// Starts a rescan while the previous catalog keeps serving, so peers'
+  /// transfers survive a refresh. Folders no longer shared stop at once.
+  func beginScan(_ directories: [SharedDirectory]) -> UInt64 {
+    let shared = Set(directories.map(\.uri))
     lock.lock(); defer { lock.unlock() }
-    guard expected == generation else {
+    ticket &+= 1
+    files = files.filter { shared.contains($0.value.directoryURI) }
+    return ticket
+  }
+
+  private func revokeLocked() {
+    generation &+= 1
+    ticket &+= 1
+    files.removeAll()
+  }
+
+  private func assertScan(_ expected: UInt64) throws {
+    lock.lock(); defer { lock.unlock() }
+    guard expected == ticket else {
+      throw PlatformFailure(code: "SCAN_CANCELLED", message: "共享目录已改变，请重新扫描")
+    }
+  }
+
+  /// A read may finish only while sharing continues and its file stays published.
+  private func assertCurrent(_ id: String, _ entry: SharedMedia, generation expected: UInt64) throws {
+    lock.lock(); defer { lock.unlock() }
+    guard expected == generation, files[id] == entry else {
       throw PlatformFailure(code: "SCAN_CANCELLED", message: "共享目录已改变，请重新扫描")
     }
   }
@@ -192,7 +227,17 @@ final class MediaCatalog {
 
   /// A failed scan never leaves a partly updated or previously authorized catalog.
   func scan(_ directories: [SharedDirectory], expected: UInt64) throws -> [[String: Any]] {
-    try assertGeneration(expected)
+    do {
+      return try scanAuthorized(directories, expected: expected)
+    } catch {
+      lock.lock(); defer { lock.unlock() }
+      if ticket == expected { revokeLocked() }
+      throw error
+    }
+  }
+
+  private func scanAuthorized(_ directories: [SharedDirectory], expected: UInt64) throws -> [[String: Any]] {
+    try assertScan(expected)
     guard Set(directories.map { $0.id }).count == directories.count else {
       throw PlatformFailure.invalid("共享目录标识重复")
     }
@@ -214,7 +259,7 @@ final class MediaCatalog {
             return false
           }) else { throw PlatformFailure(code: "FILE_NOT_FOUND", message: "无法读取共享目录") }
         for case let url as URL in enumerator {
-          try assertGeneration(expected)
+          try assertScan(expected)
           let values = try url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
           // Foundation does not descend through symlinks. Calling skipDescendants
           // on a non-directory link would incorrectly skip its sibling entries.
@@ -237,28 +282,54 @@ final class MediaCatalog {
       }
     }
     lock.lock(); defer { lock.unlock() }
-    guard expected == generation else {
+    guard expected == ticket else {
       throw PlatformFailure(code: "SCAN_CANCELLED", message: "共享目录已改变，请重新扫描")
     }
     files = next
     return metadata
   }
 
-  func withMedia<T>(_ id: String, _ operation: (SharedMedia, SafeFile) throws -> T) throws -> T {
+  private func withAuthorizedMedia<T>(_ id: String, _ operation: (SharedMedia, SafeFile) throws -> T) throws -> T {
     lock.lock()
     let expected = generation
     let entry = files[id]
     lock.unlock()
     guard let entry else { throw PlatformFailure(code: "FILE_NOT_FOUND", message: "文件未被共享，请刷新相册") }
     return try access.withDirectory(entry.directoryURI) { root in
-      try assertGeneration(expected)
-      let file = try SafeFile.directory(root).file(StoragePaths.components(entry.relativePath))
+      try assertCurrent(id, entry, generation: expected)
+      // Root access errors affect the whole shared directory, not one preview.
+      let rootHandle = try SafeFile.directory(root)
+      let value = try operation(entry, rootHandle)
+      try assertCurrent(id, entry, generation: expected)
+      return value
+    }
+  }
+
+  func withMedia<T>(_ id: String, _ operation: (SharedMedia, SafeFile) throws -> T) throws -> T {
+    try withAuthorizedMedia(id) { entry, root in
+      let file = try root.file(StoragePaths.components(entry.relativePath))
       guard try file.info().st_size == entry.size else {
         throw PlatformFailure(code: "FILE_CHANGED", message: "文件大小已改变，请刷新相册")
       }
-      let value = try operation(entry, file)
-      try assertGeneration(expected)
-      return value
+      return try operation(entry, file)
+    }
+  }
+
+  /// An unavailable single preview must not block the peer's entire catalog.
+  /// Authorization, root access and catalog lifetime checks remain strict.
+  func thumbnail(_ id: String, generate: (SharedMedia, SafeFile) throws -> Data) throws -> Data {
+    try withAuthorizedMedia(id) { entry, root in
+      do {
+        let file = try root.file(StoragePaths.components(entry.relativePath))
+        guard try file.info().st_size == entry.size else { return Data() }
+        return try generate(entry, file)
+      } catch let error as PlatformFailure {
+        guard ["FILE_NOT_FOUND", "FILE_CHANGED", "PREVIEW_UNAVAILABLE"].contains(error.code) else { throw error }
+        return Data()
+      } catch let error as NSError where error.domain == "AVFoundationErrorDomain" || error.domain == NSOSStatusErrorDomain {
+        // AVFoundation reports unsupported/damaged videos as framework errors.
+        return Data()
+      }
     }
   }
 
@@ -272,15 +343,42 @@ final class MediaCatalog {
 /// Save via pinned parent descriptors and O_EXCL, preserving peer folder layout
 /// without overwriting any existing file, including when saves run concurrently.
 enum DownloadWriter {
-  static func save(source: URL, allowedRoots: [URL], destination: URL,
+  static func space(staging: URL, destination: URL) throws -> [String: Any] {
+    let stage = try SafeFile.directory(staging), target = try SafeFile.directory(destination)
+    var result: [String: Any] = [:]
+    func available(_ fd: Int32) -> Int64? {
+      var value = statfs()
+      guard fstatfs(fd, &value) == 0 else { return nil }
+      let (bytes, overflow) = UInt64(value.f_bavail).multipliedReportingOverflow(by: UInt64(value.f_bsize))
+      return overflow || bytes > UInt64(Int64.max) ? Int64.max : Int64(bytes)
+    }
+    if let value = available(stage.fd) { result["stagingAvailableBytes"] = value }
+    if let value = available(target.fd) { result["destinationAvailableBytes"] = value }
+    var stageInfo = stat(), targetInfo = stat()
+    if fstat(stage.fd, &stageInfo) == 0 && fstat(target.fd, &targetInfo) == 0 {
+      result["sameVolume"] = stageInfo.st_dev == targetInfo.st_dev
+    }
+    return result
+  }
+
+  static func save(sources: [URL], expectedSize: Int64, allowedRoots: [URL], destination: URL,
                    directories: [String], name: String) throws -> URL {
     try StoragePaths.segment(name)
     try directories.forEach(StoragePaths.segment)
-    let source = source.standardizedFileURL
-    guard let sourceRoot = allowedRoots.first(where: { StoragePaths.contains($0, source) && $0 != source }) else {
-      throw PlatformFailure.invalid("下载源文件必须在应用私有目录中")
+    guard expectedSize >= 0, !sources.isEmpty else { throw PlatformFailure.invalid("下载分片或大小无效") }
+    var total: Int64 = 0
+    let inputs = try sources.map { source -> SafeFile in
+      let source = source.standardizedFileURL
+      guard let sourceRoot = allowedRoots.first(where: { StoragePaths.contains($0, source) && $0 != source }) else {
+        throw PlatformFailure.invalid("下载源文件必须在应用私有目录中")
+      }
+      let input = try SafeFile.directory(sourceRoot).file(StoragePaths.relative(source, root: sourceRoot))
+      let size = try input.info().st_size
+      guard size <= expectedSize - total else { throw PlatformFailure.invalid("下载分片大小与预期不符") }
+      total += size
+      return input
     }
-    let input = try SafeFile.directory(sourceRoot).file(StoragePaths.relative(source, root: sourceRoot))
+    guard total == expectedSize else { throw PlatformFailure.invalid("下载分片大小与预期不符") }
     let parent = try SafeFile.directory(destination).directory(directories, create: true)
     var finalName = name
     var descriptor: Int32 = -1
@@ -294,21 +392,27 @@ enum DownloadWriter {
     let output = try SafeFile(fd: descriptor)
     do {
       var buffer = [UInt8](repeating: 0, count: 256 * 1024)
-      while true {
-        let count = Darwin.read(input.fd, &buffer, buffer.count)
-        if count < 0 && errno == EINTR { continue }
-        guard count >= 0 else { throw PlatformFailure.io("无法读取下载暂存文件") }
-        if count == 0 { break }
-        try buffer.withUnsafeBytes { bytes in
-          var written = 0
-          while written < count {
-            let amount = Darwin.write(output.fd, bytes.baseAddress!.advanced(by: written), count - written)
-            if amount < 0 && errno == EINTR { continue }
-            guard amount > 0 else { throw PlatformFailure.io("无法保存下载文件，可能磁盘空间不足") }
-            written += amount
+      var copied: Int64 = 0
+      for input in inputs {
+        while true {
+          let count = Darwin.read(input.fd, &buffer, buffer.count)
+          if count < 0 && errno == EINTR { continue }
+          guard count >= 0 else { throw PlatformFailure.io("无法读取下载暂存文件") }
+          if count == 0 { break }
+          guard Int64(count) <= expectedSize - copied else { throw PlatformFailure.invalid("下载分片在保存时已变化") }
+          try buffer.withUnsafeBytes { bytes in
+            var written = 0
+            while written < count {
+              let amount = Darwin.write(output.fd, bytes.baseAddress!.advanced(by: written), count - written)
+              if amount < 0 && errno == EINTR { continue }
+              guard amount > 0 else { throw PlatformFailure.io("无法保存下载文件，可能磁盘空间不足") }
+              written += amount
+            }
           }
+          copied += Int64(count)
         }
       }
+      guard copied == expectedSize else { throw PlatformFailure.invalid("下载分片在保存时已变化") }
       guard fsync(output.fd) == 0 else { throw PlatformFailure.io("无法完成文件保存") }
     } catch {
       unlinkat(parent.fd, finalName, 0)

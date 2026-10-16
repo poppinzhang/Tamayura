@@ -260,7 +260,7 @@ void WindowsPlatform::Handle(const flutter::MethodCall<Value>& call,
       static const std::set<std::string> storage_methods{
           "pickDirectory", "validateSharedDirectory", "scanDirectoriesMetadata",
           "clearSharedDirectory", "thumbnail", "readPreview", "readRange", "saveDownload",
-          "temporaryDirectory", "transferDirectory", "databaseDirectory", "open", "share"};
+          "temporaryDirectory", "transferDirectory", "transferSpace", "databaseDirectory", "open", "share"};
       if (!storage_methods.count(method)) {
         result->NotImplemented();
         return;
@@ -270,7 +270,7 @@ void WindowsPlatform::Handle(const flutter::MethodCall<Value>& call,
         result->Success(storage_->Handle(method, args, window_));
       } else {
         if (method == "scanDirectoriesMetadata") {
-          args[Value("__generation")] = Value(static_cast<int64_t>(storage_->BeginScan()));
+          args[Value("__generation")] = Value(static_cast<int64_t>(storage_->BeginScan(args)));
         }
         const auto storage = storage_;
         const HWND window = window_;

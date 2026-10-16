@@ -489,7 +489,8 @@ void main() {
   test('save forwards destination and requires a resulting URI', () async {
     await expectLater(
       bridge.saveDownload(
-        sourcePath: '/private/cache/complete.bin',
+        sourcePaths: ['/private/cache/0.part', '/private/cache/1.part'],
+        expectedSize: 42,
         directoryUri: 'content://documents/tree/downloads',
         name: 'photo.jpg',
         mimeType: 'image/jpeg',
@@ -500,7 +501,8 @@ void main() {
     expect(calls.single.method, 'saveDownload');
     expect(calls.single.arguments, {
       'directories': ['手机', 'Photos', '旅行'],
-      'sourcePath': '/private/cache/complete.bin',
+      'sourcePaths': ['/private/cache/0.part', '/private/cache/1.part'],
+      'expectedSize': 42,
       'directoryUri': 'content://documents/tree/downloads',
       'name': 'photo.jpg',
       'mimeType': 'image/jpeg',

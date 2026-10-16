@@ -2,7 +2,15 @@ import 'dart:typed_data';
 import 'dart:convert';
 import 'models.dart';
 
-enum DownloadState { queued, downloading, saving, completed, failed, cancelled }
+enum DownloadState {
+  queued,
+  downloading,
+  saving,
+  completed,
+  failed,
+  cancelled,
+  discarded,
+}
 
 class TransferTask {
   const TransferTask({
@@ -18,6 +26,7 @@ class TransferTask {
     this.savedUri,
     this.error,
     this.runToken,
+    this.outageSinceMs,
   });
   final String id, directoryUri;
   final List<String> destinationDirectories;
@@ -26,6 +35,9 @@ class TransferTask {
   final DownloadState state;
   final int received, attempt, updatedMs;
   final String? savedUri, error, runToken;
+
+  /// When the peer first became unreachable without any bytes arriving since.
+  final int? outageSinceMs;
   bool get active =>
       state == DownloadState.queued ||
       state == DownloadState.downloading ||
@@ -62,5 +74,6 @@ class TransferTask {
     savedUri: row['saved_uri'] as String?,
     error: row['error'] as String?,
     runToken: row['run_token'] as String?,
+    outageSinceMs: row['outage_since_ms'] as int?,
   );
 }

@@ -267,7 +267,17 @@ class SnapshotConflictException implements Exception {
 abstract class LocalMediaSource {
   Future<List<MediaMetadata>> scan();
   Future<Uint8List> readThumbnail(String id);
+
+  /// Throws [MediaSourceInterrupted] when the catalog changed during the read,
+  /// so peers retry instead of treating the file as deleted.
   Future<Uint8List> readRange(String id, int offset, int length);
+}
+
+/// The shared catalog was replaced or revoked while a read was in progress.
+class MediaSourceInterrupted implements Exception {
+  const MediaSourceInterrupted();
+  @override
+  String toString() => '共享目录已更新，请稍后重试';
 }
 
 class DownloadRecord {

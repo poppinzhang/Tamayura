@@ -138,7 +138,7 @@ void Enumerate(MediaCatalog& catalog, const SharedDirectory& shared,
                const std::wstring& directory,
                const std::string& relative, uint64_t generation,
                std::vector<MediaEntry>& output) {
-  catalog.AssertGeneration(generation);
+  catalog.AssertScan(generation);
   // Pin ancestors while FindFirstFile and child opens use absolute Win32 paths.
   auto pinned = PinDirectory(directory);
   WIN32_FIND_DATAW data{};
@@ -151,7 +151,7 @@ void Enumerate(MediaCatalog& catalog, const SharedDirectory& shared,
     IoError("Cannot enumerate shared directory");
   }
   do {
-    catalog.AssertGeneration(generation);
+    catalog.AssertScan(generation);
     const std::wstring name(data.cFileName);
     if (name == L"." || name == L".." ||
         (data.dwFileAttributes & (FILE_ATTRIBUTE_REPARSE_POINT | FILE_ATTRIBUTE_HIDDEN |
@@ -513,13 +513,41 @@ Bytes SafeFile::Read(int64_t offset, int64_t length, int64_t expected_size) cons
 
 uint64_t MediaCatalog::Clear() {
   std::lock_guard<std::mutex> lock(mutex_);
-  files_.clear();
-  return ++generation_;
+  RevokeLocked();
+  return ticket_;
 }
 
-void MediaCatalog::AssertGeneration(uint64_t expected) const {
+uint64_t MediaCatalog::BeginScan(const std::set<std::string>& shared_folder_ids) {
   std::lock_guard<std::mutex> lock(mutex_);
-  if (expected != generation_) throw StorageError("SCAN_CANCELLED", "Shared directories changed; scan again");
+  for (auto entry = files_.begin(); entry != files_.end();) {
+    if (shared_folder_ids.count(entry->second.shared_folder_id)) {
+      ++entry;
+    } else {
+      entry = files_.erase(entry);
+    }
+  }
+  return ++ticket_;
+}
+
+void MediaCatalog::RevokeLocked() {
+  files_.clear();
+  ++generation_;
+  ++ticket_;
+}
+
+void MediaCatalog::AssertScan(uint64_t ticket) const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (ticket != ticket_) throw StorageError("SCAN_CANCELLED", "Shared directories changed; scan again");
+}
+
+void MediaCatalog::AssertCurrent(const std::string& id, const MediaEntry& entry,
+                                 uint64_t generation) const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  const auto found = files_.find(id);
+  if (generation != generation_ || found == files_.end() || found->second.path != entry.path ||
+      found->second.size != entry.size || found->second.modified_ms != entry.modified_ms) {
+    throw StorageError("SCAN_CANCELLED", "Shared directories changed; scan again");
+  }
 }
 
 void MediaCatalog::Validate(const std::string& uri,
@@ -534,8 +562,8 @@ void MediaCatalog::Validate(const std::string& uri,
 }
 
 std::vector<MediaEntry> MediaCatalog::Scan(const std::vector<SharedDirectory>& directories,
-                                          uint64_t expected) {
-  AssertGeneration(expected);
+                                          uint64_t expected) try {
+  AssertScan(expected);
   std::set<std::string> ids;
   std::vector<std::string> previous;
   for (const auto& directory : directories) {
@@ -553,9 +581,14 @@ std::vector<MediaEntry> MediaCatalog::Scan(const std::vector<SharedDirectory>& d
   std::map<std::string, MediaEntry> next;
   for (const auto& entry : metadata) next.emplace(entry.id, entry);
   std::lock_guard<std::mutex> lock(mutex_);
-  if (expected != generation_) throw StorageError("SCAN_CANCELLED", "Shared directories changed; scan again");
+  if (expected != ticket_) throw StorageError("SCAN_CANCELLED", "Shared directories changed; scan again");
   files_ = std::move(next);
   return metadata;
+} catch (...) {
+  // The publishing lock is released during unwinding, before this handler.
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (expected == ticket_) RevokeLocked();
+  throw;
 }
 
 Bytes MediaCatalog::WithMedia(const std::string& id,
@@ -570,13 +603,13 @@ Bytes MediaCatalog::WithMedia(const std::string& id,
     expected = generation_;
   }
   auto file = SafeFile::Open(entry.path);
-  AssertGeneration(expected);
+  AssertCurrent(id, entry, expected);
   const auto info = file.info();
   if (info.size != entry.size || info.modified_ms != entry.modified_ms) {
     throw StorageError("FILE_CHANGED", "Media changed; refresh the album");
   }
   auto result = operation(entry, file);
-  AssertGeneration(expected);
+  AssertCurrent(id, entry, expected);
   return result;
 }
 
@@ -590,25 +623,67 @@ std::wstring ValidateDirectory(const std::string& path) {
   return PinDirectory(LocalPath(path)).path;
 }
 
-std::wstring SaveDownload(const std::string& source,
+TransferSpaceInfo TransferSpace(const std::wstring& staging,
+                                const std::string& destination) {
+  const auto source = PinDirectory(staging);
+  const auto target = PinDirectory(LocalPath(destination));
+  auto available = [](const PinnedDirectory& directory) -> std::optional<int64_t> {
+    ULARGE_INTEGER bytes{};
+    if (!GetDiskFreeSpaceExW(NativePath(directory.path).c_str(), &bytes, nullptr, nullptr)) {
+      return std::nullopt;
+    }
+    const auto maximum = static_cast<uint64_t>(std::numeric_limits<int64_t>::max());
+    return static_cast<int64_t>(std::min<uint64_t>(bytes.QuadPart, maximum));
+  };
+  TransferSpaceInfo result{available(source), available(target), std::nullopt};
+  FILE_ID_INFO source_id{}, target_id{};
+  if (GetFileInformationByHandleEx(source.handles.back().get(), FileIdInfo, &source_id,
+                                   static_cast<DWORD>(sizeof(source_id))) &&
+      GetFileInformationByHandleEx(target.handles.back().get(), FileIdInfo, &target_id,
+                                   static_cast<DWORD>(sizeof(target_id)))) {
+    result.same_volume = source_id.VolumeSerialNumber == target_id.VolumeSerialNumber;
+  }
+  return result;
+}
+
+std::wstring SaveDownload(const std::vector<std::string>& sources,
+                           int64_t expected_size,
                            const std::vector<std::wstring>& allowed_roots,
                            const std::string& destination,
                            const std::vector<std::string>& directories,
                            const std::string& name) {
   const auto received_name = ReceivedName(name);
   for (const auto& value : directories) ValidateSegment(value);
-  const auto source_path = LocalPath(source);
-  // Keep the source's parent chain locked before comparing normalized roots.
-  auto input = SafeFile::Open(source_path);
-  bool allowed = false;
-  for (const auto& root : allowed_roots) {
-    auto pinned = PinDirectory(root);
-    if (ContainsPath(pinned.path, input.path()) && input.path().size() > pinned.path.size()) {
-      allowed = true;
-      break;
-    }
+  if (sources.empty() || expected_size < 0) {
+    throw StorageError("INVALID_ARGUMENT", "Download requires parts and a non-negative expected size");
   }
-  if (!allowed) throw StorageError("INVALID_ARGUMENT", "Download source must be in the application's private storage");
+  std::vector<SafeFile> inputs;
+  inputs.reserve(sources.size());
+  int64_t total = 0;
+  for (const auto& source : sources) {
+    // Keep every source and its parent chain pinned until export finishes.
+    auto input = SafeFile::Open(LocalPath(source));
+    bool allowed = false;
+    for (const auto& root : allowed_roots) {
+      auto pinned = PinDirectory(root);
+      if (ContainsPath(pinned.path, input.path()) && input.path().size() > pinned.path.size()) {
+        allowed = true;
+        break;
+      }
+    }
+    if (!allowed) {
+      throw StorageError("INVALID_ARGUMENT", "Download source must be in the application's private storage");
+    }
+    const auto size = input.info().size;
+    if (size > expected_size - total) {
+      throw StorageError("FILE_CHANGED", "Download parts exceed the expected file size");
+    }
+    total += size;
+    inputs.push_back(std::move(input));
+  }
+  if (total != expected_size) {
+    throw StorageError("FILE_CHANGED", "Download parts do not match the expected file size");
+  }
   auto parent = PinDirectory(LocalPath(destination));
   for (const auto& value : directories) AddDirectory(parent, value);
   Handle output;
@@ -627,20 +702,30 @@ std::wstring SaveDownload(const std::string& source,
   if (output.get() == INVALID_HANDLE_VALUE) throw StorageError("SAVE_FAILED", "Too many files have the same name");
   try {
     std::array<uint8_t, 256 * 1024> buffer{};
-    for (;;) {
-      DWORD count = 0;
-      if (!ReadFile(input.handle(), buffer.data(), static_cast<DWORD>(buffer.size()), &count, nullptr)) {
-        IoError("Cannot read download staging file");
-      }
-      if (!count) break;
-      DWORD written = 0;
-      while (written < count) {
-        DWORD amount = 0;
-        if (!WriteFile(output.get(), buffer.data() + written, count - written, &amount, nullptr) || !amount) {
-          IoError("Cannot save received media; check free disk space");
+    int64_t copied = 0;
+    for (const auto& input : inputs) {
+      for (;;) {
+        DWORD count = 0;
+        if (!ReadFile(input.handle(), buffer.data(), static_cast<DWORD>(buffer.size()), &count, nullptr)) {
+          IoError("Cannot read download staging file");
         }
-        written += amount;
+        if (!count) break;
+        if (static_cast<int64_t>(count) > expected_size - copied) {
+          throw StorageError("FILE_CHANGED", "Download parts grew during export");
+        }
+        DWORD written = 0;
+        while (written < count) {
+          DWORD amount = 0;
+          if (!WriteFile(output.get(), buffer.data() + written, count - written, &amount, nullptr) || !amount) {
+            IoError("Cannot save received media; check free disk space");
+          }
+          written += amount;
+        }
+        copied += count;
       }
+    }
+    if (copied != expected_size) {
+      throw StorageError("FILE_CHANGED", "Download parts ended before the expected file size");
     }
     if (!FlushFileBuffers(output.get())) IoError("Cannot finish saving received media");
   } catch (...) {

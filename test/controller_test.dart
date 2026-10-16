@@ -1,9 +1,11 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/material.dart' show ThemeMode;
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:grpc/grpc.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:tamayura/app/app_controller.dart';
 import 'package:tamayura/app/view_state.dart';
@@ -21,6 +23,7 @@ class FakeBridge extends AndroidBridge {
   final events = StreamController<Map<String, dynamic>>.broadcast();
   Map<String, dynamic>? selection;
   bool scanFails = false, shareFails = false, identityFails = false;
+  bool invalidMetadata = false;
   String? advertisedId, advertisedName;
   int? advertisedPort;
   String deviceName = '测试手机';
@@ -114,7 +117,7 @@ class FakeBridge extends AndroidBridge {
           'relativePath': '旅行/秋天/local.jpg',
           'name': 'local.jpg',
           'mimeType': 'image/jpeg',
-          'size': 3,
+          'size': invalidMetadata ? -1 : 3,
           'modifiedMs': 1,
           'thumbnail': Uint8List(0),
         },
@@ -123,14 +126,19 @@ class FakeBridge extends AndroidBridge {
 
   @override
   Future<String> saveDownload({
-    required String sourcePath,
+    required List<String> sourcePaths,
+    required int expectedSize,
     required String directoryUri,
     required String name,
     required String mimeType,
     required List<String> directories,
   }) async {
     savedDirectories = directories;
-    savedBytes = await File(sourcePath).readAsBytes();
+    final bytes = BytesBuilder();
+    for (final path in sourcePaths) {
+      bytes.add(await File(path).readAsBytes());
+    }
+    savedBytes = bytes.takeBytes();
     return 'content://saved/$name';
   }
 
@@ -683,6 +691,110 @@ void main() {
       expect(bridge.scans, hasLength(scans));
     },
   );
+
+  test('activation rescans local folders at most once per interval', () async {
+    var now = DateTime(2026, 10, 17, 9);
+    model = AppController(
+      bridge: bridge,
+      preferredPort: 0,
+      openRepository: () async => db,
+      openTransfers: () async => tasks,
+      clock: () => now,
+      resumeRescanInterval: const Duration(minutes: 1),
+    );
+    await model.initialize();
+    bridge.selection = {'uri': 'content://album', 'name': 'Album'};
+    await model.chooseSharedFolder();
+    final scans = bridge.scans.length;
+
+    now = now.add(const Duration(seconds: 30));
+    await model.refreshAfterResume();
+    expect(bridge.scans, hasLength(scans), reason: 'Recent scan is reused');
+    expect(model.error, isNull);
+
+    await model.refresh();
+    expect(bridge.scans, hasLength(scans + 1), reason: 'Manual refresh scans');
+
+    now = now.add(const Duration(seconds: 59));
+    await model.refreshAfterResume();
+    expect(bridge.scans, hasLength(scans + 1));
+    now = now.add(const Duration(seconds: 1));
+    await model.refreshAfterResume();
+    expect(bridge.scans, hasLength(scans + 2));
+
+    // A failed scan is retried on the next activation, however recent.
+    bridge.scanFails = true;
+    now = now.add(const Duration(minutes: 1));
+    await model.refreshAfterResume();
+    expect(bridge.scans, hasLength(scans + 3));
+    bridge.scanFails = false;
+    now = now.add(const Duration(seconds: 1));
+    await model.refreshAfterResume();
+    expect(bridge.scans, hasLength(scans + 4));
+    expect(model.localMediaCount, 1);
+  });
+
+  for (final invalidMetadata in [false, true]) {
+    test(
+      'activation immediately retries a recent ${invalidMetadata ? 'invalid metadata' : 'provider'} scan failure',
+      () async {
+        var now = DateTime(2026, 10, 17, 9);
+        model = AppController(
+          bridge: bridge,
+          preferredPort: 0,
+          openRepository: () async => db,
+          openTransfers: () async => tasks,
+          clock: () => now,
+        );
+        await model.initialize();
+        bridge.selection = {'uri': 'content://album', 'name': 'Album'};
+        await model.chooseSharedFolder();
+        final scans = bridge.scans.length;
+        final client = MediaRpcClient(
+          Peer(id: '', name: '', host: '127.0.0.1', port: model.port),
+        );
+        addTearDown(client.close);
+        expect((await client.listMediaPage()).items, hasLength(1));
+
+        now = now.add(const Duration(seconds: 5));
+        bridge.scanFails = !invalidMetadata;
+        bridge.invalidMetadata = invalidMetadata;
+        await model.refresh();
+        expect(bridge.scans, hasLength(scans + 1));
+        expect(model.error, isNotNull);
+        expect(model.localMediaCount, 0);
+        await expectLater(
+          client.listMediaPage(),
+          throwsA(
+            isA<GrpcError>().having(
+              (error) => error.code,
+              'code',
+              StatusCode.failedPrecondition,
+            ),
+          ),
+        );
+
+        bridge.scanFails = false;
+        bridge.invalidMetadata = false;
+        now = now.add(const Duration(seconds: 1));
+        await model.refreshAfterResume();
+        expect(bridge.scans, hasLength(scans + 2));
+        expect(model.error, isNull);
+        expect(model.localMediaCount, 1);
+        expect((await client.listMediaPage()).items, hasLength(1));
+
+        now = now.add(const Duration(seconds: 1));
+        await model.refreshAfterResume();
+        expect(
+          bridge.scans,
+          hasLength(scans + 2),
+          reason: 'A recovered catalog uses the healthy scan interval again',
+        );
+        expect(model.error, isNull);
+        expect(model.localMediaCount, 1);
+      },
+    );
+  }
 
   test(
     'saved shared roots retain identity and all appear after initialization',

@@ -204,6 +204,27 @@ int main() {
       Reject("FILE_NOT_FOUND", [&] { catalog.Scan({invalid}, catalog.Clear()); });
       Reject("FILE_NOT_FOUND", [&] { catalog.Read(id, 0, 1); });
     });
+    test("rescan keeps serving retained folders and a failed rescan revokes them", [&] {
+      catalog.Scan({shared}, catalog.Clear());
+      const auto ticket = catalog.BeginScan({shared.id});
+      Expect(catalog.Read(id, 0, 10) == Bytes(bytes.begin(), bytes.begin() + 10), "Read during rescan");
+      const auto spanning = catalog.WithMedia(id, [&](const MediaEntry&, const SafeFile&) {
+        catalog.Scan({shared}, ticket);
+        return Bytes{1};
+      });
+      Expect(spanning == Bytes{1}, "Read across an unchanged republication");
+      const auto stale = catalog.BeginScan({shared.id});
+      catalog.BeginScan({shared.id});
+      Reject("SCAN_CANCELLED", [&] { catalog.Scan({shared}, stale); });
+      Expect(catalog.Read(id, 0, 1) == Bytes{bytes[0]}, "Superseded scan keeps serving");
+      const auto invalid = SharedDirectory{"bad", Utf8(JoinPath(base, L"missing")), "missing"};
+      Reject("FILE_NOT_FOUND", [&] { catalog.Scan({invalid}, catalog.BeginScan({shared.id, invalid.id})); });
+      Reject("FILE_NOT_FOUND", [&] { catalog.Read(id, 0, 1); });
+      catalog.Scan({shared}, catalog.Clear());
+      catalog.BeginScan({});
+      Reject("FILE_NOT_FOUND", [&] { catalog.Read(id, 0, 1); });
+      catalog.Scan({shared}, catalog.Clear());
+    });
     test("deleted media cannot be read and refresh removes its metadata", [&] {
       catalog.Scan({shared}, catalog.Clear());
       Expect(DeleteFileW(photo.c_str()) != FALSE, "Delete media fixture");
@@ -223,7 +244,7 @@ int main() {
       Write(source, bytes);
       const auto escape = JoinPath(destination, L"escape");
       Expect(Junction(escape, root), "Cannot create save junction");
-      Reject("INVALID_ARGUMENT", [&] { SaveDownload(Utf8(source), {staging}, Utf8(destination), {"escape"}, "a.jpg"); });
+      Reject("INVALID_ARGUMENT", [&] { SaveDownload({Utf8(source)}, static_cast<int64_t>(bytes.size()), {staging}, Utf8(destination), {"escape"}, "a.jpg"); });
       Expect(!std::filesystem::exists(JoinPath(root, L"a.jpg")), "Outside destination is unchanged");
       Expect(RemoveDirectoryW(link.c_str()) && RemoveDirectoryW(escape.c_str()), "Remove test junctions");
     });
@@ -238,13 +259,67 @@ int main() {
     const auto source = JoinPath(staging, L"complete.part");
     Write(source, bytes);
     test("download saves nested paths, preserves bytes and never overwrites", [&] {
-      const auto first = SaveDownload(Utf8(source), {staging}, Utf8(destination), {"Peer", "Album", "旅行"}, "a.jpg");
-      const auto next = SaveDownload(Utf8(source), {staging}, Utf8(destination), {"Peer", "Album", "旅行"}, "a.jpg");
+      const auto first = SaveDownload({Utf8(source)}, static_cast<int64_t>(bytes.size()), {staging}, Utf8(destination), {"Peer", "Album", "旅行"}, "a.jpg");
+      const auto next = SaveDownload({Utf8(source)}, static_cast<int64_t>(bytes.size()), {staging}, Utf8(destination), {"Peer", "Album", "旅行"}, "a.jpg");
       Expect(first == JoinPath(destination, L"Peer\\Album\\旅行\\a.jpg"), "Preserve hierarchy");
       Expect(next == JoinPath(destination, L"Peer\\Album\\旅行\\a (1).jpg"), "Collision suffix");
       Expect(Read(first) == bytes && Read(next) == bytes, "Saved bytes");
-      Reject("INVALID_ARGUMENT", [&] { SaveDownload(Utf8(source), {staging}, Utf8(destination), {".."}, "a.jpg"); });
-      Reject("INVALID_ARGUMENT", [&] { SaveDownload(Utf8(photo), {staging}, Utf8(destination), {}, "a.jpg"); });
+      Reject("INVALID_ARGUMENT", [&] { SaveDownload({Utf8(source)}, static_cast<int64_t>(bytes.size()), {staging}, Utf8(destination), {".."}, "a.jpg"); });
+      Reject("INVALID_ARGUMENT", [&] { SaveDownload({Utf8(photo)}, static_cast<int64_t>(bytes.size()), {staging}, Utf8(destination), {}, "a.jpg"); });
+    });
+    test("ordered download parts stream directly to one destination and remain resumable", [&] {
+      std::vector<std::string> parts;
+      for (unsigned index = 0; index < 4; ++index) {
+        const auto part = JoinPath(staging, std::to_wstring(index) + L".part");
+        const auto start = bytes.begin() + index * 250;
+        Write(part, Bytes(start, start + 250));
+        parts.push_back(Utf8(part));
+      }
+      const auto saved = SaveDownload(parts, static_cast<int64_t>(bytes.size()), {staging},
+                                      Utf8(destination), {}, "four-parts.jpg");
+      Expect(Read(saved) == bytes, "Export preserves the order across every part boundary");
+      for (const auto& part : parts) {
+        Expect(Read(LocalPath(part)).size() == 250, "Export leaves original parts available until commit");
+      }
+      Expect(!std::filesystem::exists(JoinPath(staging, L"complete.partial")), "Export creates no merged staging copy");
+      Reject("FILE_CHANGED", [&] {
+        SaveDownload(parts, 999, {staging}, Utf8(destination), {}, "wrong-size.jpg");
+      });
+      Reject("FILE_CHANGED", [&] {
+        SaveDownload(parts, 1001, {staging}, Utf8(destination), {}, "wrong-size.jpg");
+      });
+      Expect(!std::filesystem::exists(JoinPath(destination, L"wrong-size.jpg")), "Size mismatch creates no destination");
+      parts[3] = Utf8(JoinPath(staging, L"missing.part"));
+      Reject("FILE_NOT_FOUND", [&] {
+        SaveDownload(parts, 1000, {staging}, Utf8(destination), {}, "missing-part.jpg");
+      });
+      Expect(!std::filesystem::exists(JoinPath(destination, L"missing-part.jpg")), "A missing later part creates no destination");
+      parts[3] = Utf8(photo);
+      Reject("INVALID_ARGUMENT", [&] {
+        SaveDownload(parts, 1750, {staging}, Utf8(destination), {}, "outside-part.jpg");
+      });
+      Expect(!std::filesystem::exists(JoinPath(destination, L"outside-part.jpg")), "Every source must remain in private storage");
+    });
+    test("empty files export but empty source lists and negative sizes are rejected", [&] {
+      const auto empty = JoinPath(staging, L"empty.part");
+      Write(empty, {});
+      const auto saved = SaveDownload({Utf8(empty)}, 0, {staging}, Utf8(destination), {}, "empty.jpg");
+      Expect(SafeFile::Open(saved).info().size == 0, "Empty media produces an empty file");
+      Reject("INVALID_ARGUMENT", [&] {
+        SaveDownload({}, 0, {staging}, Utf8(destination), {}, "invalid.jpg");
+      });
+      Reject("INVALID_ARGUMENT", [&] {
+        SaveDownload({Utf8(empty)}, -1, {staging}, Utf8(destination), {}, "invalid.jpg");
+      });
+    });
+    test("transfer capacity identifies the shared volume and available bytes", [&] {
+      const auto capacity = TransferSpace(staging, Utf8(destination));
+      Expect(capacity.staging_available_bytes.has_value() && *capacity.staging_available_bytes >= 0,
+             "Staging capacity is available");
+      Expect(capacity.destination_available_bytes.has_value() && *capacity.destination_available_bytes >= 0,
+             "Destination capacity is available");
+      Expect(capacity.same_volume.has_value() && *capacity.same_volume, "Sibling directories share one volume");
+      Reject("FILE_NOT_FOUND", [&] { TransferSpace(staging, Utf8(JoinPath(destination, L"missing"))); });
     });
     test("foreign media names adapt to Windows without accepting traversal", [&] {
       Expect(ReceivedName("CON.jpg") == "_CON.jpg", "Reserved names are prefixed");
@@ -253,7 +328,7 @@ int main() {
       Expect(ReceivedName("12:30.jpg") == "12_30.jpg", "Replace foreign filename punctuation");
       Reject("INVALID_ARGUMENT", [&] { ReceivedName("../outside.jpg"); });
       Reject("INVALID_ARGUMENT", [&] { ReceivedName("a\\b.jpg"); });
-      const auto saved = SaveDownload(Utf8(source), {staging}, Utf8(destination), {}, "CON.jpg");
+      const auto saved = SaveDownload({Utf8(source)}, static_cast<int64_t>(bytes.size()), {staging}, Utf8(destination), {}, "CON.jpg");
       Expect(saved == JoinPath(destination, L"_CON.jpg") && Read(saved) == bytes, "Save normalized reserved name");
     });
     test("concurrent saves allocate unique names atomically", [&] {
@@ -262,7 +337,7 @@ int main() {
       std::vector<std::thread> threads;
       for (size_t index = 0; index < saved.size(); ++index) {
         threads.emplace_back([&, index] {
-          try { saved[index] = SaveDownload(Utf8(source), {staging}, Utf8(destination), {"parallel"}, "same.jpg"); }
+          try { saved[index] = SaveDownload({Utf8(source)}, static_cast<int64_t>(bytes.size()), {staging}, Utf8(destination), {"parallel"}, "same.jpg"); }
           catch (...) { failed.store(true); }
         });
       }

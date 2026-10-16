@@ -7,6 +7,8 @@
 #include <functional>
 #include <map>
 #include <mutex>
+#include <optional>
+#include <set>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -97,25 +99,46 @@ struct MediaEntry {
 
 class MediaCatalog {
  public:
+  // Stops serving every file and cancels running scans.
   uint64_t Clear();
-  void AssertGeneration(uint64_t expected) const;
+  // Starts a rescan while the previous catalog keeps serving, so peers'
+  // transfers survive a refresh. Folders no longer shared stop at once.
+  uint64_t BeginScan(const std::set<std::string>& shared_folder_ids);
+  void AssertScan(uint64_t ticket) const;
   void Validate(const std::string& uri,
                 const std::vector<std::string>& existing) const;
+  // A failed current scan leaves nothing servable, as a revoked folder would.
   std::vector<MediaEntry> Scan(const std::vector<SharedDirectory>& directories,
-                             uint64_t expected);
+                             uint64_t ticket);
   Bytes Read(const std::string& id, int64_t offset, int64_t length);
   Bytes WithMedia(const std::string& id,
                   const std::function<Bytes(const MediaEntry&, const SafeFile&)>&
                       operation);
 
  private:
+  void RevokeLocked();
+  // A read may finish only while sharing continues and its file stays published.
+  void AssertCurrent(const std::string& id, const MediaEntry& entry,
+                     uint64_t generation) const;
+
   mutable std::mutex mutex_;
+  // Changes only when sharing stops or a scan fails; every read then ends.
   uint64_t generation_ = 0;
+  // The latest scan; starting another scan or clearing cancels older ones.
+  uint64_t ticket_ = 0;
   std::map<std::string, MediaEntry> files_;
 };
 
 std::wstring ValidateDirectory(const std::string& path);
-std::wstring SaveDownload(const std::string& source,
+struct TransferSpaceInfo {
+  std::optional<int64_t> staging_available_bytes;
+  std::optional<int64_t> destination_available_bytes;
+  std::optional<bool> same_volume;
+};
+TransferSpaceInfo TransferSpace(const std::wstring& staging,
+                               const std::string& destination);
+std::wstring SaveDownload(const std::vector<std::string>& sources,
+                          int64_t expected_size,
                           const std::vector<std::wstring>& allowed_roots,
                           const std::string& destination,
                           const std::vector<std::string>& directories,

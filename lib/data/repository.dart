@@ -19,18 +19,10 @@ class _MediaReadView {
   final List<Object?> arguments;
   final String table;
 
-  String columns(String alias) => table == 'media'
-      ? '$alias.*'
-      : '$alias.*, ${thumbnail(alias)} AS thumbnail';
+  String columns(String alias) => '$alias.*, ${thumbnail(alias)} AS thumbnail';
 
-  String thumbnail(String alias) => table == 'media'
-      ? '$alias.thumbnail'
-      : '''CASE WHEN $alias.session_id IS NULL
-          THEN (SELECT thumbnail FROM media m
-            WHERE m.device_id = $alias.device_id AND m.id = $alias.id)
-          ELSE (SELECT thumbnail FROM sync_media s
-            WHERE s.session_id = $alias.session_id AND s.id = $alias.id)
-        END''';
+  String thumbnail(String alias) =>
+      '(SELECT bytes FROM thumbnails WHERE id = $alias.thumbnail_id)';
 }
 
 /// Stores thumbnails with their metadata so offline browsing needs no network.
@@ -51,7 +43,7 @@ class TamayuraRepository implements CatalogRepository {
     final database = await dbFactory.openDatabase(
       dbPath,
       options: OpenDatabaseOptions(
-        version: 4,
+        version: 5,
         // UI and headless engines own independent connections and lifetimes.
         singleInstance: false,
         onConfigure: (db) async {
@@ -66,6 +58,7 @@ class TamayuraRepository implements CatalogRepository {
             'sync_media',
             'sync_sessions',
             'media',
+            'thumbnails',
             'downloads',
             'peers',
             'settings',
@@ -102,13 +95,18 @@ class TamayuraRepository implements CatalogRepository {
       catalog_revision TEXT NOT NULL DEFAULT '',
       catalog_generation INTEGER NOT NULL DEFAULT 0
     )''');
+    // Immutable bytes can be shared by the committed catalog and any durable
+    // snapshot. A reference to an empty BLOB is a completed thumbnail request.
+    await db.execute('''CREATE TABLE thumbnails (
+      id INTEGER PRIMARY KEY, bytes BLOB NOT NULL
+    )''');
     await db.execute('''CREATE TABLE media (
       device_id TEXT NOT NULL REFERENCES peers(id) ON DELETE CASCADE,
       id TEXT NOT NULL, name TEXT NOT NULL, mime_type TEXT NOT NULL,
       size INTEGER NOT NULL CHECK(size >= 0), modified_ms INTEGER NOT NULL,
       shared_folder_id TEXT NOT NULL, shared_folder_name TEXT NOT NULL,
       relative_path TEXT NOT NULL,
-      thumbnail BLOB NOT NULL, thumbnail_cached INTEGER NOT NULL DEFAULT 1,
+      thumbnail_id INTEGER NOT NULL REFERENCES thumbnails(id),
       PRIMARY KEY (device_id, id),
       UNIQUE(device_id, shared_folder_id, relative_path)
     )''');
@@ -126,6 +124,7 @@ class TamayuraRepository implements CatalogRepository {
     await db.execute(
       'CREATE INDEX media_page_collection ON media(device_id, shared_folder_id, modified_ms DESC, id)',
     );
+    await db.execute('CREATE INDEX media_thumbnail ON media(thumbnail_id)');
     await db.execute('''CREATE TABLE sync_sessions (
       id TEXT PRIMARY KEY, device_id TEXT NOT NULL, name TEXT NOT NULL,
       host TEXT NOT NULL, port INTEGER NOT NULL, last_seen INTEGER,
@@ -142,10 +141,13 @@ class TamayuraRepository implements CatalogRepository {
       size INTEGER NOT NULL CHECK(size >= 0), modified_ms INTEGER NOT NULL,
       shared_folder_id TEXT NOT NULL, shared_folder_name TEXT NOT NULL,
       relative_path TEXT NOT NULL,
-      thumbnail BLOB NOT NULL, thumbnail_cached INTEGER NOT NULL,
+      thumbnail_id INTEGER REFERENCES thumbnails(id),
       PRIMARY KEY(session_id, id),
       UNIQUE(session_id, shared_folder_id, relative_path)
     )''');
+    await db.execute(
+      'CREATE INDEX sync_media_thumbnail ON sync_media(thumbnail_id)',
+    );
   }
 
   Future<String?> getSetting(String key) async {
@@ -379,7 +381,7 @@ class TamayuraRepository implements CatalogRepository {
       }
       final counts = (await txn.rawQuery(
         '''SELECT COUNT(*) AS received,
-        COALESCE(SUM(thumbnail_cached), 0) AS ready FROM sync_media
+        COUNT(thumbnail_id) AS ready FROM sync_media
         WHERE session_id = ?''',
         [sessionId],
       )).single;
@@ -417,7 +419,7 @@ class TamayuraRepository implements CatalogRepository {
           'shared_folder_name',
           'relative_path',
         ],
-        where: 'session_id = ? AND thumbnail_cached = 0',
+        where: 'session_id = ? AND thumbnail_id IS NULL',
         whereArgs: [sessionId],
         orderBy: 'id',
         limit: limit,
@@ -475,8 +477,8 @@ class TamayuraRepository implements CatalogRepository {
     return token;
   }
 
-  /// Returns only the entries needing thumbnails. Unchanged bytes are copied
-  /// inside SQLite, never loaded into Dart or requested from the other phone.
+  /// Returns only the entries needing thumbnails. Reusing immutable thumbnail
+  /// IDs keeps both ordinary staging and revision restarts free of BLOB copies.
   @override
   Future<List<MediaMetadata>> stageMediaPage(
     String sessionId,
@@ -515,15 +517,14 @@ class TamayuraRepository implements CatalogRepository {
           item.relativePath,
         ];
         const match =
-            'device_id = ? AND id = ? AND name = ? AND mime_type = ? AND size = ? AND modified_ms = ? AND shared_folder_id = ? AND shared_folder_name = ? AND relative_path = ? AND thumbnail_cached = 1';
+            'device_id = ? AND id = ? AND name = ? AND mime_type = ? AND size = ? AND modified_ms = ? AND shared_folder_id = ? AND shared_folder_name = ? AND relative_path = ?';
         const stagedMatch =
-            's.device_id = ? AND m.id = ? AND m.name = ? AND m.mime_type = ? AND m.size = ? AND m.modified_ms = ? AND m.shared_folder_id = ? AND m.shared_folder_name = ? AND m.relative_path = ? AND m.thumbnail_cached = 1';
+            's.device_id = ? AND m.id = ? AND m.name = ? AND m.mime_type = ? AND m.size = ? AND m.modified_ms = ? AND m.shared_folder_id = ? AND m.shared_folder_name = ? AND m.relative_path = ? AND m.thumbnail_id IS NOT NULL';
         const cached =
-            '(SELECT thumbnail FROM media WHERE $match UNION ALL SELECT m.thumbnail FROM sync_media m JOIN sync_sessions s ON s.id = m.session_id WHERE $stagedMatch LIMIT 1)';
+            '(SELECT thumbnail_id FROM media WHERE $match UNION ALL SELECT m.thumbnail_id FROM sync_media m JOIN sync_sessions s ON s.id = m.session_id WHERE $stagedMatch LIMIT 1)';
         batch.rawInsert(
-          '''INSERT INTO sync_media(session_id,id,name,mime_type,size,modified_ms,shared_folder_id,shared_folder_name,relative_path,thumbnail,thumbnail_cached)
-          VALUES(?,?,?,?,?,?,?,?,?,COALESCE($cached,?),
-          CASE WHEN $cached IS NOT NULL THEN 1 ELSE 0 END)''',
+          '''INSERT INTO sync_media(session_id,id,name,mime_type,size,modified_ms,shared_folder_id,shared_folder_name,relative_path,thumbnail_id)
+          VALUES(?,?,?,?,?,?,?,?,?,$cached)''',
           [
             sessionId,
             item.id,
@@ -534,9 +535,6 @@ class TamayuraRepository implements CatalogRepository {
             item.sharedFolderId,
             item.sharedFolderName,
             item.relativePath,
-            ...same,
-            ...same,
-            Uint8List(0),
             ...same,
             ...same,
           ],
@@ -578,7 +576,7 @@ class TamayuraRepository implements CatalogRepository {
         'sync_media',
         columns: ['id'],
         where:
-            'session_id = ? AND thumbnail_cached = 0 AND id IN (${List.filled(ids.length, '?').join(',')})',
+            'session_id = ? AND thumbnail_id IS NULL AND id IN (${List.filled(ids.length, '?').join(',')})',
         whereArgs: [sessionId, ...ids],
       );
       final missingIds = missing.map((row) => row['id']! as String).toSet();
@@ -595,13 +593,25 @@ class TamayuraRepository implements CatalogRepository {
     if (bytes.length > 512 * 1024) throw const FormatException('缩略图超过允许大小');
     await _database.transaction((txn) async {
       await _session(txn, sessionId);
+      final previous = await txn.query(
+        'sync_media',
+        columns: ['thumbnail_id'],
+        where: 'session_id = ? AND id = ?',
+        whereArgs: [sessionId, mediaId],
+      );
+      if (previous.isEmpty) throw const SnapshotConflictException();
+      final previousId = previous.single['thumbnail_id'] as int?;
+      final thumbnailId = await txn.insert('thumbnails', {'bytes': bytes});
       final count = await txn.update(
         'sync_media',
-        {'thumbnail': bytes, 'thumbnail_cached': 1},
+        {'thumbnail_id': thumbnailId},
         where: 'session_id = ? AND id = ?',
         whereArgs: [sessionId, mediaId],
       );
       if (count != 1) throw const SnapshotConflictException();
+      if (previousId != null) {
+        await _deleteUnusedThumbnails(txn, thumbnailId: previousId);
+      }
     });
   }
 
@@ -621,7 +631,7 @@ class TamayuraRepository implements CatalogRepository {
         throw const SnapshotConflictException();
       }
       final counts = (await txn.rawQuery(
-        'SELECT COUNT(*) AS total, COALESCE(SUM(CASE WHEN thumbnail_cached = 0 THEN 1 ELSE 0 END),0) AS missing FROM sync_media WHERE session_id = ?',
+        'SELECT COUNT(*) AS total, COUNT(*) - COUNT(thumbnail_id) AS missing FROM sync_media WHERE session_id = ?',
         [sessionId],
       )).single;
       final total = counts['total']! as int;
@@ -675,13 +685,13 @@ class TamayuraRepository implements CatalogRepository {
       (SELECT 1 FROM sync_media s WHERE s.session_id = ? AND s.id = media.id)''',
         [deviceId, sessionId],
       );
-      // Rewriting only changed rows avoids touching every cached thumbnail on an
-      // incremental update. Download history is deliberately independent.
+      // Only metadata and thumbnail references move into the committed catalog.
+      // Download history is deliberately independent.
       await txn.rawInsert(
-        '''INSERT OR REPLACE INTO media(device_id,id,name,mime_type,size,modified_ms,shared_folder_id,shared_folder_name,relative_path,thumbnail,thumbnail_cached)
-      SELECT ?,s.id,s.name,s.mime_type,s.size,s.modified_ms,s.shared_folder_id,s.shared_folder_name,s.relative_path,s.thumbnail,s.thumbnail_cached FROM sync_media s
+        '''INSERT OR REPLACE INTO media(device_id,id,name,mime_type,size,modified_ms,shared_folder_id,shared_folder_name,relative_path,thumbnail_id)
+      SELECT ?,s.id,s.name,s.mime_type,s.size,s.modified_ms,s.shared_folder_id,s.shared_folder_name,s.relative_path,s.thumbnail_id FROM sync_media s
       WHERE s.session_id = ? AND NOT EXISTS(SELECT 1 FROM media m WHERE m.device_id = ? AND m.id = s.id
-        AND m.name = s.name AND m.mime_type = s.mime_type AND m.size = s.size AND m.modified_ms = s.modified_ms AND m.shared_folder_id = s.shared_folder_id AND m.shared_folder_name = s.shared_folder_name AND m.relative_path = s.relative_path AND m.thumbnail_cached = 1)''',
+        AND m.name = s.name AND m.mime_type = s.mime_type AND m.size = s.size AND m.modified_ms = s.modified_ms AND m.shared_folder_id = s.shared_folder_id AND m.shared_folder_name = s.shared_folder_name AND m.relative_path = s.relative_path AND m.thumbnail_id = s.thumbnail_id)''',
         [deviceId, sessionId, deviceId],
       );
       await txn.delete(
@@ -689,6 +699,7 @@ class TamayuraRepository implements CatalogRepository {
         where: 'device_id = ?',
         whereArgs: [deviceId],
       );
+      await _deleteUnusedThumbnails(txn);
       return SnapshotCommit(
         totalCount: total,
         addedCount: added,
@@ -703,10 +714,27 @@ class TamayuraRepository implements CatalogRepository {
   Future<void> abortPeerSnapshot(String sessionId) async {
     // Stop previewing immediately even if on-disk stage cleanup fails.
     _removePreview(sessionId);
-    await _database.delete(
-      'sync_sessions',
-      where: 'id = ?',
-      whereArgs: [sessionId],
+    await _database.transaction((txn) async {
+      await txn.delete(
+        'sync_sessions',
+        where: 'id = ?',
+        whereArgs: [sessionId],
+      );
+      await _deleteUnusedThumbnails(txn);
+    });
+  }
+
+  // Delete only after all reference updates in the same transaction. A stage
+  // may share an image with another stage or the committed offline catalog.
+  static Future<void> _deleteUnusedThumbnails(
+    DatabaseExecutor db, {
+    int? thumbnailId,
+  }) async {
+    await db.rawDelete(
+      '''DELETE FROM thumbnails WHERE ${thumbnailId == null ? '' : 'id = ? AND '}
+      NOT EXISTS(SELECT 1 FROM media WHERE thumbnail_id = thumbnails.id)
+      AND NOT EXISTS(SELECT 1 FROM sync_media WHERE thumbnail_id = thumbnails.id)''',
+      [?thumbnailId],
     );
   }
 
@@ -717,7 +745,7 @@ class TamayuraRepository implements CatalogRepository {
     if (_previewSessions.isEmpty) return const _MediaReadView();
     final sessions = _previewSessions.values.toList(growable: false);
     const columns =
-        'id, name, mime_type, size, modified_ms, shared_folder_id, shared_folder_name, relative_path';
+        'id, name, mime_type, size, modified_ms, shared_folder_id, shared_folder_name, relative_path, thumbnail_id';
     String qualified(String alias) =>
         columns.split(', ').map((column) => '$alias.$column').join(', ');
     return _MediaReadView(
@@ -729,7 +757,7 @@ class TamayuraRepository implements CatalogRepository {
         FROM sync_media m JOIN sync_sessions s ON s.id = m.session_id
         LEFT JOIN peers p ON p.id = s.device_id
         WHERE s.id IN (${List.filled(sessions.length, '?').join(',')})
-          AND m.thumbnail_cached = 1
+          AND m.thumbnail_id IS NOT NULL
           AND s.base_generation = COALESCE(p.catalog_generation, 0)
       ), visible_media AS (
         SELECT m.device_id, ${qualified('m')}, NULL AS session_id
@@ -778,8 +806,16 @@ class TamayuraRepository implements CatalogRepository {
         [peer.id],
       );
       await txn.delete('media', where: 'device_id = ?', whereArgs: [peer.id]);
+      await txn.delete(
+        'sync_sessions',
+        where: 'device_id = ?',
+        whereArgs: [peer.id],
+      );
       final batch = txn.batch();
       for (final item in items) {
+        final thumbnailId = await txn.insert('thumbnails', {
+          'bytes': item.thumbnail,
+        });
         batch.insert('media', {
           'device_id': item.deviceId,
           'id': item.id,
@@ -790,10 +826,11 @@ class TamayuraRepository implements CatalogRepository {
           'shared_folder_id': item.sharedFolderId,
           'shared_folder_name': item.sharedFolderName,
           'relative_path': item.relativePath,
-          'thumbnail': item.thumbnail,
+          'thumbnail_id': thumbnailId,
         });
       }
       await batch.commit(noResult: true);
+      await _deleteUnusedThumbnails(txn);
     });
   }
 

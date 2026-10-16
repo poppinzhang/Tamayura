@@ -47,6 +47,7 @@ enum TransferStatus {
   completed,
   failed,
   cancelled,
+  discarded,
 }
 
 class TransferView {
@@ -128,5 +129,6 @@ abstract class TamayuraModel extends ChangeNotifier {
   Future<Uint8List?> loadPreview(MediaView item) async => null;
   Future<void> open(MediaView item) => share(item);
   Future<void> cancelDownload(String key) async {}
+  Future<void> discardDownload(String key) async {}
   void clearError();
 }

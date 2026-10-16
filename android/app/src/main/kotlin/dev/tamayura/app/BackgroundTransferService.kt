@@ -126,10 +126,12 @@ class BackgroundTransferService : JobService() {
                     val success = call.argument<Boolean>("success") == true
                     val cancelled = call.argument<Boolean>("cancelled") == true
                     val error = call.argument<String>("error")
+                    // Dart queued the task because its peer is temporarily unreachable.
+                    val retry = !success && !cancelled && call.argument<Boolean>("retry") == true
                     result.success(null)
                     // Deliver the channel reply before tearing down its isolate.
                     main.post {
-                        if (isCurrent(session)) finish(session, success, error, cancelled)
+                        if (isCurrent(session)) finish(session, success, error, cancelled, retry)
                     }
                 }
                 else -> result.notImplemented()
@@ -144,7 +146,7 @@ class BackgroundTransferService : JobService() {
             result.error("TRANSFER_STOPPED", "后台下载已停止", null)
             return
         }
-        if (call.method !in setOf("transferDirectory", "saveDownload")) { result.notImplemented(); return }
+        if (call.method !in setOf("transferDirectory", "saveDownload", "transferSpace")) { result.notImplemented(); return }
         session.ioCount += 1
         session.io.execute {
             var value: Any? = null
@@ -153,8 +155,11 @@ class BackgroundTransferService : JobService() {
                 if (session.stopping.get()) throw java.util.concurrent.CancellationException("下载已停止")
                 value = when (call.method) {
                     "transferDirectory" -> TransferScheduler.directory(applicationContext)
+                    "transferSpace" -> media.transferSpace(call.requiredString("directoryUri"))
                     else -> media.saveDownload(
-                        call.requiredString("sourcePath"), call.requiredString("directoryUri"),
+                        call.argument<List<String>>("sourcePaths") ?: throw IllegalArgumentException("Missing sourcePaths"),
+                        call.argument<Number>("expectedSize")?.toLong() ?: throw IllegalArgumentException("Missing expectedSize"),
+                        call.requiredString("directoryUri"),
                         call.requiredString("name"), call.requiredString("mimeType"),
                         call.argument<List<String>>("directories")
                             ?: throw IllegalArgumentException("Missing directories"),
@@ -201,7 +206,7 @@ class BackgroundTransferService : JobService() {
         session.cancelled = session.cancelled || cancelled
         if (!session.stopping.compareAndSet(false, true)) return
         sendStop(session, reason)
-        try { publish(session, if (session.cancelled) "下载已取消" else "下载暂停，等待局域网恢复", false) }
+        try { publish(session, if (session.cancelled) "下载已暂停" else "下载暂停，等待局域网恢复", false) }
         catch (_: Exception) { }
         main.postDelayed({
             if (isCurrent(session)) finish(session, false, null, session.cancelled)
@@ -212,18 +217,22 @@ class BackgroundTransferService : JobService() {
         session.workerChannel?.invokeMethod("stop", mapOf("reason" to reason, "cancelled" to session.cancelled))
     }
 
-    private fun finish(session: Session, success: Boolean, error: String?, cancelled: Boolean = false) {
+    private fun finish(session: Session, success: Boolean, error: String?, cancelled: Boolean = false,
+                       retry: Boolean = false) {
         if (!isCurrent(session) || session.terminal) return
         session.terminal = true
         val paused = session.stopping.get() && !session.cancelled && !cancelled
         val text = when {
-            cancelled || session.cancelled -> "下载已取消"
+            cancelled || session.cancelled -> "下载已暂停"
             paused -> "下载暂停，等待局域网恢复"
             success -> "下载完成，可以打开应用查看或分享"
+            retry -> RETRY_TEXT
             else -> error?.take(200) ?: "下载失败，请打开应用重试"
         }
         try { publish(session, text, false) } catch (_: Exception) { }
-        if (!session.jobStopped) jobFinished(session.params, false)
+        // A reschedule uses the job's exponential backoff; the Dart worker bounds
+        // the total outage and then records a failure instead of asking again.
+        if (!session.jobStopped) jobFinished(session.params, retry && !session.cancelled)
         session.stopping.set(true)
         destroyEngine(session)
     }
@@ -292,6 +301,7 @@ class BackgroundTransferService : JobService() {
     }
 
     companion object {
+        internal const val RETRY_TEXT = "对端暂时不可用，稍后自动重试"
         private val gate = TransferRunGate()
         private val running = mutableMapOf<String, Pair<BackgroundTransferService, Session>>()
         private val waiting = mutableMapOf<String, MutableList<() -> Unit>>()

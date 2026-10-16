@@ -64,7 +64,6 @@ final class MacOSPlatform: NSObject, NSSharingServicePickerDelegate, NSSharingSe
         let uri = try string("uri"), existing = try strings("existingUris")
         background(result) { try self.media.validate(uri, existing: existing); return nil }
       case "scanDirectoriesMetadata":
-        let generation = media.clear()
         guard let values = args["directories"] as? [[String: String]] else { throw PlatformFailure.invalid("缺少共享目录") }
         let directories = try values.map { value -> SharedDirectory in
           guard let id = value["id"], let uri = value["uri"], let name = value["name"] else {
@@ -72,6 +71,9 @@ final class MacOSPlatform: NSObject, NSSharingServicePickerDelegate, NSSharingSe
           }
           return SharedDirectory(id: id, uri: uri, name: name)
         }
+        // Cancel older scans and drop removed folders now; retained files keep
+        // serving peers until this scan publishes its replacement.
+        let generation = media.beginScan(directories)
         background(result) {
           // The first scan precedes gRPC/discovery startup, so it needs its own
           // bounded activity before the service's long-lived activity exists.
@@ -85,11 +87,10 @@ final class MacOSPlatform: NSObject, NSSharingServicePickerDelegate, NSSharingSe
       case "thumbnail":
         let id = try string("id")
         background(result) {
-          try self.media.withMedia(id) { entry, file in
-            // Unsupported media still has metadata; only its thumbnail is empty.
-            let bytes = (try? MediaPreview.jpeg(file: file, video: entry.mimeType.hasPrefix("video/"), maximum: 256, mimeType: entry.mimeType)) ?? Data()
-            return FlutterStandardTypedData(bytes: bytes)
+          let bytes = try self.media.thumbnail(id) { entry, file in
+            try MediaPreview.jpeg(file: file, video: entry.mimeType.hasPrefix("video/"), maximum: 256, mimeType: entry.mimeType)
           }
+          return FlutterStandardTypedData(bytes: bytes)
         }
       case "readRange":
         let id = try string("id")
@@ -106,11 +107,12 @@ final class MacOSPlatform: NSObject, NSSharingServicePickerDelegate, NSSharingSe
           }
         }
       case "saveDownload":
-        let source = try string("sourcePath"), uri = try string("directoryUri"), name = try string("name")
+        let sources = try strings("sourcePaths"), uri = try string("directoryUri"), name = try string("name")
+        guard let expectedSize = args["expectedSize"] as? Int64 else { throw PlatformFailure.invalid("缺少下载大小") }
         let directories = try strings("directories")
         background(result) {
           try self.bookmarks.withDirectory(uri) { root in
-            let saved = try DownloadWriter.save(source: URL(fileURLWithPath: source),
+            let saved = try DownloadWriter.save(sources: sources.map { URL(fileURLWithPath: $0) }, expectedSize: expectedSize,
               allowedRoots: [self.cacheDirectory(), self.transferDirectory()], destination: root,
               directories: directories, name: name)
             // Preserve the original bookmark URI so downloaded-file access also
@@ -118,6 +120,13 @@ final class MacOSPlatform: NSObject, NSSharingServicePickerDelegate, NSSharingSe
             let original = try StoragePaths.fileURL(uri)
             let relative = try StoragePaths.relative(saved, root: root)
             return relative.reduce(original) { $0.appendingPathComponent($1) }.absoluteString
+          }
+        }
+      case "transferSpace":
+        let uri = try string("directoryUri")
+        background(result) {
+          try self.bookmarks.withDirectory(uri) { root in
+            try DownloadWriter.space(staging: self.transferDirectory(), destination: root)
           }
         }
       case "temporaryDirectory": result(try cacheDirectory().path)

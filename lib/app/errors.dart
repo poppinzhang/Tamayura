@@ -1,8 +1,10 @@
 import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:grpc/grpc.dart';
+import '../network/downloader.dart' show TransferStalled;
 
 String describeError(Object error) {
+  if (error is TransferStalled) return '对端长时间没有响应，可能已休眠或离开局域网';
   if (error is FormatException) return error.message;
   if (error is PlatformException) return error.message ?? '系统操作失败，请重试';
   if (error is GrpcError) {

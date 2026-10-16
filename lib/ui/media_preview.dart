@@ -364,6 +364,9 @@ class _MediaPreviewPageState extends State<MediaPreviewPage> {
                             onCancel: () => _run(
                               () => widget.model.cancelDownload(item.key),
                             ),
+                            onDiscard: () => _run(
+                              () => widget.model.discardDownload(item.key),
+                            ),
                             onShare: () => _run(() => widget.model.share(item)),
                             onOpen: () => _run(() => widget.model.open(item)),
                           ),

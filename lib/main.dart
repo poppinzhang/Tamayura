@@ -30,7 +30,7 @@ class _TamayuraRootState extends State<_TamayuraRoot>
     isMacOS: Platform.isMacOS,
     isWindows: Platform.isWindows,
     setForeground: controller.setForeground,
-    onResume: _refreshAfterResume,
+    onResume: controller.refreshAfterResume,
   );
   @override
   void initState() {
@@ -43,10 +43,6 @@ class _TamayuraRootState extends State<_TamayuraRoot>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     unawaited(lifecycle.handleState(state));
-  }
-
-  Future<void> _refreshAfterResume() async {
-    if (!controller.loading && !controller.busy) await controller.refresh();
   }
 
   @override

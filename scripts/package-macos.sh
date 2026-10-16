@@ -40,7 +40,25 @@ if [[ "$minimum" != '15.0' ]]; then
   echo "最低系统版本应为 15.0，实际为 $minimum。" >&2
   exit 1
 fi
-codesign --verify --deep --strict "$app_path"
+codesign --verify --deep --strict --all-architectures "$app_path"
+# Swift plugin debug symbols can retain local source paths in a Release binary.
+# Only rewrite this script's ad-hoc preview signatures; never replace a
+# Developer ID or other certificate-backed signature with an ad-hoc signature.
+architectures=$(lipo -archs "$app_path/Contents/MacOS/Tamayura")
+for architecture in $architectures; do
+  signature=$(codesign --display --arch "$architecture" --verbose=4 "$app_path" 2>&1)
+  if ! grep -Fxq 'Signature=adhoc' <<< "$signature"; then
+    echo '仅支持处理 ad-hoc 本地试用签名；拒绝修改其他类型的应用签名。' >&2
+    exit 1
+  fi
+done
+xcrun strip -S "$app_path/Contents/MacOS/Tamayura"
+# Apply the declared Release permissions rather than retaining Xcode's injected
+# get-task-allow entitlement. Keep all other existing signing metadata.
+codesign --force --sign - \
+  --entitlements macos/Runner/Release.entitlements \
+  --preserve-metadata=identifier,requirements,flags,runtime "$app_path"
+codesign --verify --deep --strict --all-architectures "$app_path"
 actual_version=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app_path/Contents/Info.plist")
 actual_build=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$app_path/Contents/Info.plist")
 if [[ "$actual_version" != "$version" || "$actual_build" != "$build_number" ]]; then

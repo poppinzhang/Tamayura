@@ -14,6 +14,7 @@ import 'package:tamayura/data/transfer_store.dart';
 import 'package:tamayura/network/downloader.dart';
 import 'package:tamayura/network/media_rpc.dart';
 import 'package:tamayura/platform/android_bridge.dart';
+import 'package:tamayura/platform/platform_bridge.dart';
 
 const _peer = Peer(
   id: 'source-phone',
@@ -47,15 +48,28 @@ class _ExportBridge extends AndroidBridge {
   _ExportBridge(this.exports);
   final Directory exports;
   int saves = 0;
+  TransferSpaceInfo space = const TransferSpaceInfo();
+  final spaceChecks = <String>[];
+
+  @override
+  Future<TransferSpaceInfo> transferSpace({
+    required String directoryUri,
+  }) async {
+    spaceChecks.add(directoryUri);
+    return space;
+  }
+
   bool fail = false;
   String? savedName, destination;
   List<String>? savedDirectories;
+  List<String>? savedSourcePaths;
   File? exported;
   Future<void> Function()? beforeSave;
 
   @override
   Future<String> saveDownload({
-    required String sourcePath,
+    required List<String> sourcePaths,
+    required int expectedSize,
     required String directoryUri,
     required String name,
     required String mimeType,
@@ -70,8 +84,21 @@ class _ExportBridge extends AndroidBridge {
     destination = directoryUri;
     savedName = name;
     savedDirectories = directories;
+    savedSourcePaths = List.of(sourcePaths);
     await exports.create(recursive: true);
-    exported = await File(sourcePath).copy(p.join(exports.path, name));
+    exported = File(p.join(exports.path, name));
+    final output = await exported!.open(mode: FileMode.write);
+    try {
+      for (final path in sourcePaths) {
+        await for (final bytes in File(path).openRead()) {
+          await output.writeFrom(bytes);
+        }
+      }
+      await output.flush();
+    } finally {
+      await output.close();
+    }
+    expect(await exported!.length(), expectedSize);
     return 'content://tamayura-test/$name';
   }
 }
@@ -159,6 +186,8 @@ void main() {
   TransferRunner runner({
     MediaRpcClient Function(Peer)? clientFactory,
     Future<void> Function(int, int, String)? progress,
+    DateTime Function()? clock,
+    Duration stallTimeout = defaultStallTimeout,
   }) => TransferRunner(
     store: store,
     repository: repository,
@@ -167,6 +196,8 @@ void main() {
     clientFactory: clientFactory,
     progress: progress,
     retryDelay: Duration.zero,
+    clock: clock,
+    stallTimeout: stallTimeout,
   );
 
   group('durable transfer store', () {
@@ -718,6 +749,12 @@ void main() {
         );
         bridge.beforeSave = () async {
           expect((await store.get(task.id))!.state, DownloadState.saving);
+          expect(
+            await File(
+              p.join(staging.path, task.id, 'complete.partial'),
+            ).exists(),
+            isFalse,
+          );
         };
         final progress = <int>[];
         await runner(
@@ -754,12 +791,76 @@ void main() {
     );
 
     test(
-      'network failures preserve flushed parts and manual retry resumes the exact offset',
+      'large transfers export all four ordered parts without another staging copy',
+      () async {
+        final size = parallelDownloadThreshold + 3;
+        final item = _item(size: size);
+        final task = await store.enqueue(_peer, item, 'content://receive');
+        final ranges = downloadRanges(size);
+        bridge.beforeSave = () async {
+          final files = await Directory(
+            p.join(staging.path, task.id),
+          ).list().toList();
+          expect(
+            files.map((file) => p.basename(file.path)),
+            unorderedEquals([
+              'manifest.json',
+              '0.part',
+              '1.part',
+              '2.part',
+              '3.part',
+            ]),
+          );
+          var staged = 0;
+          for (final file in files.whereType<File>().where(
+            (file) => file.path.endsWith('.part'),
+          )) {
+            staged += await file.length();
+          }
+          expect(staged, size);
+        };
+        await runner(
+          clientFactory: (peer) =>
+              _ScriptClient(peer, (_, offset, length) async* {
+                final marker =
+                    ranges.indexWhere((range) => range.offset == offset) + 1;
+                while (length > 0) {
+                  final count = length.clamp(0, 256 * 1024);
+                  yield Uint8List(count)..fillRange(0, count, marker);
+                  length -= count;
+                }
+              }),
+        ).run(task.id);
+        expect((await store.get(task.id))!.state, DownloadState.completed);
+        expect(bridge.savedSourcePaths!.map(p.basename), [
+          '0.part',
+          '1.part',
+          '2.part',
+          '3.part',
+        ]);
+        final exported = await bridge.exported!.open();
+        try {
+          for (var index = 0; index < ranges.length; index++) {
+            final range = ranges[index];
+            await exported.setPosition(range.offset);
+            expect(await exported.readByte(), index + 1);
+            await exported.setPosition(range.offset + range.length - 1);
+            expect(await exported.readByte(), index + 1);
+          }
+        } finally {
+          await exported.close();
+        }
+      },
+    );
+
+    test(
+      'a lost peer queues automatic retries until the outage window ends, keeping flushed parts',
       () async {
         final bytes = Uint8List.fromList(List.generate(10, (index) => index));
         final item = _item(size: bytes.length);
         final task = await store.enqueue(_peer, item, 'content://receive');
         var offline = true;
+        var now = DateTime(2026, 10, 17, 9);
         final offsets = <int>[];
         Stream<Uint8List> read(String id, int offset, int length) async* {
           offsets.add(offset);
@@ -774,23 +875,46 @@ void main() {
 
         final worker = runner(
           clientFactory: (peer) => _ScriptClient(peer, read),
+          clock: () => now,
         );
-        await worker.run(task.id);
-        final failed = (await store.get(task.id))!;
-        expect(failed.state, DownloadState.failed);
-        expect(failed.received, 4);
-        expect(offsets, [
-          0,
-          4,
-          4,
-        ], reason: 'Transient failures have three bounded attempts');
+        expect(await worker.run(task.id), TransferOutcome.retryLater);
+        final waiting = (await store.get(task.id))!;
+        expect(waiting.state, DownloadState.queued);
+        expect(waiting.received, 4);
+        expect(waiting.error, contains('稍后会自动重试'));
+        expect(waiting.outageSinceMs, now.millisecondsSinceEpoch);
+        expect(
+          offsets,
+          [0, 4, 4, 4],
+          reason: 'Arriving bytes reset the count before three empty attempts',
+        );
         final part = File(p.join(staging.path, task.id, '0.part'));
         expect(await part.readAsBytes(), orderedEquals(bytes.take(4)));
+
+        // Still unreachable: the outage keeps its original start.
+        final started = now;
+        now = now.add(const Duration(minutes: 10));
+        expect(await worker.run(task.id), TransferOutcome.retryLater);
+        expect(
+          (await store.get(task.id))!.outageSinceMs,
+          started.millisecondsSinceEpoch,
+        );
+
+        // Past the window the task fails and waits for the user.
+        now = started.add(transferOutageWindow);
+        expect(await worker.run(task.id), TransferOutcome.finished);
+        final failed = (await store.get(task.id))!;
+        expect(failed.state, DownloadState.failed);
+        expect(failed.error, isNot(contains('自动重试')));
+        expect(failed.outageSinceMs, isNull);
+        expect(await part.readAsBytes(), orderedEquals(bytes.take(4)));
         expect(bridge.saves, 0);
+
         offline = false;
         final retry = await store.enqueue(_peer, item, 'content://receive');
         expect(retry.id, task.id);
         expect(retry.attempt, 2);
+        expect(retry.outageSinceMs, isNull);
         await worker.run(task.id);
         expect(offsets.last, 4);
         expect((await store.get(task.id))!.state, DownloadState.completed);
@@ -798,6 +922,260 @@ void main() {
         expect(await part.exists(), isFalse);
       },
     );
+
+    test('bytes arriving during an outage restart its window', () async {
+      final item = _item(size: 10);
+      final task = await store.enqueue(_peer, item, 'content://receive');
+      var now = DateTime(2026, 10, 17, 9);
+      var deliver = 0;
+      Stream<Uint8List> read(String id, int offset, int length) async* {
+        if (deliver > 0) {
+          final count = deliver;
+          deliver = 0;
+          yield Uint8List(count);
+        }
+        throw const GrpcError.unknown('HTTP/2 error: Connection error');
+      }
+
+      final worker = runner(
+        clientFactory: (peer) => _ScriptClient(peer, read),
+        clock: () => now,
+      );
+      final started = now;
+      expect(await worker.run(task.id), TransferOutcome.retryLater);
+      expect(
+        (await store.get(task.id))!.outageSinceMs,
+        started.millisecondsSinceEpoch,
+      );
+      now = started.add(const Duration(minutes: 20));
+      deliver = 3;
+      expect(await worker.run(task.id), TransferOutcome.retryLater);
+      expect(
+        (await store.get(task.id))!.outageSinceMs,
+        now.millisecondsSinceEpoch,
+      );
+      now = started.add(const Duration(minutes: 40));
+      expect(
+        await worker.run(task.id),
+        TransferOutcome.retryLater,
+        reason: 'Only 20 minutes have passed since bytes last arrived',
+      );
+      expect((await store.get(task.id))!.received, 3);
+    });
+
+    for (final stopImmediately in [true, false]) {
+      test(
+        'recovery clears the old outage ${stopImmediately ? 'when immediately stopped' : 'before a system stop'}',
+        () async {
+          final task = await store.enqueue(_peer, _item(), 'content://receive');
+          final started = DateTime(2026, 10, 17, 9);
+          var now = started.add(const Duration(minutes: 20));
+          await store.update(task.id, {
+            'outage_since_ms': started.millisecondsSinceEpoch,
+          });
+          final observer = await openStore();
+          addTearDown(observer.close);
+          final initialProgress = Completer<void>();
+          final recoverySaved = Completer<TransferTask>();
+          final channelClosed = Completer<void>();
+          final cancellation = DownloadCancellation();
+          Stream<Uint8List> read(String id, int offset, int length) async* {
+            await initialProgress.future;
+            yield Uint8List.fromList([1, 2, 3]);
+            if (stopImmediately) cancellation.cancel();
+            await channelClosed.future;
+            throw const GrpcError.cancelled('system stop');
+          }
+
+          final running = runner(
+            clock: () => now,
+            clientFactory: (peer) => _ScriptClient(
+              peer,
+              read,
+              onClose: () {
+                if (!channelClosed.isCompleted) channelClosed.complete();
+              },
+            ),
+            progress: (received, _, _) async {
+              if (received == 0 && !initialProgress.isCompleted) {
+                initialProgress.complete();
+              }
+              if (received == 3 && !recoverySaved.isCompleted) {
+                recoverySaved.complete((await observer.get(task.id))!);
+              }
+            },
+          ).run(task.id, cancellation: cancellation);
+          try {
+            if (!stopImmediately) {
+              // The injected clock has not advanced past the 400 ms throttle.
+              // Another connection must see recovery while the run is active.
+              final active = await recoverySaved.future.timeout(
+                const Duration(seconds: 3),
+              );
+              expect(active.state, DownloadState.downloading);
+              expect(active.received, 3);
+              expect(active.outageSinceMs, isNull);
+            }
+          } finally {
+            if (!stopImmediately) cancellation.cancel();
+            await running.timeout(const Duration(seconds: 3));
+          }
+          final paused = (await store.get(task.id))!;
+          expect(paused.state, DownloadState.queued);
+          expect(paused.received, 3);
+          expect(paused.outageSinceMs, isNull);
+          expect(bridge.saves, 0);
+
+          // A new worker must not apply the outage from before the recovery.
+          await store.close();
+          store = await openStore();
+          now = started.add(const Duration(minutes: 31));
+          expect(
+            await runner(
+              clock: () => now,
+              clientFactory: (peer) => _ScriptClient(
+                peer,
+                (_, _, _) => Stream.error(const GrpcError.unavailable()),
+              ),
+            ).run(task.id),
+            TransferOutcome.retryLater,
+          );
+          final waiting = (await store.get(task.id))!;
+          expect(waiting.state, DownloadState.queued);
+          expect(waiting.outageSinceMs, now.millisecondsSinceEpoch);
+        },
+      );
+    }
+
+    test('a system stop without new bytes preserves the old outage', () async {
+      final task = await store.enqueue(_peer, _item(), 'content://receive');
+      final started = DateTime(2026, 10, 17, 9);
+      var now = started.add(const Duration(minutes: 20));
+      await store.update(task.id, {
+        'outage_since_ms': started.millisecondsSinceEpoch,
+      });
+      final cancellation = DownloadCancellation();
+      Stream<Uint8List> read(String id, int offset, int length) async* {
+        cancellation.cancel();
+        throw const GrpcError.cancelled('system stop');
+      }
+
+      await runner(
+        clock: () => now,
+        clientFactory: (peer) => _ScriptClient(peer, read),
+      ).run(task.id, cancellation: cancellation);
+      final paused = (await store.get(task.id))!;
+      expect(paused.state, DownloadState.queued);
+      expect(paused.received, 0);
+      expect(paused.outageSinceMs, started.millisecondsSinceEpoch);
+
+      now = started.add(const Duration(minutes: 31));
+      expect(
+        await runner(
+          clock: () => now,
+          clientFactory: (peer) => _ScriptClient(
+            peer,
+            (_, _, _) => Stream.error(const GrpcError.unavailable()),
+          ),
+        ).run(task.id),
+        TransferOutcome.finished,
+      );
+      expect((await store.get(task.id))!.state, DownloadState.failed);
+    });
+
+    test(
+      'existing parts ahead of stored progress do not reset an outage',
+      () async {
+        final task = await store.enqueue(_peer, _item(), 'content://receive');
+        var now = DateTime(2026, 10, 17, 9);
+        final offsets = <int>[];
+        Stream<Uint8List> read(String id, int offset, int length) async* {
+          offsets.add(offset);
+          if (offset == 0) yield Uint8List.fromList([1, 2, 3]);
+          throw const GrpcError.unavailable('offline');
+        }
+
+        final worker = runner(
+          clock: () => now,
+          clientFactory: (peer) => _ScriptClient(peer, read),
+        );
+        expect(await worker.run(task.id), TransferOutcome.retryLater);
+        // The process can stop after flushing parts but before recording progress.
+        await store.update(task.id, {'received': 0});
+        now = now.add(const Duration(minutes: 31));
+        offsets.clear();
+        expect(await worker.run(task.id), TransferOutcome.finished);
+        final failed = (await store.get(task.id))!;
+        expect(failed.state, DownloadState.failed);
+        expect(failed.received, 3);
+        expect(offsets, [3, 3, 3]);
+      },
+    );
+
+    test(
+      'a silent peer is caught by the stall watchdog and retried later',
+      () async {
+        final item = _item(size: 6);
+        final task = await store.enqueue(_peer, item, 'content://receive');
+        final streams = <StreamController<Uint8List>>[];
+        Stream<Uint8List> read(String id, int offset, int length) {
+          // A peer that went to sleep: no more bytes, no error, no reset.
+          final stream = StreamController<Uint8List>();
+          streams.add(stream);
+          if (offset == 0) stream.add(Uint8List.fromList([1, 2]));
+          return stream.stream;
+        }
+
+        final outcome = await runner(
+          stallTimeout: const Duration(milliseconds: 50),
+          clientFactory: (peer) => _ScriptClient(
+            peer,
+            read,
+            onClose: () {
+              for (final stream in streams) {
+                if (!stream.isClosed) unawaited(stream.close());
+              }
+            },
+          ),
+        ).run(task.id).timeout(const Duration(seconds: 5));
+        expect(outcome, TransferOutcome.retryLater);
+        final waiting = (await store.get(task.id))!;
+        expect(waiting.state, DownloadState.queued);
+        expect(waiting.received, 2);
+        expect(waiting.error, contains('对端长时间没有响应'));
+        expect(streams, hasLength(4));
+        expect(
+          await File(p.join(staging.path, task.id, '0.part')).readAsBytes(),
+          [1, 2],
+        );
+      },
+    );
+
+    for (final (name, error) in [
+      ('deleted file', const GrpcError.notFound('Media is not shared')),
+      ('changed file', const GrpcError.dataLoss('size changed')),
+      ('unusable folder', const GrpcError.failedPrecondition('revoked')),
+    ]) {
+      test('$name fails at once without automatic retry', () async {
+        final task = await store.enqueue(_peer, _item(), 'content://receive');
+        var reads = 0;
+        Stream<Uint8List> read(String id, int offset, int length) async* {
+          reads++;
+          throw error;
+        }
+
+        expect(
+          await runner(
+            clientFactory: (peer) => _ScriptClient(peer, read),
+          ).run(task.id),
+          TransferOutcome.finished,
+        );
+        final failed = (await store.get(task.id))!;
+        expect(failed.state, DownloadState.failed);
+        expect(failed.error, isNot(contains('自动重试')));
+        expect(reads, 1);
+      });
+    }
 
     for (final manuallyCancelled in [false, true]) {
       test(
@@ -869,15 +1247,21 @@ void main() {
         expect((await store.get(task.id))!.state, DownloadState.failed);
         expect((await store.get(task.id))!.error, contains('权限'));
         expect(
+          await File(p.join(staging.path, task.id, '0.part')).readAsBytes(),
+          bytes,
+        );
+        expect(
           await File(
             p.join(staging.path, task.id, 'complete.partial'),
-          ).readAsBytes(),
-          bytes,
+          ).exists(),
+          isFalse,
         );
         expect(await repository.getDownload(_peer.id, item.id), isNull);
         bridge.fail = false;
         await store.enqueue(_peer, item, 'content://replacement');
-        await worker.run(task.id);
+        await runner(
+          clientFactory: (_) => throw StateError('The source is offline'),
+        ).run(task.id);
         expect(
           readCalls,
           1,
@@ -885,6 +1269,125 @@ void main() {
               'A successful byte transfer need not be repeated to retry export',
         );
         expect(bridge.destination, 'content://replacement');
+        expect((await store.get(task.id))!.state, DownloadState.completed);
+      },
+    );
+
+    for (final example in [
+      (
+        'shared volume counts remaining staging and destination together',
+        const TransferSpaceInfo(
+          stagingAvailableBytes: transferSpaceReserve + 15,
+          destinationAvailableBytes: transferSpaceReserve + 15,
+          sameVolume: true,
+        ),
+      ),
+      (
+        'separate staging volume has insufficient space',
+        const TransferSpaceInfo(
+          stagingAvailableBytes: transferSpaceReserve + 9,
+          destinationAvailableBytes: transferSpaceReserve + 100,
+          sameVolume: false,
+        ),
+      ),
+      (
+        'separate destination volume has insufficient space',
+        const TransferSpaceInfo(
+          stagingAvailableBytes: transferSpaceReserve + 100,
+          destinationAvailableBytes: transferSpaceReserve + 9,
+          sameVolume: false,
+        ),
+      ),
+    ]) {
+      test(example.$1, () async {
+        bridge.space = example.$2;
+        final task = await store.enqueue(_peer, _item(), 'content://receive');
+        var connections = 0;
+        await runner(
+          clientFactory: (_) {
+            connections++;
+            throw StateError('Preflight must happen before connecting');
+          },
+        ).run(task.id);
+        expect(connections, 0);
+        expect(bridge.saves, 0);
+        final failed = (await store.get(task.id))!;
+        expect(failed.state, DownloadState.failed);
+        expect(failed.error, contains('空间不足'));
+      });
+    }
+
+    test(
+      'capacity uses durable partial bytes rather than database progress',
+      () async {
+        final item = _item(size: 10);
+        final task = await store.enqueue(_peer, item, 'content://receive');
+        final cancellation = DownloadCancellation();
+        await expectLater(
+          MediaDownloader(
+            clientFactory: (peer) => _ScriptClient(peer, (_, _, _) async* {
+              yield Uint8List.fromList([1, 2, 3, 4]);
+            }),
+          ).downloadResumable(
+            peer: _peer,
+            item: item,
+            directory: staging,
+            taskId: task.id,
+            cancellation: cancellation,
+            onProgress: (received, _) {
+              if (received == 4) cancellation.cancel();
+            },
+          ),
+          throwsA(isA<DownloadCancelled>()),
+        );
+        // SQLite still says zero. Only six staging bytes plus ten target bytes
+        // remain, so the shared volume has exactly enough capacity.
+        bridge.space = const TransferSpaceInfo(
+          stagingAvailableBytes: transferSpaceReserve + 16,
+          destinationAvailableBytes: transferSpaceReserve + 16,
+          sameVolume: true,
+        );
+        final offsets = <int>[];
+        await runner(
+          clientFactory: (peer) =>
+              _ScriptClient(peer, (_, offset, length) async* {
+                offsets.add(offset);
+                yield Uint8List(length);
+              }),
+        ).run(task.id);
+        expect(offsets, [4]);
+        expect((await store.get(task.id))!.state, DownloadState.completed);
+        expect(bridge.spaceChecks, ['content://receive', 'content://receive']);
+      },
+    );
+
+    test(
+      'destination capacity is checked again before export and parts survive',
+      () async {
+        final item = _item(size: 10);
+        final task = await store.enqueue(_peer, item, 'content://receive');
+        await runner(
+          clientFactory: (peer) => _ScriptClient(peer, (_, _, length) async* {
+            bridge.space = const TransferSpaceInfo(
+              destinationAvailableBytes: transferSpaceReserve + 9,
+            );
+            yield Uint8List(length);
+          }),
+        ).run(task.id);
+        final failed = (await store.get(task.id))!;
+        expect(failed.state, DownloadState.failed);
+        expect(failed.error, contains('空间不足'));
+        expect(bridge.saves, 0);
+        expect(
+          await File(p.join(staging.path, task.id, '0.part')).length(),
+          10,
+        );
+        bridge.space = const TransferSpaceInfo();
+        await store.enqueue(_peer, item, 'content://receive');
+        await runner(
+          clientFactory: (_) =>
+              throw StateError('Export retry must remain offline'),
+        ).run(task.id);
         expect((await store.get(task.id))!.state, DownloadState.completed);
       },
     );

@@ -159,6 +159,10 @@ void main() {
             ];
           case 'saveDownload':
             expect(call.arguments['directoryUri'], folder.uri);
+            expect(call.arguments['sourcePaths'], [
+              '/private/tmp/transfer/0.part',
+            ]);
+            expect(call.arguments['expectedSize'], 9000000000);
             expect(call.arguments['directories'], ['Phone', 'Camera', '旅行']);
             return '${folder.uri}Phone/Camera/photo.heic';
           default:
@@ -171,7 +175,8 @@ void main() {
       expect(metadata['relativePath'], '旅行/photo.heic');
       expect(
         await bridge.saveDownload(
-          sourcePath: '/private/tmp/transfer',
+          sourcePaths: ['/private/tmp/transfer/0.part'],
+          expectedSize: 9000000000,
           directoryUri: folder.uri,
           name: 'photo.heic',
           mimeType: 'image/heic',

@@ -79,10 +79,9 @@ void main() {
             ];
           case 'saveDownload':
             expect(call.arguments['directories'], ['Phone', '相册', '2026']);
-            expect(
-              call.arguments['sourcePath'],
-              r'C:\Users\test\AppData\Local\Tamayura\transfers\task\complete.partial',
-            );
+            expect(call.arguments['sourcePaths'], [
+              r'C:\Users\test\AppData\Local\Tamayura\transfers\task\0.part',
+            ]);
             return r'C:\Photos\Phone\相册\2026\旅行.mp4';
           default:
             fail('Unexpected call ${call.method}');
@@ -94,8 +93,10 @@ void main() {
       expect(metadata['relativePath'], '2026/旅行.mp4');
       expect(
         await bridge.saveDownload(
-          sourcePath:
-              r'C:\Users\test\AppData\Local\Tamayura\transfers\task\complete.partial',
+          sourcePaths: [
+            r'C:\Users\test\AppData\Local\Tamayura\transfers\task\0.part',
+          ],
+          expectedSize: 9000000000,
           directoryUri: r'C:\Photos',
           name: '旅行.mp4',
           mimeType: 'video/mp4',

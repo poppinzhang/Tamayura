@@ -9,7 +9,8 @@ String transferLabel(TransferStatus status) => switch (status) {
   TransferStatus.saving => '正在保存到接收目录',
   TransferStatus.completed => '已保存到本机',
   TransferStatus.failed => '下载失败',
-  TransferStatus.cancelled => '已取消',
+  TransferStatus.cancelled => '已暂停',
+  TransferStatus.discarded => '等待清理暂存',
 };
 
 String formatMediaBytes(int bytes) {
@@ -29,6 +30,7 @@ class TransferControls extends StatelessWidget {
     required this.transfer,
     required this.onDownload,
     required this.onCancel,
+    required this.onDiscard,
     required this.onShare,
     required this.onOpen,
     this.compact = false,
@@ -36,7 +38,7 @@ class TransferControls extends StatelessWidget {
 
   final MediaView item;
   final TransferView? transfer;
-  final VoidCallback onDownload, onCancel, onShare, onOpen;
+  final VoidCallback onDownload, onCancel, onDiscard, onShare, onOpen;
   final bool compact;
 
   @override
@@ -124,6 +126,14 @@ class TransferControls extends StatelessWidget {
             style: TextStyle(fontSize: 12, height: 1.5, color: colors.error),
           ),
         ],
+        if (current != null && !complete && current.receivedBytes > 0)
+          Padding(
+            padding: const EdgeInsets.only(top: 5),
+            child: Text(
+              '已暂存约 ${formatMediaBytes(current.receivedBytes)}，暂停会保留，删除任务可释放空间。',
+              style: TextStyle(fontSize: 12, color: colors.onSurfaceVariant),
+            ),
+          ),
         if ((current?.attempt ?? 1) > 1)
           Padding(
             padding: const EdgeInsets.only(top: 5),
@@ -164,10 +174,10 @@ class TransferControls extends StatelessWidget {
               OutlinedButton.icon(
                 key: Key('cancel-${item.key}'),
                 onPressed: onCancel,
-                icon: const Icon(Icons.close_rounded, size: 17),
-                label: const Text('取消下载'),
+                icon: const Icon(Icons.pause_rounded, size: 17),
+                label: const Text('暂停下载'),
               )
-            else
+            else if (status != TransferStatus.discarded)
               FilledButton.icon(
                 key: Key('retry-${item.key}'),
                 onPressed: onDownload,
@@ -176,9 +186,16 @@ class TransferControls extends StatelessWidget {
                   status == TransferStatus.failed
                       ? '重试下载'
                       : status == TransferStatus.cancelled
-                      ? '重新下载'
+                      ? '继续下载'
                       : '下载原文件',
                 ),
+              ),
+            if (current != null && !complete)
+              TextButton.icon(
+                key: Key('discard-${item.key}'),
+                onPressed: onDiscard,
+                icon: const Icon(Icons.delete_outline_rounded, size: 18),
+                label: Text(running ? '取消并删除' : '删除任务并释放空间'),
               ),
           ],
         ),

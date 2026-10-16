@@ -56,8 +56,6 @@ internal class AndroidRuntime private constructor(private val context: Context) 
                     current.handleUiMethod(call, result)
                 }
                 "scanDirectoriesMetadata" -> {
-                    // Revoke the old snapshot before queuing potentially slow provider work.
-                    val generation = media.clear()
                     val directories = call.argument<List<Map<String, String>>>("directories")
                         ?.map { directory ->
                             SafMediaStore.SharedDirectory(
@@ -65,7 +63,10 @@ internal class AndroidRuntime private constructor(private val context: Context) 
                                 directory["uri"] ?: throw IllegalArgumentException("Missing directory uri"),
                                 directory["name"] ?: throw IllegalArgumentException("Missing directory name"))
                         } ?: throw IllegalArgumentException("Missing directories")
-                    background(result) { media.scanMetadata(directories, generation) }
+                    // Cancel older scans and drop removed roots before queuing slow provider
+                    // work; retained files keep serving peers until this scan publishes.
+                    val ticket = media.beginScan(directories)
+                    background(result) { media.scanMetadata(directories, ticket) }
                 }
                 "validateSharedDirectory" -> background(result) {
                     media.validateSharedDirectory(call.requiredString("uri"),
@@ -84,17 +85,21 @@ internal class AndroidRuntime private constructor(private val context: Context) 
                         call.requiredNumber("offset").toLong(), call.requiredNumber("length").toInt())
                 }
                 "saveDownload" -> background(result) {
-                    media.saveDownload(call.requiredString("sourcePath"),
+                    media.saveDownload(call.argument<List<String>>("sourcePaths")
+                            ?: throw IllegalArgumentException("Missing sourcePaths"),
+                        call.requiredNumber("expectedSize").toLong(),
                         call.requiredString("directoryUri"), call.requiredString("name"),
                         call.requiredString("mimeType"), call.argument<List<String>>("directories")
                             ?: throw IllegalArgumentException("Missing directories"))
                 }
+                "transferSpace" -> background(result) { media.transferSpace(call.requiredString("directoryUri")) }
                 "temporaryDirectory" -> result.success(context.cacheDir.absolutePath)
                 "transferDirectory" -> background(result) { TransferScheduler.directory(context) }
                 "scheduleTransfer" -> requestTransfer(call.requiredString("taskId"), result)
                 "cancelTransfer" -> {
-                    TransferScheduler.cancel(context, call.requiredString("taskId"))
-                    result.success(null)
+                    val taskId = call.requiredString("taskId")
+                    TransferScheduler.cancel(context, taskId)
+                    BackgroundTransferService.whenIdle(taskId) { result.success(null) }
                 }
                 "scheduledTransferIds" -> result.success(TransferScheduler.scheduledIds(context))
                 "deviceId" -> background(result) {

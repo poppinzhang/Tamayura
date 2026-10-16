@@ -760,9 +760,11 @@ void main() {
           client.listMedia(),
           throwsA(grpcCode(StatusCode.failedPrecondition)),
         );
+        // Reported like the catalog: the folder needs attention on the source,
+        // so receivers fail instead of retrying as if the peer were away.
         await expectLater(
           client.readRange('safe-id', 0, 1).toList(),
-          throwsA(grpcCode(StatusCode.notFound)),
+          throwsA(grpcCode(StatusCode.failedPrecondition)),
         );
         source.failScan = false;
         await server.refresh();

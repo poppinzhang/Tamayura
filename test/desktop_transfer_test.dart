@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -15,6 +16,7 @@ import 'package:tamayura/data/repository.dart';
 import 'package:tamayura/data/transfer_store.dart';
 import 'package:tamayura/network/media_rpc.dart';
 import 'package:tamayura/platform/macos_bridge.dart';
+import 'package:tamayura/platform/platform_bridge.dart';
 
 import 'controller_test.dart' show FakeBridge, MemorySource;
 
@@ -35,6 +37,11 @@ final _item = MediaItem(
 class _DesktopBridge extends MacOSBridge {
   _DesktopBridge(this.directory);
   final Directory directory;
+  @override
+  Future<TransferSpaceInfo> transferSpace({
+    required String directoryUri,
+  }) async => const TransferSpaceInfo();
+
   int directoryReads = 0, exports = 0;
   Future<void> Function()? beforeDirectory;
   Future<void> Function(String)? beforeSave;
@@ -75,14 +82,20 @@ class _DesktopBridge extends MacOSBridge {
 
   @override
   Future<String> saveDownload({
-    required String sourcePath,
+    required List<String> sourcePaths,
+    required int expectedSize,
     required String directoryUri,
     required String name,
     required String mimeType,
     required List<String> directories,
   }) async {
     await beforeSave?.call(name);
-    exported = await File(sourcePath).readAsBytes();
+    final bytes = BytesBuilder(copy: false);
+    for (final path in sourcePaths) {
+      bytes.add(await File(path).readAsBytes());
+    }
+    exported = bytes.takeBytes();
+    expect(exported!.length, expectedSize);
     exports++;
     return 'file:///Users/test/Downloads/$name';
   }
@@ -174,14 +187,20 @@ void main() {
     await root.delete(recursive: true);
   });
 
+  // Without an outage window a run fails once its local retries are spent;
+  // automatic retry tests opt into a window explicitly.
   InProcessTransferScheduler createScheduler({
     Stream<Uint8List> Function(int, int)? read,
     void Function()? onClose,
+    Duration outageWindow = Duration.zero,
+    Duration autoRetryDelay = Duration.zero,
   }) => InProcessTransferScheduler(
     store: store,
     repository: repository,
     bridge: bridge,
     retryDelay: Duration.zero,
+    outageWindow: outageWindow,
+    autoRetryDelay: autoRetryDelay,
     clientFactory: (peer) => _Client(
       peer,
       read ??
@@ -351,6 +370,77 @@ void main() {
     expect(bridge.activeTasks, isEmpty);
     expect(bridge.activityEvents, ['acquire:${task.id}', 'release:${task.id}']);
   });
+
+  test(
+    'an unreachable peer is retried automatically until it returns',
+    () async {
+      var reads = 0;
+      scheduler = createScheduler(
+        outageWindow: const Duration(minutes: 30),
+        read: (offset, length) async* {
+          // Two runs of three empty attempts each, then the peer is back.
+          if (++reads <= 6) throw const GrpcError.unavailable('offline');
+          yield Uint8List.fromList(
+            [1, 2, 3, 4, 5, 6].sublist(offset, offset + length),
+          );
+        },
+      );
+      final task = await store.enqueue(_peer, _item, 'file:///Downloads');
+      await scheduler!.scheduleTransfer(task.id);
+      await _until(
+        () async => (await scheduler!.scheduledTransferIds()).isEmpty,
+      );
+      expect(reads, 7);
+      final done = (await store.get(task.id))!;
+      expect(done.state, DownloadState.completed);
+      expect(done.error, isNull);
+      expect(done.outageSinceMs, isNull);
+      expect(bridge.exported, [1, 2, 3, 4, 5, 6]);
+      expect(bridge.activityEvents, [
+        'acquire:${task.id}',
+        'release:${task.id}',
+      ]);
+    },
+  );
+
+  test(
+    'a waiting retry stays scheduled and queued, and cancellation ends the wait',
+    () async {
+      var reads = 0;
+      scheduler = createScheduler(
+        outageWindow: const Duration(minutes: 30),
+        autoRetryDelay: const Duration(hours: 1),
+        read: (_, _) async* {
+          reads++;
+          throw const GrpcError.unavailable('offline');
+        },
+      );
+      final task = await store.enqueue(_peer, _item, 'file:///Downloads');
+      await scheduler!.scheduleTransfer(task.id);
+      await _until(() async => (await store.get(task.id))!.error != null);
+      final waiting = (await store.get(task.id))!;
+      expect(waiting.state, DownloadState.queued);
+      expect(waiting.error, contains('稍后会自动重试'));
+      expect(waiting.outageSinceMs, isNotNull);
+      expect(reads, 3);
+      expect(await scheduler!.scheduledTransferIds(), [task.id]);
+      await store.reconcile((await scheduler!.scheduledTransferIds()).toSet());
+      expect(
+        (await store.get(task.id))!.state,
+        DownloadState.queued,
+        reason: 'A task waiting for its peer is not an interrupted task',
+      );
+      expect(bridge.activeTasks, {task.id});
+      await store.cancel(task.id);
+      await scheduler!
+          .cancelTransfer(task.id)
+          .timeout(const Duration(seconds: 3));
+      expect(await scheduler!.scheduledTransferIds(), isEmpty);
+      expect((await store.get(task.id))!.state, DownloadState.cancelled);
+      expect(reads, 3);
+      expect(bridge.activeTasks, isEmpty);
+    },
+  );
 
   test(
     'cancellation while acquiring activity releases without file work',

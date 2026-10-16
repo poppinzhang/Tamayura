@@ -1787,7 +1787,7 @@ void main() {
       await tester.tap(find.byKey(Key('cancel-${photo.key}')));
       await tester.pumpAndSettle();
       expect(model.cancelCalls, 1);
-      expect(find.text('已取消'), findsOneWidget);
+      expect(find.text('已暂停'), findsOneWidget);
       await tester.tap(find.byKey(Key('retry-${photo.key}')));
       await tester.pumpAndSettle();
       expect(model.downloadCalls, 1);

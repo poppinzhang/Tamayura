@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/services.dart';
-import 'package:grpc/grpc.dart';
 import 'package:uuid/uuid.dart';
 import '../app/errors.dart';
 import '../core/models.dart';
@@ -51,7 +50,7 @@ Future<void> runBackgroundTransfer() async {
         });
       },
     );
-    await runner.run(
+    final outcome = await runner.run(
       id,
       cancellation: cancellation,
       isUserCancelled: () => userCancelled,
@@ -65,6 +64,8 @@ Future<void> runBackgroundTransfer() async {
       'success': result?.state == DownloadState.completed,
       'cancelled': result?.state == DownloadState.cancelled,
       'error': result?.error,
+      // JobScheduler applies its backoff before running the task again.
+      'retry': outcome == TransferOutcome.retryLater,
     });
   } catch (error) {
     if (taskId != null &&
@@ -89,6 +90,24 @@ Future<void> runBackgroundTransfer() async {
   }
 }
 
+/// Consecutive attempts without new bytes before a run stops retrying locally.
+const transferIdleAttempts = 3;
+
+/// How long a temporarily unreachable peer is retried automatically. Bytes
+/// arriving restart the window; afterwards the task fails for manual retry.
+const transferOutageWindow = Duration(minutes: 30);
+
+/// Leave room for filesystem metadata and the task/database updates.
+const transferSpaceReserve = 16 * 1024 * 1024;
+
+enum TransferOutcome {
+  /// Completed, failed, cancelled, paused by the system or superseded.
+  finished,
+
+  /// The peer is temporarily unreachable; the task is queued for a later run.
+  retryLater,
+}
+
 class TransferRunner {
   TransferRunner({
     required this.store,
@@ -98,37 +117,53 @@ class TransferRunner {
     this.progress,
     MediaRpcClient Function(Peer)? clientFactory,
     this.retryDelay = const Duration(seconds: 1),
-  }) : clientFactory = clientFactory ?? MediaRpcClient.new;
+    this.stallTimeout = defaultStallTimeout,
+    this.outageWindow = transferOutageWindow,
+    DateTime Function()? clock,
+  }) : clientFactory = clientFactory ?? MediaRpcClient.new,
+       _now = clock ?? DateTime.now;
   final TransferStore store;
   final TamayuraRepository repository;
   final PlatformBridge bridge;
   final Directory directory;
   final Future<void> Function(int, int, String)? progress;
   final MediaRpcClient Function(Peer) clientFactory;
-  final Duration retryDelay;
+  final Duration retryDelay, stallTimeout, outageWindow;
+  final DateTime Function() _now;
 
-  Future<void> run(
+  Future<TransferOutcome> run(
     String id, {
     DownloadCancellation? cancellation,
     bool Function()? isUserCancelled,
   }) async {
     final cancel = cancellation ?? DownloadCancellation();
-    if (cancel.cancelled) return;
+    if (cancel.cancelled) return TransferOutcome.finished;
     final token = const Uuid().v4();
     final task = await store.claim(id, token);
-    if (task == null) return;
+    if (task == null) return TransferOutcome.finished;
     var received = task.received;
+    var outageSince = task.outageSinceMs;
     Future<void> progressTail = Future.value();
     var lastProgress = DateTime.fromMillisecondsSinceEpoch(0);
-    void recordProgress(int bytes, int total) {
+    void recordProgress(int bytes, int total, {required bool newBytes}) {
+      final recovered = newBytes && outageSince != null;
+      if (newBytes) outageSince = null;
       received = bytes;
-      final now = DateTime.now();
-      if (now.difference(lastProgress).inMilliseconds < 400 && bytes != total) {
+      final now = _now();
+      if (!recovered &&
+          now.difference(lastProgress).inMilliseconds < 400 &&
+          bytes != total) {
         return;
       }
       lastProgress = now;
+      // Persist recovery with its bytes, even inside the progress throttle, so
+      // a system stop cannot carry a previous outage into the next worker.
+      final progressOutage = outageSince;
       progressTail = progressTail.then((_) async {
-        if (await store.update(id, {'received': bytes}, runToken: token)) {
+        if (await store.update(id, {
+          'received': bytes,
+          'outage_since_ms': progressOutage,
+        }, runToken: token)) {
           try {
             await progress?.call(bytes, total, task.item.name);
           } catch (_) {
@@ -147,9 +182,24 @@ class TransferRunner {
           break;
         }
       }
-      File? completed;
-      for (var attempt = 0; attempt < 3; attempt++) {
+      var completed = await MediaDownloader.completedParts(
+        item: task.item,
+        directory: directory,
+        taskId: id,
+      );
+      final cached =
+          completed?.totalSize ??
+          await MediaDownloader.stagedBytes(
+            item: task.item,
+            directory: directory,
+            taskId: id,
+          );
+      recordProgress(cached, task.item.size, newBytes: false);
+      await _checkSpace(task.directoryUri, task.item.size, cached);
+      var idleFailures = 0;
+      while (completed == null) {
         cancel.check();
+        var madeProgress = false;
         try {
           final client = clientFactory(peer);
           void stopIdentity() => unawaited(client.close());
@@ -164,32 +214,52 @@ class TransferRunner {
             await client.close();
           }
           cancel.check();
-          completed = await MediaDownloader(clientFactory: clientFactory)
-              .downloadResumable(
+          int? previousBytes;
+          completed =
+              await MediaDownloader(
+                clientFactory: clientFactory,
+                stallTimeout: stallTimeout,
+              ).downloadResumable(
                 peer: peer,
                 item: task.item,
                 directory: directory,
                 taskId: id,
                 cancellation: cancel,
-                onProgress: recordProgress,
+                onProgress: (bytes, total) {
+                  // The first callback reports existing parts, not new data.
+                  final newBytes =
+                      previousBytes != null && bytes > previousBytes!;
+                  previousBytes = bytes;
+                  madeProgress = madeProgress || newBytes;
+                  recordProgress(bytes, total, newBytes: newBytes);
+                },
               );
           break;
         } catch (error) {
-          if (cancel.cancelled || attempt == 2 || !_retryable(error)) rethrow;
-          // Keep individual part offsets; a retry transfers only missing bytes.
-          await Future<void>.delayed(retryDelay * (attempt + 1));
+          if (cancel.cancelled || !isTransientTransferError(error)) rethrow;
+          // Bytes prove the link works, so only consecutive empty attempts
+          // count. Part offsets persist; a retry fetches only missing bytes.
+          idleFailures = madeProgress ? 0 : idleFailures + 1;
+          if (idleFailures >= transferIdleAttempts) rethrow;
+          await cancel.sleep(
+            retryDelay * (1 << (idleFailures == 0 ? 0 : idleFailures - 1)),
+          );
         }
       }
       cancel.check();
       await progressTail;
+      // Other downloads or applications may have used space since preflight.
+      await _checkSpace(task.directoryUri, task.item.size, task.item.size);
+      cancel.check();
       if (!await store.update(id, {
         'state': 'saving',
         'received': task.item.size,
       }, runToken: token)) {
-        return;
+        return TransferOutcome.finished;
       }
       final uri = await bridge.saveDownload(
-        sourcePath: completed!.path,
+        sourcePaths: completed.paths,
+        expectedSize: completed.totalSize,
         directoryUri: task.directoryUri,
         name: safeMediaFilename(task.item.name),
         mimeType: task.item.mimeType,
@@ -209,6 +279,7 @@ class TransferRunner {
         'saved_uri': uri,
         'error': null,
         'received': task.item.size,
+        'outage_since_ms': null,
       }, runToken: token);
       if (committed) {
         try {
@@ -217,6 +288,7 @@ class TransferRunner {
           /* Safe to clean later. */
         }
       }
+      return TransferOutcome.finished;
     } catch (error) {
       try {
         await progressTail;
@@ -228,23 +300,63 @@ class TransferRunner {
           'state': isUserCancelled?.call() == true ? 'cancelled' : 'queued',
           'received': received,
           'error': null,
+          'outage_since_ms': outageSince,
         }, runToken: token);
-      } else {
-        await store.update(id, {
-          'state': 'failed',
-          'received': received,
-          'error': describeError(error),
-        }, runToken: token);
+        return TransferOutcome.finished;
       }
+      if (isTransientTransferError(error)) {
+        final now = _now().millisecondsSinceEpoch;
+        // New network bytes clear the old outage; existing parts do not.
+        final since = outageSince ?? now;
+        if (now - since < outageWindow.inMilliseconds) {
+          final waiting = await store.update(id, {
+            'state': 'queued',
+            'received': received,
+            'error': '${describeError(error)}；稍后会自动重试',
+            'outage_since_ms': since,
+          }, runToken: token);
+          return waiting
+              ? TransferOutcome.retryLater
+              : TransferOutcome.finished;
+        }
+      }
+      await store.update(id, {
+        'state': 'failed',
+        'received': received,
+        'error': describeError(error),
+        'outage_since_ms': null,
+      }, runToken: token);
+      return TransferOutcome.finished;
     }
   }
 
-  static bool _retryable(Object error) =>
-      error is SocketException ||
-      error is GrpcError &&
-          [
-            StatusCode.unavailable,
-            StatusCode.deadlineExceeded,
-            StatusCode.cancelled,
-          ].contains(error.code);
+  Future<void> _checkSpace(String directoryUri, int size, int cached) async {
+    final space = await bridge.transferSpace(directoryUri: directoryUri);
+    final remaining = size - cached;
+    void requireSpace(int? available, int needed, String location) {
+      if (available != null && available < needed + transferSpaceReserve) {
+        throw PlatformException(
+          code: 'NO_SPACE',
+          message: '$location空间不足，请释放空间后重试',
+        );
+      }
+    }
+
+    if (space.sameVolume == true) {
+      final available = [
+        space.stagingAvailableBytes,
+        space.destinationAvailableBytes,
+      ].whereType<int>().toList();
+      requireSpace(
+        available.isEmpty ? null : available.reduce((a, b) => a < b ? a : b),
+        remaining + size,
+        '下载所在磁盘',
+      );
+    } else {
+      // Providers may not expose a destination volume or its free capacity.
+      // Known limits remain useful; actual write errors are still authoritative.
+      requireSpace(space.stagingAvailableBytes, remaining, '下载暂存目录');
+      requireSpace(space.destinationAvailableBytes, size, '接收目录');
+    }
+  }
 }

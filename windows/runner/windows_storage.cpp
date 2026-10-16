@@ -46,6 +46,18 @@ std::vector<std::string> Strings(const EncodableMap& args, const char* key) {
   return result;
 }
 
+std::vector<SharedDirectory> SharedDirectories(const EncodableMap& arguments) {
+  const auto* values = std::get_if<EncodableList>(&Argument(arguments, "directories"));
+  if (!values) throw StorageError("INVALID_ARGUMENT", "Invalid shared directory list");
+  std::vector<SharedDirectory> directories;
+  for (const auto& value : *values) {
+    const auto* folder = std::get_if<EncodableMap>(&value);
+    if (!folder) throw StorageError("INVALID_ARGUMENT", "Invalid shared directory configuration");
+    directories.push_back({String(*folder, "id"), String(*folder, "uri"), String(*folder, "name")});
+  }
+  return directories;
+}
+
 void ShellCheck(HRESULT result, const char* message) {
   if (FAILED(result)) throw StorageError("PLATFORM_ERROR", std::string(message) + " (HRESULT " + std::to_string(result) + ")");
 }
@@ -126,6 +138,12 @@ EncodableValue Metadata(const MediaEntry& entry) {
 
 }  // namespace
 
+uint64_t WindowsStorage::BeginScan(const EncodableMap& arguments) {
+  std::set<std::string> ids;
+  for (const auto& directory : SharedDirectories(arguments)) ids.insert(directory.id);
+  return catalog_.BeginScan(ids);
+}
+
 EncodableValue WindowsStorage::Handle(const std::string& method,
                                       const EncodableMap& arguments, HWND window) {
   if (method == "pickDirectory") return PickDirectory(window);
@@ -133,16 +151,9 @@ EncodableValue WindowsStorage::Handle(const std::string& method,
     catalog_.Validate(String(arguments, "uri"), Strings(arguments, "existingUris"));
   } else if (method == "scanDirectoriesMetadata") {
     const auto ticket = arguments.find(EncodableValue("__generation"));
-    const auto expected = ticket == arguments.end() ? BeginScan() :
+    const auto expected = ticket == arguments.end() ? BeginScan(arguments) :
         static_cast<uint64_t>(Integer(arguments, "__generation"));
-    const auto* values = std::get_if<EncodableList>(&Argument(arguments, "directories"));
-    if (!values) throw StorageError("INVALID_ARGUMENT", "Invalid shared directory list");
-    std::vector<SharedDirectory> directories;
-    for (const auto& value : *values) {
-      const auto* folder = std::get_if<EncodableMap>(&value);
-      if (!folder) throw StorageError("INVALID_ARGUMENT", "Invalid shared directory configuration");
-      directories.push_back({String(*folder, "id"), String(*folder, "uri"), String(*folder, "name")});
-    }
+    const auto directories = SharedDirectories(arguments);
     EncodableList result;
     for (const auto& entry : catalog_.Scan(directories, expected)) result.push_back(Metadata(entry));
     return EncodableValue(std::move(result));
@@ -169,11 +180,24 @@ EncodableValue WindowsStorage::Handle(const std::string& method,
     auto file = SafeFile::Open(path);
     return EncodableValue(JpegPreview(file, static_cast<unsigned>(maximum), mime.rfind("video/", 0) == 0));
   } else if (method == "saveDownload") {
-    const auto saved = SaveDownload(String(arguments, "sourcePath"),
+    const auto saved = SaveDownload(Strings(arguments, "sourcePaths"), Integer(arguments, "expectedSize"),
         {PrivateDirectory(L"cache"), PrivateDirectory(L"transfers")},
         String(arguments, "directoryUri"), Strings(arguments, "directories"),
         String(arguments, "name"));
     return EncodableValue(Utf8(saved));
+  } else if (method == "transferSpace") {
+    const auto space = TransferSpace(PrivateDirectory(L"transfers"), String(arguments, "directoryUri"));
+    EncodableMap result;
+    if (space.staging_available_bytes) {
+      result[EncodableValue("stagingAvailableBytes")] = EncodableValue(*space.staging_available_bytes);
+    }
+    if (space.destination_available_bytes) {
+      result[EncodableValue("destinationAvailableBytes")] = EncodableValue(*space.destination_available_bytes);
+    }
+    if (space.same_volume) {
+      result[EncodableValue("sameVolume")] = EncodableValue(*space.same_volume);
+    }
+    return EncodableValue(std::move(result));
   } else if (method == "temporaryDirectory") {
     return EncodableValue(Utf8(PrivateDirectory(L"cache")));
   } else if (method == "transferDirectory") {

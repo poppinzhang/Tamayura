@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:convert';
 
+import 'package:grpc/grpc.dart';
 import 'package:path/path.dart' as p;
 import 'package:uuid/uuid.dart';
 
@@ -10,10 +11,52 @@ import 'media_rpc.dart';
 
 const parallelDownloadThreshold = 50 * 1024 * 1024;
 
+/// Sleep, Wi-Fi loss or a peer leaving the LAN rarely delivers a TCP reset.
+/// A range receiving no bytes for this long is closed and retried instead.
+const defaultStallTimeout = Duration(seconds: 30);
+
+/// No bytes arrived within the stall timeout; the peer or LAN went silent.
+class TransferStalled implements Exception {
+  const TransferStalled();
+  @override
+  String toString() => 'TransferStalled: no data from the peer';
+}
+
+/// The peer or LAN is temporarily unreachable, so retrying later can succeed.
+/// Missing files, changed sizes and invalid data need the user's attention.
+bool isTransientTransferError(Object error) {
+  if (error is TransferStalled || error is SocketException) return true;
+  if (error is! GrpcError) return false;
+  return switch (error.code) {
+    StatusCode.unavailable ||
+    StatusCode.deadlineExceeded ||
+    StatusCode.cancelled ||
+    // grpc-dart reports a connection terminated mid-stream as UNKNOWN.
+    StatusCode.unknown => true,
+    _ => false,
+  };
+}
+
 class DownloadRange {
   const DownloadRange(this.offset, this.length);
   final int offset;
   final int length;
+}
+
+/// Complete ranges in file order. Native storage streams them into the chosen
+/// destination without creating another full-size file in private storage.
+class DownloadParts {
+  DownloadParts(List<File> files, this.totalSize)
+    : files = List.unmodifiable(files);
+  final List<File> files;
+  final int totalSize;
+  List<String> get paths => files.map((file) => file.path).toList();
+
+  Stream<List<int>> openRead() async* {
+    for (final file in files) {
+      yield* file.openRead();
+    }
+  }
 }
 
 /// Every byte is covered once, including sizes not divisible by four.
@@ -52,12 +95,33 @@ class DownloadCancellation {
   }
 
   void removeListener(void Function() listener) => _listeners.remove(listener);
+
+  /// Waits for [delay] unless cancelled first, then throws [DownloadCancelled].
+  Future<void> sleep(Duration delay) async {
+    final woken = Completer<void>();
+    void wake() {
+      if (!woken.isCompleted) woken.complete();
+    }
+
+    final timer = Timer(delay, wake);
+    addListener(wake);
+    try {
+      await woken.future;
+    } finally {
+      timer.cancel();
+      removeListener(wake);
+    }
+    check();
+  }
 }
 
 class MediaDownloader {
-  MediaDownloader({MediaTransferClient Function(Peer)? clientFactory})
-    : _clientFactory = clientFactory ?? MediaRpcClient.new;
+  MediaDownloader({
+    MediaTransferClient Function(Peer)? clientFactory,
+    this.stallTimeout = defaultStallTimeout,
+  }) : _clientFactory = clientFactory ?? MediaRpcClient.new;
   final MediaTransferClient Function(Peer) _clientFactory;
+  final Duration stallTimeout;
 
   Future<File> download({
     required Peer peer,
@@ -66,8 +130,9 @@ class MediaDownloader {
     void Function(int, int)? onProgress,
   }) async {
     final taskId = const Uuid().v4();
+    File? destination;
     try {
-      final file = await downloadResumable(
+      final parts = await downloadResumable(
         peer: peer,
         item: item,
         directory: directory,
@@ -75,12 +140,27 @@ class MediaDownloader {
         onProgress: onProgress,
       );
       final name = safeMediaFilename(item.name);
-      return await file.rename(
+      destination = File(
         p.join(
           directory.path,
           '${p.basenameWithoutExtension(name)}-$taskId${p.extension(name)}',
         ),
       );
+      final output = await destination.open(mode: FileMode.write);
+      try {
+        await for (final bytes in parts.openRead()) {
+          await output.writeFrom(bytes);
+        }
+        await output.flush();
+      } finally {
+        await output.close();
+      }
+      return destination;
+    } catch (_) {
+      if (destination != null && await destination.exists()) {
+        await destination.delete();
+      }
+      rethrow;
     } finally {
       await discard(directory, taskId);
     }
@@ -98,9 +178,65 @@ class MediaDownloader {
     if (await staging.exists()) await staging.delete(recursive: true);
   }
 
+  static String _signature(MediaItem item) =>
+      jsonEncode([item.deviceId, item.id, item.size, item.modifiedMs]);
+
+  static List<File> _parts(Directory staging, int count) => List.generate(
+    count,
+    (index) => File(p.join(staging.path, '$index.part')),
+  );
+
+  /// Only actual files matching the current media metadata count as progress.
+  /// SQLite progress can lag behind disk writes or outlive missing temp files.
+  static Future<int> stagedBytes({
+    required MediaItem item,
+    required Directory directory,
+    required String taskId,
+  }) async {
+    final staging = _staging(directory, taskId);
+    final manifest = File(p.join(staging.path, 'manifest.json'));
+    if (!await manifest.exists() ||
+        await manifest.readAsString() != _signature(item)) {
+      return 0;
+    }
+    final ranges = downloadRanges(item.size);
+    final parts = _parts(staging, ranges.length);
+    var received = 0;
+    for (var index = 0; index < parts.length; index++) {
+      final size = await parts[index].exists()
+          ? await parts[index].length()
+          : 0;
+      if (size <= ranges[index].length) received += size;
+    }
+    return received;
+  }
+
+  /// A failed export can be retried entirely offline once every range exists.
+  static Future<DownloadParts?> completedParts({
+    required MediaItem item,
+    required Directory directory,
+    required String taskId,
+  }) async {
+    final staging = _staging(directory, taskId);
+    final manifest = File(p.join(staging.path, 'manifest.json'));
+    if (!await manifest.exists() ||
+        await manifest.readAsString() != _signature(item)) {
+      return null;
+    }
+    final ranges = downloadRanges(item.size);
+    final parts = _parts(staging, ranges.length);
+    for (var index = 0; index < parts.length; index++) {
+      if (!await parts[index].exists() ||
+          await parts[index].length() != ranges[index].length) {
+        return null;
+      }
+    }
+    return DownloadParts(parts, item.size);
+  }
+
   /// Each durable part is its own resume cursor. Keep parts on interruption;
   /// callers discard them only after the exported URI is committed to SQLite.
-  Future<File> downloadResumable({
+  Future<DownloadParts> downloadResumable({
     required Peer peer,
     required MediaItem item,
     required Directory directory,
@@ -116,12 +252,7 @@ class MediaDownloader {
     final ranges = downloadRanges(item.size);
     final staging = _staging(directory, taskId);
     final manifest = File(p.join(staging.path, 'manifest.json'));
-    final signature = jsonEncode([
-      item.deviceId,
-      item.id,
-      item.size,
-      item.modifiedMs,
-    ]);
+    final signature = _signature(item);
     if (await staging.exists()) {
       if (!await manifest.exists() ||
           await manifest.readAsString() != signature) {
@@ -130,10 +261,7 @@ class MediaDownloader {
     }
     await staging.create(recursive: true);
     await manifest.writeAsString(signature, flush: true);
-    final parts = List.generate(
-      ranges.length,
-      (i) => File(p.join(staging.path, '$i.part')),
-    );
+    final parts = _parts(staging, ranges.length);
     final sizes = <int>[];
     for (var i = 0; i < parts.length; i++) {
       var size = await parts[i].exists() ? await parts[i].length() : 0;
@@ -176,12 +304,27 @@ class MediaDownloader {
           final client = _clientFactory(peer);
           clients.add(client);
           final output = await parts[index].open(mode: FileMode.append);
+          // Only arriving bytes prove the peer is alive; local disk writes do
+          // not count. Close the channel before failing: cancelling a stream
+          // on a silently dead connection can wait indefinitely.
+          var stalled = false;
+          Timer? watchdog;
+          void arm() {
+            watchdog?.cancel();
+            watchdog = Timer(stallTimeout, () {
+              stalled = true;
+              unawaited(_closeQuietly(client));
+            });
+          }
+
           try {
+            arm();
             await for (final chunk in client.readRange(
               item.id,
               range.offset + size,
               range.length - size,
             )) {
+              watchdog?.cancel();
               cancel.check();
               if (failed) throw const DownloadCancelled();
               if (chunk.isEmpty || chunk.length > range.length - size) {
@@ -191,17 +334,23 @@ class MediaDownloader {
               size += chunk.length;
               received += chunk.length;
               onProgress?.call(received, item.size);
+              arm();
             }
+            watchdog?.cancel();
             cancel.check();
+            if (stalled) throw const TransferStalled();
             if (size != range.length) {
               throw const FormatException('文件分片未传输完整，请重试继续下载');
             }
           } catch (error, stack) {
-            firstError ??= error;
+            firstError ??= stalled && !cancel.cancelled
+                ? const TransferStalled()
+                : error;
             firstStack ??= stack;
             failed = true;
             await closeClients();
           } finally {
+            watchdog?.cancel();
             await output.flush();
             await output.close();
           }
@@ -211,27 +360,23 @@ class MediaDownloader {
       if (firstError != null) {
         Error.throwWithStackTrace(firstError!, firstStack!);
       }
-      final combined = File(p.join(staging.path, 'complete.partial'));
-      final output = await combined.open(mode: FileMode.write);
-      try {
-        for (final part in parts) {
-          await for (final bytes in part.openRead()) {
-            cancel.check();
-            await output.writeFrom(bytes);
-          }
+      for (var index = 0; index < parts.length; index++) {
+        if (await parts[index].length() != ranges[index].length) {
+          throw const FormatException('下载文件大小与目录记录不符，请刷新后重试');
         }
-        await output.flush();
-      } finally {
-        await output.close();
       }
-      cancel.check();
-      if (await combined.length() != item.size) {
-        throw const FormatException('下载文件大小与目录记录不符，请刷新后重试');
-      }
-      return combined;
+      return DownloadParts(parts, item.size);
     } finally {
       cancel.removeListener(stop);
       await closeClients();
+    }
+  }
+
+  static Future<void> _closeQuietly(MediaTransferClient client) async {
+    try {
+      await client.close();
+    } catch (_) {
+      // The range reports the stall; a failing close adds nothing.
     }
   }
 }

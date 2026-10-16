@@ -10,7 +10,7 @@
 
 此前普通非媒体文件已有过滤，但名称必填与路径校验早于类型筛选；非媒体条目缺失名称或含反斜杠、控制字符等不支持的名称时，会提前抛错，导致共享快照不可用、对端同步失败。现在将类型筛选提前；媒体文件和子目录仍必须通过名称与路径校验，媒体大小未知、目录无法读取或授权失效仍正常报错，避免发布不完整快照。
 
-每次扫描开始先撤销旧的共享映射，完整成功后才发布新映射。文件 ID 是共享目录 UUID 与文档 ID 的 SHA-256 摘要，局域网协议仅包含共享目录名与根下相对路径，不包含本机文档 URI 或绝对路径。多个目录作为完整快照一起发布，文件读取分别核验所属树的授权。读取分块及缩略图时检查授权和扫描代数，目录切换后旧请求不能返回新数据。旧请求的延迟授权错误不会撤销新目录，接收目录授权错误也不影响有效的共享目录。
+每次扫描开始先取消更早的扫描并移除不再共享的根目录，保留目录的旧映射在扫描期间继续服务，完整成功后才整体发布新映射；扫描失败撤销全部映射。文件 ID 是共享目录 UUID 与文档 ID 的 SHA-256 摘要，局域网协议仅包含共享目录名与根下相对路径，不包含本机文档 URI 或绝对路径。多个目录作为完整快照一起发布，文件读取分别核验所属树的授权。读取分块及缩略图时检查授权、共享代数以及该文件是否仍以相同内容发布，文件被替换或移除时返回 `SCAN_CANCELLED` 供对端重试。旧请求或已移除根目录的延迟授权错误不会撤销当前目录，接收目录授权错误也不影响有效的共享目录。
 
 分块使用独立文件描述符执行 `pread`，单次最多 256 KiB，允许并发。仅提供管道的文档提供者退化为独立输入流跳读，速度可能下降；建议共享本机存储目录。
 
@@ -18,9 +18,11 @@
 
 ## 保存、打开和分享
 
-下载的分片和合并结果保存在应用私有 `filesDir/transfer-staging`，可以在 Activity 销毁后继续使用。`saveDownload` 只接受应用私有目录中的源文件，通过接收目录的持久授权逐级创建或复用「设备 / 共享根 / 子目录」，再创建新文档。Dart 持久化各层名称映射，区分同名设备和共享根；原生校验路径段，用进程级锁保护目录与文件创建，同名文件追加后缀另存，不覆盖已有文件。详见 [多目录共享与合集](多目录共享与合集.md)。
+下载分片保存在应用私有 `filesDir/transfer-staging`，可以在 Activity 销毁后继续使用。`saveDownload(sourcePaths, expectedSize, ...)` 按列表顺序直接将分片流式写入接收文件，不再生成完整合并暂存文件；只接受应用私有目录中的源文件，保存前和实际复制后均校验总大小。通过接收目录的持久授权逐级创建或复用「设备 / 共享根 / 子目录」，再创建新文档。Dart 持久化各层名称映射，区分同名设备和共享根；原生校验路径段，用进程级锁保护目录与文件创建，同名文件追加后缀另存，不覆盖已有文件。详见 [多目录共享与合集](多目录共享与合集.md)。
 
-复制过程每个分块及关闭输出后检查取消标记。失败或协作取消会尝试删除刚创建的文档；后台任务只有在 native I/O 已返回且旧引擎已销毁后才释放同任务的执行权限。系统直接杀死整个进程时无法保证清理回调运行，接收目录可能残留未登记或未完成的文档。保存成功与 Dart 将 URI 写入 SQLite 之间也存在进程被杀的窗口，重试可能创建重复文件；当前没有跨文档提供者与 SQLite 的原子提交。
+`transferSpace` 查询 `filesDir` 所在卷可用字节数。SAF 提供者的接收卷容量和是否与暂存位于同卷无法可靠判断，因此省略 `destinationAvailableBytes` 和 `sameVolume`，不把未知容量当成零。目录授权失败照常返回错误；空间预检查不能替代实际写入期间的错误处理。
+
+复制过程每个分块及关闭输出后检查取消标记。失败或协作取消会尝试删除刚创建的文档；后台任务只有在 native I/O 已返回且旧引擎已销毁后才释放同任务的执行权限。`cancelTransfer` 的方法通道响应也等待该时点，使 Dart 在放弃任务并清理分片时不会与尚在执行的保存操作竞争。系统直接杀死整个进程时无法保证清理回调运行，接收目录可能残留未登记或未完成的文档。保存成功与 Dart 将 URI 写入 SQLite 之间也存在进程被杀的窗口，重试可能创建重复文件；当前没有跨文档提供者与 SQLite 的原子提交。
 
 打开和分享前会在线程池中尝试只读打开 URI，确认文件存在且授权有效，失败则将错误返回 Dart 以清理过期下载记录。分享使用系统面板、`content://` URI 和临时只读授权，由用户选择目标应用。
 
@@ -34,7 +36,7 @@ Activity 直接调度下载，不请求或等待 `POST_NOTIFICATIONS`，也不�
 
 任务启动时仍立即通过 `JobService.setNotification` 关联进度通知，再启动 Flutter 引擎。Android 要求 UIDT 在启动后及时提供通知，缺失会导致系统停止任务；通知栏是否展示由系统根据用户设置决定，关闭通知时系统任务管理器仍可能显示运行中的应用。通知允许时提供打开应用管理下载的入口，显示进度和结果。下载进度持续更新系统传输统计；任务停止后的普通 `NotificationManager.notify` 只在通知权限、应用通知和媒体下载频道均允许时调用。用户可在系统设置中允许通知。[JobService.setNotification 官方说明](https://developer.android.com/reference/android/app/job/JobService#setNotification(android.app.job.JobParameters,int,android.app.Notification,int))
 
-系统停止回调会向 Dart 发出 `stop`，并给出约两秒保存状态和取消的时间。系统暂停返回可重试，用户取消不重试。引擎销毁后如仍有文件复制在退出，继续等待 I/O 返回；同 task 的立即重试只能在旧引擎和旧 I/O 都结束后重新提交，旧 `complete` 不能完成新任务。等待旧引擎退出期间的取消，也会让此前的延迟调度回调失效。
+系统停止回调会向 Dart 发出 `stop`，并给出约两秒保存状态和取消的时间。系统暂停返回可重试，用户取消不重试。Dart 回报对端暂时不可用（`complete` 带 `retry: true`）时以 `jobFinished(params, true)` 交由系统退避重排。引擎销毁后如仍有文件复制在退出，继续等待 I/O 返回；同 task 的立即重试只能在旧引擎和旧 I/O 都结束后重新提交，旧 `complete` 不能完成新任务。等待旧引擎退出期间的取消，也会让此前的延迟调度回调失效。
 
 `scheduledTransferIds` 查询系统当前排队或执行的任务。应用重新打开时可据此识别 SQLite 中仍显示运行、但系统已无任务的中断记录。Android 系统任务管理器的停止操作可能直接终止进程且不调用 `onStopJob`，因此不能将停止回调作为唯一保存进度的时机。任务不会因本实现自动跨设备重启重建；用户可从应用中重试持久记录。
 
@@ -53,18 +55,19 @@ Activity 直接调度下载，不请求或等待 `POST_NOTIFICATIONS`，也不�
 | `clearSharedDirectory` | 无 | 撤销共享映射并取消旧扫描 |
 | `readRange` | `id, offset, length` | 原始分块字节；最多 256 KiB |
 | `readPreview` | `uri, maxDimension=2560` | 受限 JPEG 预览，最大 8 MiB |
-| `saveDownload` | `sourcePath, directoryUri, name, mimeType, directories` | 保存后的文档 URI |
+| `saveDownload` | `sourcePaths, expectedSize, directoryUri, name, mimeType, directories` | 保存后的文档 URI |
+| `transferSpace` | `directoryUri` | `{stagingAvailableBytes?}`；SAF 接收卷容量和卷关系未知 |
 | `share` / `open` | `uri, mimeType` | 系统分享或外部查看 |
 | `transferDirectory` | 无 | 持久下载暂存目录 |
 | `temporaryDirectory` | 无 | 应用临时缓存目录 |
 | `scheduleTransfer` | `taskId` | 直接发起系统 UIDT 任务，不请求通知权限 |
-| `cancelTransfer` | `taskId` | 取消系统任务并通知正在运行的 worker |
+| `cancelTransfer` | `taskId` | 取消系统任务，等待旧 worker 和 native I/O 结束后返回 |
 | `scheduledTransferIds` | 无 | 系统排队/执行的 task ID 列表 |
 | `localInfo` | 无 | `{name, addresses}`，本机非回环 IPv4 地址 |
 | `startDiscovery` | `id, name, port` | 注册并发现 DNS-SD 服务 |
 | `stopDiscovery` | 无 | 停止发现，注销服务与服务信息回调 |
 
-Headless 引擎的 `tamayura/platform` 仅开放 `transferDirectory` 和 `saveDownload`。其 `tamayura/background` 协议如下：
+Headless 引擎的 `tamayura/platform` 仅开放 `transferDirectory`、`transferSpace` 和 `saveDownload`。其 `tamayura/background` 协议如下：
 
 | 方向 / 方法 | 数据 | 作用 |
 | --- | --- | --- |
