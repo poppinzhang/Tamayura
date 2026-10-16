@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Average border color of assets/branding/app_icon.png, used outside the artwork. -->
+    <color name="ic_launcher_background">#EB6532</color>
+</resources>

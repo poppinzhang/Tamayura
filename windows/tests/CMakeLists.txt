@@ -1,0 +1,22 @@
+cmake_minimum_required(VERSION 3.14)
+project(tamayura_native_tests LANGUAGES CXX)
+enable_testing()
+
+add_executable(discovery_core_test discovery_core_test.cpp ../runner/discovery_core.cpp)
+target_compile_features(discovery_core_test PRIVATE cxx_std_17)
+target_include_directories(discovery_core_test PRIVATE ../runner)
+add_test(NAME discovery_core_test COMMAND discovery_core_test)
+
+if(WIN32)
+  add_executable(windows_storage_test storage_test.cpp ../runner/storage_core.cpp)
+  target_compile_features(windows_storage_test PRIVATE cxx_std_17)
+  target_include_directories(windows_storage_test PRIVATE ../runner)
+  target_compile_definitions(windows_storage_test PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN
+    UNICODE _UNICODE _WIN32_WINNT=0x0A00 WINVER=0x0A00)
+  target_link_libraries(windows_storage_test PRIVATE shell32 ole32 windowscodecs bcrypt gdi32 uuid)
+  if(MSVC)
+    target_compile_options(windows_storage_test PRIVATE /W4 /WX /EHsc /utf-8)
+    target_compile_options(discovery_core_test PRIVATE /W4 /WX /EHsc /utf-8)
+  endif()
+  add_test(NAME windows_storage_test COMMAND windows_storage_test)
+endif()

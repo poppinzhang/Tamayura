@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@color/ic_launcher_background" />
+    <foreground>
+        <!-- Map the square artwork to the central 72/108 of the adaptive layer.
+             Fractional insets preserve the lettering at every launcher size. -->
+        <inset android:inset="16.666667%">
+            <bitmap
+                android:src="@drawable/ic_launcher_artwork"
+                android:gravity="fill"
+                android:filter="true" />
+        </inset>
+    </foreground>
+</adaptive-icon>

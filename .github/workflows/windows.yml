@@ -1,0 +1,39 @@
+name: Windows preview
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: windows-2022
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.6'
+          channel: stable
+          cache: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Check Windows toolchain
+        run: flutter doctor -v
+      - name: Check source handoff allowlist
+        run: python scripts/test-windows-source.py
+      - name: Verify and build Windows x64
+        run: ./scripts/package-windows.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tamayura-windows-x64
+          if-no-files-found: error
+          path: |
+            dist/*/Tamayura-*-windows-x64.zip
+            dist/*/SHA256SUMS-windows
