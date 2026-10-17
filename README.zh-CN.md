@@ -37,9 +37,9 @@
 
 ## 快速开始
 
-玉响仍处于早期开发阶段。本 README 介绍 **0.6.0 源码**，其 Pre-release 正在准备；已发布安装包以 [GitHub Releases](https://github.com/poppinzhang/Tamayura/releases) 为准，核验状态见 [0.6.0 发布记录](docs/releases/0.6.0.md)。已有 0.5.0 试用包尚未包含后续改动。互联设备请使用**同一构建**，0.6.0 不能与 0.5.0 互联。
+玉响仍处于早期开发阶段。本 README 介绍 **0.6.1 源码**，其 Pre-release 正在准备；已发布安装包以 [GitHub Releases](https://github.com/poppinzhang/Tamayura/releases) 为准，核验状态见 [0.6.1 发布记录](docs/releases/0.6.1.md)。已有 0.5.0 试用包尚未包含后续改动。互联设备请使用**同一构建**，0.6.1 不能与 0.5.0 互联。
 
-**1 · 安装并连接网络。** 在 [GitHub Releases](https://github.com/poppinzhang/Tamayura/releases) 提供下载后，选择对应平台的安装包并阅读[安装说明](docs/releases/0.6.0.md#安装与数据)；从源码运行请参考[本地开发说明](AGENTS.md#本地开发)。Android 0.6.0 更换了签名证书，安装前需先卸载 0.5.0 及更早的试用版，这会清除应用数据和目录授权。将两台设备连接到同一局域网，并打开玉响。按提示允许本地网络访问；Windows 请在可信的专用网络中允许应用通过防火墙。
+**1 · 安装并连接网络。** 在 [GitHub Releases](https://github.com/poppinzhang/Tamayura/releases) 提供下载后，选择对应平台的安装包并阅读[安装说明](docs/releases/0.6.1.md#安装与数据)；从源码运行请参考[本地开发说明](AGENTS.md#本地开发)。Android 0.6.1 更换了签名证书，安装前需先卸载 0.5.0 及更早的试用版，这会清除应用数据和目录授权。将两台设备连接到同一局域网，并打开玉响。按提示允许本地网络访问；Windows 请在可信的专用网络中允许应用通过防火墙。
 
 **2 · 选择文件夹。** 在**设置**中添加想分享的文件夹，再选择下载文件的接收目录。例如，分享 `DCIM`，接收到 `Pictures/Tamayura`。子文件夹会自动包含，无需重复添加。Android 请选用子文件夹，不能直接选择存储根目录或 `Download` 根目录。
 
@@ -55,7 +55,7 @@
 | macOS | macOS Sequoia 15.0+，支持 Tahoe 26 及后续版本 | Apple 芯片与 Intel 通用 App |
 | Windows | Windows 10 1809+ / Windows 11 · x64 | ZIP；需要 Visual C++ x64 运行库 |
 
-macOS Pre-release 使用 ad-hoc 签名，尚未公证；Windows ZIP 未签名。安装细节和验证范围见 [0.6.0 发布记录](docs/releases/0.6.0.md)。iOS 和 Linux 属于后续目标，尚未提供可运行或下载的版本。
+macOS Pre-release 使用 ad-hoc 签名，尚未公证；Windows ZIP 未签名。安装细节和验证范围见 [0.6.1 发布记录](docs/releases/0.6.1.md)。iOS 和 Linux 属于后续目标，尚未提供可运行或下载的版本。
 
 Windows 可以展示连接二维码、用默认应用打开已下载文件，以及在资源管理器中定位文件。相机扫码和系统分享面板可在 Android、macOS 上使用。
 
@@ -107,7 +107,7 @@ macOS 和 Windows 关闭窗口后，玉响会留在菜单栏或系统托盘。�
 | :-- | :-- |
 | [更新记录](CHANGELOG.md) | 已发布与未发布的变更 |
 | [GitHub Releases](https://github.com/poppinzhang/Tamayura/releases) | 已发布安装包与校验和 |
-| [0.6.0 发布记录](docs/releases/0.6.0.md) | 发布进度、安装方式和已知限制 |
+| [0.6.1 发布记录](docs/releases/0.6.1.md) | 发布进度、安装方式和已知限制 |
 | [自动与手动同步](docs/自动与手动同步.md) | 自动间隔、手动刷新与同步状态 |
 | [新设备确认与忘记设备](docs/新设备确认与忘记设备.md) | 新发现设备的确认、设备重新上线时的重试以及忘记设备 |
 | [下载存储与清理](docs/下载存储与清理.md) | 下载续传、临时文件与清理 |

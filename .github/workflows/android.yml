@@ -25,6 +25,11 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+      - name: Install Android API 36 tools
+        run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0' 'platform-tools'
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.47.6'
