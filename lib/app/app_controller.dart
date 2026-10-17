@@ -98,6 +98,19 @@ class AppController extends TamayuraModel {
   List<String> _deviceOrder = [];
   bool _deviceOrderSaving = false;
   final Set<String> _online = {}, _connecting = {};
+  final Map<String, PeerSyncApproval> _syncApprovals = {};
+  // The latest attempt failed or was interrupted (mirrors last_sync_failed).
+  final Set<String> _syncFailed = {};
+  // Devices announced in the current discovery session. A 'found' event for an
+  // ID not in this set is a rising edge; 'lost' and stopping discovery reset it.
+  final Set<String> _announced = {};
+  // Edges seen while an attempt for that device ran, replayed if it failed.
+  final Map<String, Peer> _pendingEdges = {};
+  final List<String> _approvalRequests = [];
+  // One approval prompt per device and application run.
+  final Set<String> _approvalPrompted = {};
+  final Set<String> _forgetting = {};
+  final Map<String, Set<_PeerSyncRun>> _peerSyncRuns = {};
   final Map<String, Object> _presenceChecks = {};
   final Set<MediaRpcClient> _rpcClients = {};
   int _presenceGeneration = 0;
@@ -203,6 +216,7 @@ class AppController extends TamayuraModel {
             online: _online.contains(peer.id),
             lastSync: peer.lastSync,
             lastSuccessfulSync: peer.lastSuccessfulSync,
+            syncApproval: _syncApprovals[peer.id] ?? PeerSyncApproval.pending,
           ),
         )
         .toList()
@@ -214,6 +228,31 @@ class AppController extends TamayuraModel {
         final name = a.name.compareTo(b.name);
         return name != 0 ? name : a.id.compareTo(b.id);
       });
+  }
+
+  @override
+  List<DeviceView> get syncApprovalRequests {
+    if (_approvalRequests.isEmpty) return const [];
+    final views = {for (final device in devices) device.id: device};
+    return [
+      for (final id in _approvalRequests)
+        if (views[id]?.syncApproval == PeerSyncApproval.pending) views[id]!,
+    ];
+  }
+
+  @override
+  Set<String> get forgettingDeviceIds => Set.unmodifiable(_forgetting);
+
+  bool _syncApproved(String id) =>
+      _syncApprovals[id] == PeerSyncApproval.approved;
+
+  void _requestSyncApproval(String id) {
+    if (_syncApprovals[id] != PeerSyncApproval.pending ||
+        !_approvalPrompted.add(id)) {
+      return;
+    }
+    _approvalRequests.add(id);
+    _notify();
   }
 
   @override
@@ -491,6 +530,8 @@ class AppController extends TamayuraModel {
     _invalidatePresenceChecks();
     await _discovery?.cancel();
     _discovery = null;
+    // A restarted discovery session reports each present device as a new edge.
+    _announced.clear();
     try {
       await _bridge.stopDiscovery();
     } finally {
@@ -850,9 +891,13 @@ class AppController extends TamayuraModel {
         () => db.getSetting('downloadFolder'),
       );
       _peers.clear();
+      _syncApprovals.clear();
+      _syncFailed.clear();
       _syncProgress.clear();
       for (final peer in await startup.wait(db.listPeers)) {
         _peers[peer.id] = peer;
+        _syncApprovals[peer.id] = peer.syncApproval;
+        if (peer.lastSyncFailed) _syncFailed.add(peer.id);
         final checkpoint = await startup.wait(() => db.findPeerSnapshot(peer));
         if (checkpoint != null) {
           _syncProgress[peer.id] = SyncProgress(
@@ -979,6 +1024,8 @@ class AppController extends TamayuraModel {
         if (host == null || remotePort == null) return;
         try {
           LanEndpoint.parse('$host:$remotePort');
+          // Repeated or updated announcements of a present device are not edges.
+          final edge = _announced.add(id);
           unawaited(
             _onDiscoveredPeer(
               Peer(
@@ -987,13 +1034,17 @@ class AppController extends TamayuraModel {
                 host: host,
                 port: remotePort,
               ),
+              edge: edge,
             ),
           );
         } on FormatException {
           /* Ignore non-LAN/unsupported addresses. */
         }
       case 'lost':
-        if (id != null) unawaited(_checkPeerPresence(id));
+        if (id != null) {
+          _announced.remove(id);
+          unawaited(_checkPeerPresence(id));
+        }
       case 'error':
         _error = '自动发现暂不可用，可在「设备」中手动连接。';
         _notify();
@@ -1008,6 +1059,7 @@ class AppController extends TamayuraModel {
     _connecting.clear();
     _activePeers.clear();
     _pendingPeers.clear();
+    _pendingEdges.clear();
     _syncProgress.clear();
     _syncProgressOwners.clear();
     _syncCandidates.clear();
@@ -1028,11 +1080,19 @@ class AppController extends TamayuraModel {
     } catch (_) {}
   }
 
-  Future<void> _checkPeerPresence(String id, {Peer? candidate}) async {
+  /// Verify that an endpoint still answers as device [id]. With a [candidate]
+  /// from discovery, also save its endpoint; an unknown device is remembered
+  /// only after this check succeeds, and only as pending approval.
+  Future<void> _checkPeerPresence(
+    String id, {
+    Peer? candidate,
+    bool promptApproval = false,
+  }) async {
     final peer = candidate ?? _peers[id];
     if (_disposed ||
         !_shouldShare ||
         peer == null ||
+        _forgetting.contains(id) ||
         _presenceChecks.containsKey(id)) {
       return;
     }
@@ -1064,14 +1124,21 @@ class AppController extends TamayuraModel {
             port: identity.port,
             lastSeen: _clock(),
           );
-          await _repository!.upsertPeer(updated);
-          if (!isCurrent()) return;
+          if (_peers.containsKey(id)) {
+            await _repository!.upsertPeer(updated);
+            if (!isCurrent()) return;
+          } else {
+            final approval = await _repository!.rememberDiscoveredPeer(updated);
+            if (!isCurrent()) return;
+            _syncApprovals[id] = approval;
+          }
           _peers[id] = updated.copyWith(
             lastSync: _peers[id]?.lastSync,
             lastSuccessfulSync: _peers[id]?.lastSuccessfulSync,
           );
         }
         _online.add(id);
+        if (promptApproval) _requestSyncApproval(id);
       } else {
         _online.remove(id);
       }
@@ -1454,7 +1521,7 @@ class AppController extends TamayuraModel {
     if (!_initialized || !_shouldShare || _autoSyncRunning) return;
     DateTime? next;
     for (final peer in _peers.values) {
-      if (_connecting.contains(peer.id)) continue;
+      if (_connecting.contains(peer.id) || !_syncApproved(peer.id)) continue;
       final due =
           peer.lastSync?.add(Duration(hours: _autoSyncIntervalHours)) ??
           _clock();
@@ -1474,15 +1541,41 @@ class AppController extends TamayuraModel {
     });
   }
 
-  Future<void> _onDiscoveredPeer(Peer candidate) async {
-    final remembered = _peers[candidate.id];
-    if (_connecting.contains(candidate.id) ||
-        remembered == null ||
-        _autoSyncDue(remembered)) {
+  /// [edge] marks the first announcement since discovery started or the device
+  /// was lost. Only that edge retries a device whose last attempt failed;
+  /// repeated announcements never poll a failing device.
+  Future<void> _onDiscoveredPeer(Peer candidate, {bool edge = false}) async {
+    if (_forgetting.contains(candidate.id)) return;
+    if (_connecting.contains(candidate.id)) {
+      // The active attempt goes first. Queue a changed endpoint, and keep an
+      // edge so that the device is retried once if this attempt fails.
       _presenceChecks.remove(candidate.id);
-      await _syncPeer(candidate);
+      final active = _activePeers[candidate.id];
+      if (active?.host != candidate.host || active?.port != candidate.port) {
+        _pendingPeers[candidate.id] = candidate;
+      }
+      if (edge) _pendingEdges[candidate.id] = candidate;
       return;
     }
+    final remembered = _peers[candidate.id];
+    if (remembered == null) {
+      // Remember a verified newcomer, but wait for the user before syncing.
+      _presenceChecks.remove(candidate.id);
+      await _checkPeerPresence(
+        candidate.id,
+        candidate: candidate,
+        promptApproval: true,
+      );
+      return;
+    }
+    final retryFailed = edge && _syncFailed.contains(candidate.id);
+    if (_syncApproved(candidate.id) &&
+        (retryFailed || _autoSyncDue(remembered))) {
+      _presenceChecks.remove(candidate.id);
+      await _syncPeer(candidate, automatic: !retryFailed);
+      return;
+    }
+    final pending = _syncApprovals[candidate.id] == PeerSyncApproval.pending;
     // Repeated announcements of an already reachable endpoint need no RPC.
     // A lost probe, changed endpoint/name, or offline device needs only identity.
     if (_presenceChecks.containsKey(candidate.id) ||
@@ -1491,16 +1584,30 @@ class AppController extends TamayuraModel {
         remembered.port != candidate.port ||
         remembered.name != candidate.name) {
       _presenceChecks.remove(candidate.id);
-      await _checkPeerPresence(candidate.id, candidate: candidate);
+      await _checkPeerPresence(
+        candidate.id,
+        candidate: candidate,
+        promptApproval: pending,
+      );
+    } else if (pending) {
+      _requestSyncApproval(candidate.id);
     }
   }
 
+  /// [approve] is the user's explicit request (address, QR code or enabling
+  /// sync); it approves the device. Other attempts need a prior approval.
   Future<void> _syncPeer(
     Peer candidate, {
     bool reportError = false,
     bool automatic = true,
+    bool approve = false,
   }) async {
     if (_disposed || !_shouldShare) return;
+    if (candidate.id.isNotEmpty &&
+        (_forgetting.contains(candidate.id) ||
+            (!approve && !_syncApproved(candidate.id)))) {
+      return;
+    }
     final remembered =
         _peers[candidate.id] ??
         (candidate.id.isEmpty
@@ -1528,6 +1635,15 @@ class AppController extends TamayuraModel {
     }
     _activePeers[key] = candidate;
     final generation = _presenceGeneration;
+    final run = _PeerSyncRun();
+    // Forgetting a device closes and awaits each of its runs before deleting.
+    void track(String id) {
+      if (id.isNotEmpty) _peerSyncRuns.putIfAbsent(id, () => {}).add(run);
+    }
+
+    // Forgetting or declining a device stops its attempt at the next step.
+    bool mayContinue(String id) =>
+        !_forgetting.contains(id) && (approve || _syncApproved(id));
     final progressOwner = Object();
     var progressKey = key;
     _syncProgressOwners[progressKey] = progressOwner;
@@ -1581,11 +1697,13 @@ class AppController extends TamayuraModel {
     final attemptedAt = _clock();
     Peer? attemptedPeer;
     var resolvedId = remembered?.id ?? candidate.id;
+    track(resolvedId);
     var identified = false;
     MediaRpcClient? client;
     try {
       // Persist before the first network operation: even an identity timeout or
-      // client-construction failure consumes this automatic interval.
+      // client-construction failure consumes this automatic interval. The
+      // attempt stays marked failed until its catalog commit succeeds.
       if (candidate.id.isNotEmpty || remembered != null) {
         attemptedPeer = (candidate.id.isEmpty ? remembered! : candidate)
             .copyWith(
@@ -1593,10 +1711,12 @@ class AppController extends TamayuraModel {
               lastSuccessfulSync: remembered?.lastSuccessfulSync,
             );
         _peers[attemptedPeer.id] = attemptedPeer;
+        _syncFailed.add(attemptedPeer.id);
         await _repository!.upsertPeer(attemptedPeer);
-        if (!ownsProgress()) return;
+        if (!ownsProgress() || !mayContinue(attemptedPeer.id)) return;
       }
       client = _clientFactory(candidate);
+      run.client = client;
       _rpcClients.add(client);
       var peer = await client.identity();
       if (_disposed || !_shouldShare || generation != _presenceGeneration) {
@@ -1614,6 +1734,15 @@ class AppController extends TamayuraModel {
         if (reportError) _error = '这是本机地址，请输入另一台设备的地址';
         return;
       }
+      if (!mayContinue(peer.id)) {
+        if (ownsProgress()) {
+          _syncProgress.remove(progressKey);
+          _syncProgressOwners.remove(progressKey);
+          _syncCandidates.remove(progressKey);
+        }
+        return;
+      }
+      track(peer.id);
       if (candidate.id.isEmpty &&
           remembered != null &&
           remembered.id != peer.id) {
@@ -1674,8 +1803,22 @@ class AppController extends TamayuraModel {
         lastSync: attemptedAt,
         lastSuccessfulSync: _peers[peer.id]?.lastSuccessfulSync,
       );
+      _syncFailed.add(peer.id);
       await _repository!.upsertPeer(peer);
-      if (_disposed || !_shouldShare || generation != _presenceGeneration) {
+      if (approve &&
+          !_syncApproved(peer.id) &&
+          !_forgetting.contains(peer.id)) {
+        await _repository!.setPeerSyncApproval(
+          peer.id,
+          PeerSyncApproval.approved,
+        );
+        _syncApprovals[peer.id] = PeerSyncApproval.approved;
+        _approvalRequests.remove(peer.id);
+      }
+      if (_disposed ||
+          !_shouldShare ||
+          generation != _presenceGeneration ||
+          !mayContinue(peer.id)) {
         return;
       }
       // A previous catalog commit may have refreshed the view during the
@@ -1691,6 +1834,8 @@ class AppController extends TamayuraModel {
         _repository!,
         onProgress: progressChanged,
       );
+      // The catalog is committed even if sharing stopped meanwhile.
+      _syncFailed.remove(peer.id);
       if (_disposed || !_shouldShare || generation != _presenceGeneration) {
         return;
       }
@@ -1748,12 +1893,18 @@ class AppController extends TamayuraModel {
         if (reportError &&
             !_disposed &&
             _shouldShare &&
-            generation == _presenceGeneration) {
+            generation == _presenceGeneration &&
+            !_forgetting.contains(resolvedId)) {
           _error = describeError(e);
         }
       }
     } finally {
       if (client != null) await _closeRpcClient(client);
+      for (final runs in _peerSyncRuns.values) {
+        runs.remove(run);
+      }
+      _peerSyncRuns.removeWhere((_, runs) => runs.isEmpty);
+      run.done.complete();
       if (!_disposed && generation != _presenceGeneration) {
         // A stopped sync may finish saving after a new foreground operation
         // has begun. Read the current view without reviving old progress.
@@ -1770,8 +1921,14 @@ class AppController extends TamayuraModel {
         _activePeers.remove(key);
         _notify();
         final next = _pendingPeers.remove(key);
-        if (next != null && !_disposed && _shouldShare) {
-          await _onDiscoveredPeer(next);
+        final edge = _pendingEdges.remove(key);
+        if (!_disposed && _shouldShare) {
+          if (next != null) {
+            await _onDiscoveredPeer(next, edge: edge != null);
+          } else if (edge != null && _syncFailed.contains(key)) {
+            // Announced while this attempt ran and the attempt failed.
+            await _onDiscoveredPeer(edge, edge: true);
+          }
         }
       }
       _scheduleAutoSync();
@@ -1779,7 +1936,9 @@ class AppController extends TamayuraModel {
   }
 
   Future<void> _syncRemembered({bool automatic = true}) async {
-    final peers = _peers.values.toList();
+    final peers = _peers.values
+        .where((peer) => _syncApproved(peer.id))
+        .toList();
     // Bound concurrent peers; each catalog uses metadata pages and incremental thumbnails.
     for (var offset = 0; offset < peers.length; offset += 3) {
       await Future.wait(
@@ -1796,7 +1955,13 @@ class AppController extends TamayuraModel {
     final peer = _peers[peerId] ?? _syncCandidates[peerId];
     if (peer == null) return;
     _error = null;
-    await _syncPeer(peer, reportError: true, automatic: false);
+    // Retrying an entered address repeats that explicit connection request.
+    await _syncPeer(
+      peer,
+      reportError: true,
+      automatic: false,
+      approve: peer.id.isEmpty,
+    );
   }
 
   @override
@@ -1919,7 +2084,105 @@ class AppController extends TamayuraModel {
       Peer(id: '', name: '局域网设备', host: target.host, port: target.port),
       reportError: true,
       automatic: false,
+      approve: true,
     );
+  }
+
+  @override
+  Future<void> setDeviceSyncEnabled(String id, bool enabled) async {
+    _approvalRequests.remove(id);
+    final db = _repository;
+    final peer = _peers[id];
+    if (_disposed || db == null || peer == null || _forgetting.contains(id)) {
+      _notify();
+      return;
+    }
+    final approval = enabled
+        ? PeerSyncApproval.approved
+        : PeerSyncApproval.declined;
+    if (_syncApprovals[id] != approval) {
+      _error = null;
+      try {
+        if (!await db.setPeerSyncApproval(id, approval)) return;
+      } catch (error) {
+        if (!_disposed) _error = describeError(error);
+        _notify();
+        return;
+      }
+      if (_disposed || !_peers.containsKey(id)) return;
+      _syncApprovals[id] = approval;
+      _scheduleAutoSync();
+    }
+    _notify();
+    if (enabled) {
+      // Enabling is an explicit request: start now, regardless of the interval.
+      await _syncPeer(peer, reportError: true, automatic: false);
+    }
+  }
+
+  @override
+  void dismissSyncApproval(String id) {
+    if (_approvalRequests.remove(id)) _notify();
+  }
+
+  @override
+  Future<bool> forgetDevice(String id) async {
+    final db = _repository;
+    if (_disposed ||
+        db == null ||
+        !_initialized ||
+        !_peers.containsKey(id) ||
+        !_forgetting.add(id)) {
+      return false;
+    }
+    _error = null;
+    _notify();
+    try {
+      // Stop this device's work first so that no late presence result or
+      // catalog write can recreate the device after it is deleted.
+      _presenceChecks.remove(id);
+      _pendingPeers.remove(id);
+      _pendingEdges.remove(id);
+      _approvalRequests.remove(id);
+      _syncProgressOwners.remove(id);
+      final runs = [...?_peerSyncRuns[id]];
+      for (final run in runs) {
+        final client = run.client;
+        if (client != null) unawaited(_closeRpcClient(client));
+      }
+      await Future.wait(runs.map((run) => run.done.future));
+      await db.forgetPeer(id);
+      _peers.remove(id);
+      _syncApprovals.remove(id);
+      _syncFailed.remove(id);
+      _online.remove(id);
+      _syncProgress.remove(id);
+      _syncCandidates.remove(id);
+      // Found again later, it is a new device and is offered once more.
+      _approvalPrompted.remove(id);
+      if (_deviceOrder.contains(id)) {
+        _deviceOrder = _deviceOrder.where((device) => device != id).toList();
+        try {
+          await db.setSetting('deviceOrder', jsonEncode(_deviceOrder));
+        } catch (_) {
+          // Unknown IDs in the saved order are ignored; the next save drops it.
+        }
+      }
+      if (_selectedDeviceId == id) _selectedDeviceId = null;
+      if (_selectedCollection?.deviceId == id) _selectedCollectionKey = null;
+      _mediaScrollEntries = const [];
+      _scrollItems.clear();
+      _loadedMediaLimit = 60;
+      ++_pageGeneration;
+      await _loadCachedMedia();
+      return true;
+    } catch (error) {
+      if (!_disposed) _error = describeError(error);
+      return false;
+    } finally {
+      _forgetting.remove(id);
+      _notify();
+    }
   }
 
   @override
@@ -2197,6 +2460,11 @@ class AppController extends TamayuraModel {
     unawaited(shutdown());
     super.dispose();
   }
+}
+
+class _PeerSyncRun {
+  MediaRpcClient? client;
+  final done = Completer<void>();
 }
 
 class _MediaScrollRequest {

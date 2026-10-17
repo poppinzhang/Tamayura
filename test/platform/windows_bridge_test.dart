@@ -138,7 +138,7 @@ void main() {
     });
     await expectLater(bridge.readRange('id', -1, 3), throwsArgumentError);
     await expectLater(
-      bridge.readRange('id', 0, 256 * 1024 + 1),
+      bridge.readRange('id', 0, mediaReadChunkBytes + 1),
       throwsArgumentError,
     );
     expect(calls, 0);

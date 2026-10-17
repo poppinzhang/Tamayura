@@ -43,7 +43,7 @@ Tamayura is in early development. This README describes the current source; exis
 
 **2 · Choose your folders.** In **Settings (设置)**, add the folders you want to share and choose where downloaded files should go. For example, share `DCIM` and receive files in `Pictures/Tamayura`. Subfolders are included automatically. On Android, choose a subfolder rather than the storage root or the `Download` root.
 
-**3 · Find your other device.** Open **Devices (设备)** and wait for automatic discovery. You can also enter the address shown on the other device. Android and macOS can scan its QR code.
+**3 · Find your other device.** Open **Devices (设备)** and wait for automatic discovery. When a new device is found, Tamayura asks whether to sync its album; if you choose not to, you can turn syncing on later from its card. You can also enter the address shown on the other device, or scan its QR code on Android and macOS; these connect and sync right away.
 
 **4 · Open an album.** In **Albums (相册)**, choose a shared collection and tap a photo or video to download its original. The source device must be online for downloads. After adding or removing media, refresh the source device, then refresh the receiving device to update its album immediately.
 
@@ -61,7 +61,7 @@ Windows can display a connection QR code, open downloaded files in the default a
 
 ## How it fits together
 
-Each device chooses its shared folders and remembers the other devices it has connected to. Tamayura first syncs the media list and small previews. Originals stay on their source device until you choose to download them.
+Each device chooses its shared folders and remembers the other devices it has connected to. To remove a device together with its offline album, choose **Forget device** from its menu on the Devices page; files you have already downloaded stay on your device. Tamayura first syncs the media list and small previews. Originals stay on their source device until you choose to download them.
 
 Devices discover each other with mDNS / DNS-SD and transfer media directly over gRPC. There is no account or cloud relay to set up.
 
@@ -73,7 +73,7 @@ Each shared folder becomes a collection, including media in its subfolders. Brow
 
 ### Previews that stay with you
 
-Synced thumbnails remain available offline. During a sync, photos appear as they arrive; interrupted syncs keep their progress so you can continue later. Automatic sync defaults to a 12-hour interval, which you can change in Settings. Refresh manually whenever you need an update, and check each device's last successful sync time.
+Synced thumbnails remain available offline. During a sync, photos appear as they arrive; interrupted syncs keep their progress so you can continue later. Automatic sync defaults to a 12-hour interval, which you can change in Settings. If the last sync with a device failed, Tamayura retries as soon as that device appears on the network again. Refresh manually whenever you need an update, and check each device's last successful sync time.
 
 ### Originals on demand
 
@@ -108,6 +108,7 @@ Most detailed documentation is currently in Chinese.
 | [Changelog](CHANGELOG.md) | Released and unreleased changes |
 | [0.5.0 trial notes](docs/releases/0.5.0.md) | Existing trial packages, installation, and known limits |
 | [Sync behavior](docs/自动与手动同步.md) | Automatic intervals, manual refresh, and sync status |
+| [New and forgotten devices](docs/新设备确认与忘记设备.md) | Confirming newly discovered devices, retrying when a device comes back, and forgetting devices |
 | [Downloads and storage](docs/下载存储与清理.md) | Resuming downloads, temporary files, and cleanup |
 | [Background sharing](docs/后台共享.md) | Android background availability and battery settings |
 | [Development guide](AGENTS.md) | Setup, tests, builds, and implementation references |

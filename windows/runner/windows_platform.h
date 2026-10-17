@@ -41,6 +41,8 @@ class WorkerPool {
   ~WorkerPool();
   void Submit(std::function<void()> work);
   void Stop();
+  // One worker per hardware thread; four when the count cannot be determined.
+  static unsigned ThreadCount();
  private:
   std::mutex mutex_;
   std::condition_variable ready_;

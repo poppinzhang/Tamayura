@@ -378,7 +378,10 @@ void main() {
   test('invalid ranges never cross the platform channel', () async {
     await expectLater(bridge.readRange('id', -1, 1), throwsArgumentError);
     await expectLater(bridge.readRange('id', 0, -1), throwsArgumentError);
-    await expectLater(bridge.readRange('id', 0, 262145), throwsArgumentError);
+    await expectLater(
+      bridge.readRange('id', 0, mediaReadChunkBytes + 1),
+      throwsArgumentError,
+    );
     expect(calls, isEmpty);
   });
 

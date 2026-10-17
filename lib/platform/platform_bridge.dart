@@ -177,9 +177,10 @@ abstract class PlatformBridge {
       _methods.invokeMethod<void>('clearSharedDirectory');
 
   Future<Uint8List> readRange(String id, int offset, int length) async {
-    if (offset < 0 || length < 0 || length > 256 * 1024) {
+    if (offset < 0 || length < 0 || length > mediaReadChunkBytes) {
       throw ArgumentError(
-        'Range must have offset >= 0 and 0 <= length <= 256 KiB',
+        'Range must have offset >= 0 and 0 <= length <= '
+        '$mediaReadChunkBytes bytes',
       );
     }
     return await _methods.invokeMethod<Uint8List>('readRange', {

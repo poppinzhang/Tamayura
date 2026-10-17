@@ -184,7 +184,9 @@ int main() {
       Expect(catalog.Read(id, 1000, 1).empty(), "EOF is empty");
       Reject("INVALID_ARGUMENT", [&] { catalog.Read(id, -1, 1); });
       Reject("INVALID_ARGUMENT", [&] { catalog.Read(id, 1001, 0); });
-      Reject("INVALID_ARGUMENT", [&] { catalog.Read(id, 0, 262145); });
+      Expect(kMaxReadChunkBytes == 2 * 1024 * 1024, "2 MiB read chunk");
+      Expect(catalog.Read(id, 0, kMaxReadChunkBytes) == bytes, "Largest chunk");
+      Reject("INVALID_ARGUMENT", [&] { catalog.Read(id, 0, kMaxReadChunkBytes + 1); });
       Reject("FILE_NOT_FOUND", [&] { catalog.Read("unknown", 0, 1); });
       Write(photo, Bytes{0});
       Reject("FILE_CHANGED", [&] { catalog.Read(id, 0, 1); });

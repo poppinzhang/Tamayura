@@ -613,6 +613,13 @@ void main() {
         'host': '192.168.1.8',
         'port': server.port,
       });
+      await _until(
+        model,
+        () => model.syncApprovalRequests.any((device) => device.id == 'phone'),
+        reason: 'A verified newcomer waits for the user before syncing',
+      );
+      expect(source.thumbnailRequests, isEmpty);
+      final approving = model.setDeviceSyncEnabled('phone', true);
       try {
         await gate.requested.future.timeout(_timeout);
         await connect(server).timeout(_timeout);
@@ -623,6 +630,7 @@ void main() {
       } finally {
         gate.open();
       }
+      await approving.timeout(_timeout);
       await _until(
         model,
         () => _progress(model, 'phone')?.phase == SyncPhase.completed,
@@ -880,6 +888,16 @@ void main() {
         'port': server.port,
       });
     }
+    await _until(
+      model,
+      () => model.syncApprovalRequests.length == 2,
+      reason: 'Both verified newcomers wait for approval',
+    );
+    expect(model.syncProgress, isEmpty);
+    final approving = [
+      model.setDeviceSyncEnabled('phone-a', true),
+      model.setDeviceSyncEnabled('phone-b', true),
+    ];
     await Future.wait([
       gateA.requested.future,
       gateB.requested.future,
@@ -909,6 +927,7 @@ void main() {
           model.syncProgress.every((p) => p.phase == SyncPhase.completed),
       reason: 'Both completed device results should remain visible',
     );
+    await Future.wait(approving).timeout(_timeout);
   });
 
   for (final shutdown in [false, true]) {

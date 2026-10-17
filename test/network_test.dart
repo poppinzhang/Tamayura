@@ -723,6 +723,28 @@ void main() {
       );
     });
 
+    test('original files are read and sent in 2 MiB chunks', () async {
+      expect(mediaChunkSize, mediaReadChunkBytes);
+      expect(mediaReadChunkBytes, 2 * 1024 * 1024);
+      expect(maxReadWindowBytes % mediaChunkSize, 0);
+      source.bytes = Uint8List.fromList(
+        List.generate(mediaChunkSize * 2 + 5, (index) => index % 241),
+      );
+      await server.refresh();
+      final offsets = <int>[];
+      source.beforeRead = (offset) async => offsets.add(offset);
+      final chunks = await client
+          .readRange('safe-id', 0, source.bytes.length)
+          .toList();
+      expect(offsets, [0, mediaChunkSize, mediaChunkSize * 2]);
+      expect(chunks.map((chunk) => chunk.length), [
+        mediaChunkSize,
+        mediaChunkSize,
+        5,
+      ]);
+      expect(chunks.expand((chunk) => chunk).toList(), source.bytes);
+    });
+
     test('a paused receiver keeps the source within one read window', () async {
       final bytes = Uint8List(maxReadWindowBytes * 2 + 1234);
       for (var index = 0; index < bytes.length; index++) {

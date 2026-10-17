@@ -8,6 +8,7 @@ export '../core/models.dart'
         MediaCollection,
         MediaSortOrder,
         MediaScrollEntry,
+        PeerSyncApproval,
         SyncPhase,
         SyncProgress;
 
@@ -19,11 +20,16 @@ class DeviceView {
     required this.online,
     this.lastSync,
     this.lastSuccessfulSync,
+    this.syncApproval = PeerSyncApproval.approved,
   });
   final String id, name, address;
   final bool online;
   final DateTime? lastSync;
   final DateTime? lastSuccessfulSync;
+
+  /// Discovered devices synchronize only after the user approves them.
+  final PeerSyncApproval syncApproval;
+  bool get syncEnabled => syncApproval == PeerSyncApproval.approved;
 }
 
 class MediaView {
@@ -145,6 +151,24 @@ abstract class TamayuraModel extends ChangeNotifier {
 
   /// Save the order shared by the device list and album device filters.
   Future<bool> reorderDevices(List<String> deviceIds) async => false;
+
+  /// Newly discovered devices awaiting the one-time "start syncing?" prompt,
+  /// oldest first. Each device is offered at most once per application run.
+  List<DeviceView> get syncApprovalRequests => const [];
+
+  /// Approve (and start) or decline album synchronization for a device. A
+  /// declined device stays remembered and can be enabled later.
+  Future<void> setDeviceSyncEnabled(String id, bool enabled) async {}
+
+  /// Close the prompt without deciding; the device remains pending.
+  void dismissSyncApproval(String id) {}
+
+  /// Devices whose forget operation is still running.
+  Set<String> get forgettingDeviceIds => const {};
+
+  /// Remove a remembered device with its offline album, unfinished sync
+  /// stages and unused thumbnails. Saved local files and downloads remain.
+  Future<bool> forgetDevice(String id) async => false;
   Future<void> selectCollection(String? key);
   Future<void> setMediaSortOrder(MediaSortOrder order) async {}
   Future<void> download(MediaView item);

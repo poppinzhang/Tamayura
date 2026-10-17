@@ -43,7 +43,7 @@ class TamayuraRepository implements CatalogRepository {
     final database = await dbFactory.openDatabase(
       dbPath,
       options: OpenDatabaseOptions(
-        version: 6,
+        version: 7,
         // UI and headless engines own independent connections and lifetimes.
         singleInstance: false,
         onConfigure: (db) async {
@@ -89,12 +89,18 @@ class TamayuraRepository implements CatalogRepository {
     await db.execute(
       'CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)',
     );
+    // Rows created by a sync are approved; discovery inserts pending rows.
+    // last_sync_failed is set when an attempt is recorded and cleared only by
+    // a successful catalog commit, so an interrupted attempt also counts.
     await db.execute('''CREATE TABLE peers (
       id TEXT PRIMARY KEY, name TEXT NOT NULL, host TEXT NOT NULL,
       port INTEGER NOT NULL, last_seen INTEGER, last_sync INTEGER,
       last_successful_sync INTEGER,
       catalog_revision TEXT NOT NULL DEFAULT '',
-      catalog_generation INTEGER NOT NULL DEFAULT 0
+      catalog_generation INTEGER NOT NULL DEFAULT 0,
+      sync_approval TEXT NOT NULL DEFAULT 'approved'
+        CHECK(sync_approval IN ('pending', 'approved', 'declined')),
+      last_sync_failed INTEGER NOT NULL DEFAULT 0
     )''');
     // Immutable bytes can be shared by the committed catalog and any durable
     // snapshot. A reference to an empty BLOB is a completed thumbnail request.
@@ -200,8 +206,11 @@ class TamayuraRepository implements CatalogRepository {
         'last_seen': peer.lastSeen!.millisecondsSinceEpoch,
       // The controller records attempts before network work. Catalog writes
       // may carry an older peer and must not replace that attempt time.
-      if (updateSyncTime && peer.lastSync != null)
+      if (updateSyncTime && peer.lastSync != null) ...{
         'last_sync': peer.lastSync!.millisecondsSinceEpoch,
+        // Unfinished until a catalog commit or unchanged revision clears it.
+        'last_sync_failed': 1,
+      },
     };
     await db.insert(
       'peers',
@@ -210,6 +219,70 @@ class TamayuraRepository implements CatalogRepository {
     );
     await db.update('peers', values, where: 'id = ?', whereArgs: [peer.id]);
   }
+
+  /// Remember a device verified after discovery, without approving its album.
+  /// An existing row keeps the user's decision and only refreshes its address.
+  Future<PeerSyncApproval> rememberDiscoveredPeer(Peer peer) =>
+      _database.transaction((txn) async {
+        final values = <String, Object?>{
+          'id': peer.id,
+          'name': peer.name,
+          'host': peer.host,
+          'port': peer.port,
+          if (peer.lastSeen != null)
+            'last_seen': peer.lastSeen!.millisecondsSinceEpoch,
+        };
+        await txn.insert('peers', {
+          ...values,
+          'sync_approval': PeerSyncApproval.pending.name,
+        }, conflictAlgorithm: ConflictAlgorithm.ignore);
+        await txn.update(
+          'peers',
+          values,
+          where: 'id = ?',
+          whereArgs: [peer.id],
+        );
+        final rows = await txn.query(
+          'peers',
+          columns: ['sync_approval'],
+          where: 'id = ?',
+          whereArgs: [peer.id],
+        );
+        return _approvalFromColumn(rows.single['sync_approval']);
+      });
+
+  /// Returns false when the device is no longer remembered.
+  Future<bool> setPeerSyncApproval(
+    String deviceId,
+    PeerSyncApproval approval,
+  ) async =>
+      await _database.update(
+        'peers',
+        {'sync_approval': approval.name},
+        where: 'id = ?',
+        whereArgs: [deviceId],
+      ) ==
+      1;
+
+  /// Forget one device: its offline catalog, every unfinished sync stage and
+  /// thumbnails no longer referenced. Download history and saved files remain.
+  Future<void> forgetPeer(String deviceId) async {
+    await _database.transaction((txn) async {
+      // sync_media rows cascade from their sessions.
+      await txn.delete(
+        'sync_sessions',
+        where: 'device_id = ?',
+        whereArgs: [deviceId],
+      );
+      await txn.delete('media', where: 'device_id = ?', whereArgs: [deviceId]);
+      await txn.delete('peers', where: 'id = ?', whereArgs: [deviceId]);
+      await _deleteUnusedThumbnails(txn);
+    });
+    _previewSessions.remove(deviceId);
+  }
+
+  static PeerSyncApproval _approvalFromColumn(Object? value) =>
+      PeerSyncApproval.values.asNameMap()[value] ?? PeerSyncApproval.pending;
 
   Future<List<MediaItem>> listMedia({String? deviceId}) async {
     final view = _mediaReadView();
@@ -437,7 +510,10 @@ class TamayuraRepository implements CatalogRepository {
   ) async {
     await db.update(
       'peers',
-      {'last_successful_sync': DateTime.now().millisecondsSinceEpoch},
+      {
+        'last_successful_sync': DateTime.now().millisecondsSinceEpoch,
+        'last_sync_failed': 0,
+      },
       where: 'id = ?',
       whereArgs: [deviceId],
     );
@@ -1003,5 +1079,7 @@ class TamayuraRepository implements CatalogRepository {
         : DateTime.fromMillisecondsSinceEpoch(
             row['last_successful_sync']! as int,
           ),
+    syncApproval: _approvalFromColumn(row['sync_approval']),
+    lastSyncFailed: row['last_sync_failed'] == 1,
   );
 }

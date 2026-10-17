@@ -62,6 +62,7 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
   bool _deletingLocal = false;
   final Set<String> _selectedLocal = {};
   final Map<String, MediaView> _selectedLocalItems = {};
+  bool _approvalDialogOpen = false;
   TamayuraModel get model => widget.model;
 
   @override
@@ -69,19 +70,25 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
     super.initState();
     _albumScroll.addListener(_onAlbumScroll);
     _syncNotices = SyncNotices(model: model, vsync: this);
+    model.addListener(_promptSyncApproval);
+    _promptSyncApproval();
   }
 
   @override
   void didUpdateWidget(_Home oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.model != model) {
+      oldWidget.model.removeListener(_promptSyncApproval);
+      model.addListener(_promptSyncApproval);
       _syncNotices.dispose();
       _syncNotices = SyncNotices(model: model, vsync: this);
+      _promptSyncApproval();
     }
   }
 
   @override
   void dispose() {
+    model.removeListener(_promptSyncApproval);
     _syncNotices.dispose();
     _albumScroll.dispose();
     super.dispose();
@@ -1137,6 +1144,141 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
     ),
   );
 
+  Widget _deviceCard(DeviceView device) {
+    final colors = Theme.of(context).colorScheme;
+    final forgetting = model.forgettingDeviceIds.contains(device.id);
+    final syncStatus = switch (device.syncApproval) {
+      PeerSyncApproval.approved =>
+        '最后成功同步：${_formatSuccessfulSync(device.lastSuccessfulSync)}',
+      PeerSyncApproval.pending => '新发现的设备 · 尚未开启相册同步',
+      PeerSyncApproval.declined => '未开启相册同步',
+    };
+    return _SurfaceCard(
+      margin: const EdgeInsets.only(bottom: 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          ListTile(
+            key: Key('device-${device.id}'),
+            contentPadding: const EdgeInsets.fromLTRB(14, 8, 4, 8),
+            leading: CircleAvatar(
+              backgroundColor: colors.surfaceContainerHighest,
+              child: Icon(
+                Icons.devices_rounded,
+                color: device.online ? colors.primary : colors.onSurfaceVariant,
+              ),
+            ),
+            title: Text(
+              device.name,
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
+            subtitle: Text(
+              '${device.online ? '在线' : '离线 · 可浏览缓存'}\n${device.address}\n'
+              '$syncStatus',
+              style: const TextStyle(height: 1.6, fontSize: 12),
+            ),
+            isThreeLine: true,
+            trailing: PopupMenuButton<_DeviceAction>(
+              key: Key('device-menu-${device.id}'),
+              enabled: !forgetting,
+              tooltip: '设备操作',
+              icon: forgetting
+                  ? const SizedBox.square(
+                      dimension: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.more_vert_rounded),
+              onSelected: (action) => switch (action) {
+                _DeviceAction.enableSync => _enableDeviceSync(device),
+                _DeviceAction.forget => _forgetDevice(device),
+              },
+              itemBuilder: (_) => [
+                if (!device.syncEnabled)
+                  PopupMenuItem(
+                    key: Key('device-enable-sync-${device.id}'),
+                    value: _DeviceAction.enableSync,
+                    child: const Text('开启相册同步'),
+                  ),
+                PopupMenuItem(
+                  key: Key('device-forget-${device.id}'),
+                  value: _DeviceAction.forget,
+                  child: const Text('忘记设备'),
+                ),
+              ],
+            ),
+            onTap: () {
+              _selectDevice(device.id);
+              setState(() => _tab = 0);
+            },
+          ),
+          if (!device.syncEnabled)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(70, 0, 14, 14),
+              child: FilledButton.tonalIcon(
+                key: Key('device-start-sync-${device.id}'),
+                onPressed: forgetting ? null : () => _enableDeviceSync(device),
+                icon: const Icon(Icons.sync_rounded, size: 18),
+                label: const Text('开启同步'),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  void _enableDeviceSync(DeviceView device) =>
+      unawaited(_run(() => model.setDeviceSyncEnabled(device.id, true)));
+
+  Future<void> _forgetDevice(DeviceView device) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => _ForgetDeviceDialog(device: device),
+    );
+    if (confirmed != true || !mounted) return;
+    var forgotten = false;
+    await _run(() async {
+      forgotten = await model.forgetDevice(device.id);
+    });
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          forgotten
+              ? '已忘记「${device.name}」，再次发现时会作为新设备询问是否同步。'
+              : model.error ?? '未能忘记这台设备，请稍后重试。',
+        ),
+      ),
+    );
+  }
+
+  /// Offer each newly discovered device once. Dismissing leaves it pending;
+  /// the device page still offers to enable synchronization.
+  void _promptSyncApproval() {
+    if (_approvalDialogOpen || !mounted) return;
+    final request = model.syncApprovalRequests.firstOrNull;
+    if (request == null) return;
+    _approvalDialogOpen = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) {
+        _approvalDialogOpen = false;
+        return;
+      }
+      final enabled = await showDialog<bool>(
+        context: context,
+        builder: (_) => _SyncApprovalDialog(device: request),
+      );
+      _approvalDialogOpen = false;
+      if (!mounted) return;
+      if (enabled == null) {
+        model.dismissSyncApproval(request.id);
+      } else {
+        // The decision is saved first; a started sync reports its own progress.
+        unawaited(_run(() => model.setDeviceSyncEnabled(request.id, enabled)));
+      }
+      _promptSyncApproval();
+    });
+  }
+
   Widget _devices() => ListView(
     key: const PageStorageKey('devices-scroll'),
     physics: const AlwaysScrollableScrollPhysics(),
@@ -1275,43 +1417,7 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
             description: '设备会通过局域网自动发现。\n如果暂时没找到，可以输入 IP 或扫描二维码连接。',
           ),
         ),
-      for (final device in model.devices)
-        _SurfaceCard(
-          margin: const EdgeInsets.only(bottom: 10),
-          child: ListTile(
-            key: Key('device-${device.id}'),
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: 14,
-              vertical: 8,
-            ),
-            leading: CircleAvatar(
-              backgroundColor: Theme.of(
-                context,
-              ).colorScheme.surfaceContainerHighest,
-              child: Icon(
-                Icons.devices_rounded,
-                color: device.online
-                    ? Theme.of(context).colorScheme.primary
-                    : Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
-            ),
-            title: Text(
-              device.name,
-              style: const TextStyle(fontWeight: FontWeight.w600),
-            ),
-            subtitle: Text(
-              '${device.online ? '在线' : '离线 · 可浏览缓存'}\n${device.address}\n'
-              '最后成功同步：${_formatSuccessfulSync(device.lastSuccessfulSync)}',
-              style: const TextStyle(height: 1.6, fontSize: 12),
-            ),
-            isThreeLine: true,
-            trailing: const Icon(Icons.chevron_right_rounded),
-            onTap: () {
-              _selectDevice(device.id);
-              setState(() => _tab = 0);
-            },
-          ),
-        ),
+      for (final device in model.devices) _deviceCard(device),
       const SizedBox(height: 12),
       Text(
         isWindowsDesktop
@@ -2660,6 +2766,76 @@ class _AutoSyncIntervalDialogState extends State<_AutoSyncIntervalDialog> {
         ),
       ],
     ),
+  );
+}
+
+enum _DeviceAction { enableSync, forget }
+
+class _SyncApprovalDialog extends StatelessWidget {
+  const _SyncApprovalDialog({required this.device});
+  final DeviceView device;
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    key: const Key('sync-approval-dialog'),
+    title: const Text('发现新设备'),
+    content: Text(
+      '「${device.name}」（${device.address}）出现在局域网中。是否同步它共享的相册？\n\n'
+      '同步只获取文件信息和缩略图，原文件仍在点开时下载。选择「暂不同步」后，'
+      '可以随时在「设备」页面开启。',
+      style: TextStyle(
+        color: Theme.of(context).colorScheme.onSurfaceVariant,
+        height: 1.5,
+      ),
+    ),
+    actions: [
+      TextButton(
+        key: const Key('sync-approval-decline'),
+        onPressed: () => Navigator.of(context).pop(false),
+        child: const Text('暂不同步'),
+      ),
+      FilledButton(
+        key: const Key('sync-approval-accept'),
+        onPressed: () => Navigator.of(context).pop(true),
+        child: const Text('开始同步'),
+      ),
+    ],
+  );
+}
+
+class _ForgetDeviceDialog extends StatelessWidget {
+  const _ForgetDeviceDialog({required this.device});
+  final DeviceView device;
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    key: const Key('forget-device-dialog'),
+    title: Text('忘记「${device.name}」？'),
+    content: Text(
+      '将从设备列表移除这台设备，并删除它的离线相册信息、缩略图和未完成的同步进度。\n\n'
+      '已下载到本机的文件和下载任务不受影响，对端的原文件也不会被删除。'
+      '再次在局域网中发现它时，会作为新设备询问是否同步。',
+      style: TextStyle(
+        color: Theme.of(context).colorScheme.onSurfaceVariant,
+        height: 1.5,
+      ),
+    ),
+    actions: [
+      TextButton(
+        key: const Key('forget-device-cancel'),
+        onPressed: () => Navigator.of(context).pop(false),
+        child: const Text('取消'),
+      ),
+      FilledButton(
+        key: const Key('forget-device-confirm'),
+        style: FilledButton.styleFrom(
+          backgroundColor: Theme.of(context).colorScheme.error,
+          foregroundColor: Theme.of(context).colorScheme.onError,
+        ),
+        onPressed: () => Navigator.of(context).pop(true),
+        child: const Text('忘记设备'),
+      ),
+    ],
   );
 }
 

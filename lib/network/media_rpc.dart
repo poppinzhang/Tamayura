@@ -13,7 +13,9 @@ import 'generated/media.pbgrpc.dart' as wire;
 
 const mediaProtocolVersion = 4;
 const maxCatalogPageSize = 500;
-const mediaChunkSize = 256 * 1024;
+
+/// One FileChunk payload, read from the native adapter in a single call.
+const mediaChunkSize = mediaReadChunkBytes;
 const maxThumbnailBytes = 512 * 1024;
 
 /// grpc-dart never pauses a server stream for HTTP/2 flow control: chunks the

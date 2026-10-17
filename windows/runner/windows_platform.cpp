@@ -95,8 +95,16 @@ void UiDispatcher::Shutdown() {
   pending_.clear();
 }
 
+unsigned WorkerPool::ThreadCount() {
+  const unsigned hardware = std::thread::hardware_concurrency();
+  return hardware == 0 ? 4 : hardware;
+}
+
+// Scans, thumbnails, peer reads and saves share this pool. Sizing it to the
+// machine keeps one slow provider or a long save from queueing every request.
 WorkerPool::WorkerPool() {
-  for (int i = 0; i < 4; ++i) {
+  const unsigned count = ThreadCount();
+  for (unsigned i = 0; i < count; ++i) {
     workers_.emplace_back([this] {
       const HRESULT com = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
       for (;;) {

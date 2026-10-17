@@ -158,7 +158,8 @@ void main() {
   test(
     'a source that stops sharing is a transient outage and a later run resumes',
     () async {
-      final item = _media(2 * 1024 * 1024);
+      // More than one chunk, so the stop lands between two chunks.
+      final item = _media(mediaChunkSize * 2);
       final bytes = _bytes(item.size);
       final source = _SlowSource(item, bytes);
       final first = MediaRpcServer(identity: _source, source: source);

@@ -152,8 +152,11 @@ final class SafeFile {
     return value
   }
 
+  /// Largest media range read in one call; matches mediaReadChunkBytes in Dart.
+  static let maxReadChunkBytes = 2 * 1024 * 1024
+
   func read(offset: Int64, length: Int, expectedSize: Int64) throws -> Data {
-    guard offset >= 0, offset <= expectedSize, (0...(256 * 1024)).contains(length) else {
+    guard offset >= 0, offset <= expectedSize, (0...SafeFile.maxReadChunkBytes).contains(length) else {
       throw PlatformFailure.invalid("无效的文件分块范围")
     }
     guard try info().st_size == expectedSize else {
