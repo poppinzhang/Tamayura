@@ -125,7 +125,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\test-windows-nativ
 
 `scripts/test-macos-native.sh` 检查 Swift 存储、网络活动、窗口行为及工程权限配置；Windows 脚本通过 CMake / CTest 执行原生测试。针对 `RunnerTests` 使用隔离 Bundle 和空 Dart 入口的测试结果只能记为原生宿主测试，不能代替正常应用的 GUI 验收。
 
-`.github/workflows/android.yml` 执行公共检查、Android 原生测试和 debug APK 构建；macOS、Windows 工作流调用对应打包脚本。配置存在不表示 CI 已运行，历史通过不表示当前修改通过；仅记录本轮实际执行的检查与未验证范围。
+`.github/workflows/android.yml` 执行发布工具回归、工作流语法检查、公共检查、Android 原生测试和 debug APK 构建；macOS、Windows 工作流调用对应打包脚本。日常 CI 处理分支、Pull Request 和手动检查；`.github/workflows/release.yml` 专门处理版本 Tag，校验版本与 CHANGELOG 后执行三平台测试和打包，全部通过才发布 Pre-release，配置与失败处理见 `docs/发布.md`。配置存在不表示 CI 已运行，历史通过不表示当前修改通过；仅记录本轮实际执行的检查与未验证范围。
 
 自动化测试不能替代真实设备的 Wi-Fi 发现、目录权限、跨平台原文件传输、断网/睡眠恢复、系统菜单、扫码和分享验收。平台功能按实际支持范围验证，不把回环 gRPC 或独立原生宿主检查写成完整跨设备验收。
 
@@ -143,7 +143,16 @@ scripts/generate-proto.sh
 
 应用版本与构建号以 `pubspec.yaml` 为来源，Android、macOS、Windows 保持一致。发布时遵循 [发布与打包](docs/发布.md)，不要将固定版本号写入通用脚本或把旧试用包视为当前源码产物。
 
-* Android：配置专用 release 签名后执行 `flutter build apk --release --no-pub`；按需生成 `flutter build apk --release --split-per-abi` 或 `flutter build appbundle --release`。缺失 release 签名配置时不得回退到 debug 签名。打包前执行公共与 Android 原生检查，打包后核验版本、最低系统、架构、签名和对齐。
+发布必须按以下顺序执行，详细核验清单以 `docs/发布.md` 为准：
+
+1. 同步并检查 `main`，更新版本、构建号、`CHANGELOG.md` 及相关文档，将本次发布内容 commit 并 push 到 GitHub 的 `main`，记录完整提交 SHA。尚未执行的测试和发布不得提前写为成功。
+2. 对该已推送提交执行当前完整的本地测试、Release 打包及版本、系统、架构、签名、归档、隐私和校验和核验。macOS 主机执行 Android 与 macOS 流程；Windows 在 x64 Windows 环境执行，缺少该环境时须等待同一提交的 Windows 分支 CI 完整通过并下载核验其产物，不能省略或用源码 ZIP 替代。已触发的三平台分支 CI 均通过后才进入下一步。
+3. 确认本地 `main`、远端 `main` 与已核验提交一致，再为该明确提交创建附注版本 Tag 并推送 GitHub。测试失败或待发布提交变化时回到前两步，不给未经验证的新提交打 Tag，不强制移动既有版本 Tag。
+4. 等待该 Tag 的 GitHub 自动发布全部成功，核对远端 Tag 实际提交、Release 正文与 Tag 内 CHANGELOG、三个包及 `SHA256SUMS` / `release.json` 共五个附件；从 Release 下载五个附件，核对三个包的 SHA-256、字节数、版本和元数据，并确认 Android 签名一致，全部通过才能报告发布完成。GitHub 自动生成的源码归档不计入五个附件。
+
+仅讨论或维护流程时不执行发布；已授权发布时连续完成上述步骤，无需逐步重复询问。发现遗漏、版本冲突或缺少必要条件时先说明，不先推送 Tag。当前远端发布为 Pre-release，保留 macOS 未公证、Windows 未签名和真机验收范围的说明。发布后实际结果补充到对应版本记录，不回改已发布 Tag。
+
+* Android：配置专用 release 签名后执行 `scripts/package-android.sh`，运行公共与原生检查、Release 构建及版本、系统、架构、签名和对齐核验，输出 APK 与独立校验和。按需生成 `flutter build apk --release --split-per-abi` 或 `flutter build appbundle --release`。缺失 release 签名配置时不得回退到 debug 签名。CI 签名通过 Actions Secrets 临时配置，详情见 `docs/发布.md`。
 * macOS：执行 `scripts/package-macos.sh`，脚本运行公共检查、原生测试与 Release 构建，核验最低系统、版本、Universal 架构和签名，输出 `dist/<version>/Tamayura-<version>-macos.zip` 及 `SHA256SUMS-macos`。完整 Xcode 位于标准位置时可由脚本自动选择；非标准位置用 `DEVELOPER_DIR`，不修改系统全局开发目录。当前流程用于 ad-hoc 本地试用签名；公开发行需独立的 Developer ID 签名与公证流程，不能覆盖已有正式签名。
 * Windows：在 x64 Windows 主机执行 `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\package-windows.ps1`，脚本运行公共检查、原生 CTest、Release 构建与完整目录归档核验，输出 `dist/<version>/Tamayura-<version>-windows-x64.zip` 及 `SHA256SUMS-windows`。必须分发完整 Release 目录，不能只发送 EXE；保留 SQLite、插件 DLL、Flutter 引擎和 `data`，排除测试专用且含本机路径的根 `native_assets.json`。
 * 非 Windows 主机可执行 `python3 scripts/package-windows-source.py` 制作 Windows 构建输入。源码 ZIP 不能代替 Windows 可执行包或完成发布的证明。

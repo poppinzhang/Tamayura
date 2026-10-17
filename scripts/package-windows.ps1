@@ -32,7 +32,7 @@ try {
     $flutter = (Get-Command flutter -ErrorAction Stop).Source
     $dart = (Get-Command dart -ErrorAction Stop).Source
 
-    Invoke-Checked -Command $flutter -Arguments @('pub', 'get')
+    Invoke-Checked -Command $flutter -Arguments @('pub', 'get', '--enforce-lockfile')
     Invoke-Checked -Command $dart -Arguments @('format', '--output=none', '--set-exit-if-changed', 'lib', 'test')
     Invoke-Checked -Command $flutter -Arguments @('analyze', '--no-pub')
     Invoke-Checked -Command $flutter -Arguments @('test', '--no-pub')

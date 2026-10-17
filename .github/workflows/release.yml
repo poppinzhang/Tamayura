@@ -1,0 +1,167 @@
+name: Publish release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.metadata.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Test release tooling
+        run: |
+          for test_file in scripts/test-*.py; do
+            python "$test_file" || exit 1
+          done
+      - name: Validate tag and extract version changelog
+        id: metadata
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: python scripts/release-metadata.py prepare --tag "$RELEASE_TAG" --output-dir dist/notes
+
+  android:
+    needs: prepare
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Configure temporary release signing
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: python scripts/configure-android-signing.py
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+      - name: Install Android API 36 tools
+        run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0' 'platform-tools'
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.6'
+          channel: stable
+          cache: true
+      - name: Test, build and verify signed APK
+        run: bash scripts/package-android.sh
+      - name: Remove temporary signing material
+        if: ${{ always() }}
+        run: python scripts/configure-android-signing.py cleanup
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-android
+          if-no-files-found: error
+          retention-days: 7
+          path: |
+            dist/${{ needs.prepare.outputs.version }}/Tamayura-${{ needs.prepare.outputs.version }}-android.apk
+            dist/${{ needs.prepare.outputs.version }}/SHA256SUMS-android
+
+  macos:
+    needs: prepare
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.6'
+          channel: stable
+          cache: true
+      - name: Test, build and verify macOS Universal bundle
+        run: scripts/package-macos.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-macos
+          if-no-files-found: error
+          retention-days: 7
+          path: |
+            dist/${{ needs.prepare.outputs.version }}/Tamayura-${{ needs.prepare.outputs.version }}-macos.zip
+            dist/${{ needs.prepare.outputs.version }}/SHA256SUMS-macos
+
+  windows:
+    needs: prepare
+    runs-on: windows-2022
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.6'
+          channel: stable
+          cache: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Check source handoff allowlist
+        run: python scripts/test-windows-source.py
+      - name: Test, build and verify complete Windows x64 bundle
+        run: ./scripts/package-windows.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-windows
+          if-no-files-found: error
+          retention-days: 7
+          path: |
+            dist/${{ needs.prepare.outputs.version }}/Tamayura-${{ needs.prepare.outputs.version }}-windows-x64.zip
+            dist/${{ needs.prepare.outputs.version }}/SHA256SUMS-windows
+
+  publish:
+    needs: [prepare, android, macos, windows]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          merge-multiple: true
+          path: dist/artifacts
+      - name: Verify all platform checksums and assemble release
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          python scripts/release-metadata.py prepare --tag "$RELEASE_TAG" --output-dir dist/notes
+          python scripts/release-metadata.py assemble --tag "$RELEASE_TAG" --artifacts-dir dist/artifacts --output-dir dist/release
+      - name: Upload complete release and publish preview
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: python scripts/publish-github-release.py --tag "$RELEASE_TAG" --assets-dir dist/release --notes dist/notes/release-notes.md

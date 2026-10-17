@@ -26,7 +26,7 @@ if [[ ! "$app_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+\+[0-9]+$ ]]; then
 fi
 version="${app_version%+*}"
 build_number="${app_version##*+}"
-flutter pub get
+flutter pub get --enforce-lockfile
 dart format --output=none --set-exit-if-changed lib test
 flutter analyze --no-pub
 flutter test --no-pub
@@ -66,7 +66,8 @@ if [[ "$actual_version" != "$version" || "$actual_build" != "$build_number" ]]; 
   exit 1
 fi
 for binary in "$app_path/Contents/MacOS/Tamayura" \
-  "$app_path/Contents/Frameworks/App.framework/Versions/A/App"; do
+  "$app_path/Contents/Frameworks/App.framework/Versions/A/App" \
+  "$app_path/Contents/Frameworks/FlutterMacOS.framework/Versions/A/FlutterMacOS"; do
   architectures=$(lipo -archs "$binary")
   for architecture in arm64 x86_64; do
     if [[ " $architectures " != *" $architecture "* ]]; then
@@ -80,6 +81,18 @@ output_dir="dist/$version"
 archive_name="Tamayura-$version-macos.zip"
 mkdir -p "$output_dir"
 ditto -c -k --sequesterRsrc --keepParent "$app_path" "$output_dir/$archive_name"
+# Verify the distributed archive, including framework links and its signature.
+verification_dir=$(mktemp -d)
+trap 'rm -rf "$verification_dir"' EXIT
+unzip -tq "$output_dir/$archive_name"
+ditto -x -k "$output_dir/$archive_name" "$verification_dir"
+extracted_app="$verification_dir/Tamayura.app"
+codesign --verify --deep --strict --all-architectures "$extracted_app"
+for relative in Contents/Info.plist Contents/MacOS/Tamayura \
+  Contents/Frameworks/App.framework/Versions/A/App \
+  Contents/Frameworks/FlutterMacOS.framework/Versions/A/FlutterMacOS; do
+  cmp "$app_path/$relative" "$extracted_app/$relative"
+done
 (
   cd "$output_dir"
   # The combined Android/macOS release manifest is maintained by the release
