@@ -71,6 +71,16 @@ class _GatedSource implements LocalMediaSource {
 class _SyncGatedRepository extends GatedRepository {
   _SyncGatedRepository(super.inner);
 
+  Future<void> Function(List<MediaCollection>)? afterCollectionsRead;
+  void Function(String mediaId)? afterThumbnailSaved;
+
+  @override
+  Future<List<MediaCollection>> mediaCollections({String? deviceId}) async {
+    final collections = await inner.mediaCollections(deviceId: deviceId);
+    await afterCollectionsRead?.call(collections);
+    return collections;
+  }
+
   @override
   Future<void> upsertPeer(Peer peer) => inner.upsertPeer(peer);
 
@@ -111,7 +121,10 @@ class _SyncGatedRepository extends GatedRepository {
     String sessionId,
     String mediaId,
     Uint8List bytes,
-  ) => inner.saveStagedThumbnail(sessionId, mediaId, bytes);
+  ) async {
+    await inner.saveStagedThumbnail(sessionId, mediaId, bytes);
+    afterThumbnailSaved?.call(mediaId);
+  }
 
   @override
   Future<SnapshotCommit> commitPeerSnapshot(String sessionId) =>
@@ -328,6 +341,7 @@ void main() {
           model,
           () =>
               model.media.length == 1 &&
+              model.collections.any((value) => value.key == 'phone/camera') &&
               _progress(model, 'phone')?.readyCount == 1,
           reason:
               'The first ready thumbnail must be visible while the second is pending',
@@ -423,7 +437,9 @@ void main() {
         await gate.requested.future.timeout(_timeout);
         await _until(
           model,
-          () => model.media.any((item) => item.id == 'new-a'),
+          () =>
+              model.media.any((item) => item.id == 'new-a') &&
+              model.collections.any((value) => value.key == 'phone/holiday'),
           reason:
               'A new album must be browsable before its last thumbnail arrives',
         );
@@ -466,24 +482,51 @@ void main() {
         _photo('phone', 'new-a', folder: 'holiday'),
         _photo('phone', 'new-b', folder: 'holiday'),
       ];
+      final firstThumbnail = source.hold('new-a');
       final gate = source.hold('new-b');
       source.failures.add('new-b');
       await server.refresh();
+      final collectionsRead = Completer<void>();
+      final releaseCollections = Completer<void>();
+      final thumbnailSaved = Completer<void>();
+      repository.afterCollectionsRead = (collections) async {
+        if (!collectionsRead.isCompleted) {
+          expect(collections.map((value) => value.key), ['phone/camera']);
+          collectionsRead.complete();
+          await releaseCollections.future;
+        }
+      };
+      repository.afterThumbnailSaved = (mediaId) {
+        if (mediaId == 'new-a' && !thumbnailSaved.isCompleted) {
+          thumbnailSaved.complete();
+        }
+      };
       Object? receivingSession;
       final syncing = connect(server);
       try {
+        await firstThumbnail.requested.future.timeout(_timeout);
         await gate.requested.future.timeout(_timeout);
+        await collectionsRead.future.timeout(_timeout);
+        // Force the thumbnail write between the collection and photo queries.
+        // A visible photo alone does not mean its album entry is ready yet.
+        firstThumbnail.open();
+        await thumbnailSaved.future.timeout(_timeout);
+        releaseCollections.complete();
         await _until(
           model,
-          () => model.media.any((item) => item.id == 'new-a'),
+          () =>
+              model.media.any((item) => item.id == 'new-a') &&
+              model.collections.any((value) => value.key == 'phone/holiday'),
           reason:
-              'The first new thumbnail should be visible before the failing request returns',
+              'The photo and its album entry must be ready before selecting the album',
         );
         receivingSession = _progress(model, 'phone')!.sessionId;
         expect(receivingSession, isNotNull);
         expect(model.media.map((item) => item.id), contains('old'));
         await model.selectCollection('phone/holiday');
       } finally {
+        firstThumbnail.open();
+        if (!releaseCollections.isCompleted) releaseCollections.complete();
         gate.open();
         await syncing.timeout(_timeout);
       }
@@ -656,6 +699,93 @@ void main() {
       expect(model.totalMediaCount, 3);
     },
   );
+
+  for (final nextDevice in <String?>[null, 'other', 'phone']) {
+    final changeDevice = nextDevice == 'other';
+    test(
+      changeDevice
+          ? 'changing device cancels pagination waiting for a progress refresh'
+          : nextDevice == 'phone'
+          ? 'pagination also waits for refreshes queued while it is waiting'
+          : 'pagination waits for an in-flight progress refresh to restore its cursor',
+      () async {
+        final source = _GatedSource('phone', [
+          for (var i = 0; i < 125; i++)
+            _photo(
+              'phone',
+              'old-${i.toString().padLeft(3, '0')}',
+              modified: 1000 - i,
+            ),
+        ]);
+        final server = await serve(source);
+        await connect(server);
+        if (changeDevice) {
+          final other = await serve(
+            _GatedSource('other', [
+              for (var i = 0; i < 65; i++) _photo('other', 'other-$i'),
+            ]),
+          );
+          await connect(other);
+        }
+        await model.selectDevice('phone');
+        source.items = [
+          ...source.items,
+          _photo('phone', 'new', modified: 2000),
+        ];
+        final thumbnail = source.hold('new');
+        await server.refresh();
+        final refreshEntered = Completer<void>();
+        final releaseRefresh = Completer<void>();
+        final queuedRefreshEntered = Completer<void>();
+        final releaseQueuedRefresh = Completer<void>();
+        repository.afterCollectionsRead = (_) async {
+          if (!refreshEntered.isCompleted) {
+            refreshEntered.complete();
+            await releaseRefresh.future;
+          } else if (nextDevice == 'phone' &&
+              !queuedRefreshEntered.isCompleted) {
+            queuedRefreshEntered.complete();
+            await releaseQueuedRefresh.future;
+          }
+        };
+        final syncing = connect(server);
+        Future<void>? loadingPage;
+        Future<void>? changingDevice;
+        try {
+          await thumbnail.requested.future.timeout(_timeout);
+          await refreshEntered.future.timeout(_timeout);
+          expect(model.media, hasLength(60));
+          expect(model.hasMoreMedia, isFalse);
+          loadingPage = model.loadMoreMedia();
+          if (nextDevice != null) {
+            changingDevice = model.selectDevice(nextDevice);
+          }
+          releaseRefresh.complete();
+          if (nextDevice == 'phone') {
+            await queuedRefreshEntered.future.timeout(_timeout);
+            releaseQueuedRefresh.complete();
+          }
+          await loadingPage.timeout(_timeout);
+          await changingDevice?.timeout(_timeout);
+          expect(model.media, hasLength(changeDevice ? 60 : 120));
+          expect(model.media.map((item) => item.deviceId).toSet(), {
+            changeDevice ? 'other' : 'phone',
+          });
+          expect(model.hasMoreMedia, isTrue);
+        } finally {
+          if (!releaseRefresh.isCompleted) releaseRefresh.complete();
+          if (!releaseQueuedRefresh.isCompleted) {
+            releaseQueuedRefresh.complete();
+          }
+          thumbnail.open();
+          await loadingPage?.timeout(_timeout);
+          await changingDevice?.timeout(_timeout);
+          await syncing.timeout(_timeout);
+        }
+        expect(model.media, hasLength(changeDevice ? 60 : 120));
+      },
+    );
+  }
 
   test(
     'a throttled progress refresh cannot discard a page waiting on saved-file lookups',

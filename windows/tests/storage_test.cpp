@@ -337,13 +337,30 @@ int main() {
     const auto source = JoinPath(staging, L"complete.part");
     Write(source, bytes);
     test("download saves nested paths, preserves bytes and never overwrites", [&] {
+      const auto other_source = JoinPath(staging, L"other.part");
+      const Bytes other_bytes(bytes.rbegin(), bytes.rend());
+      Write(other_source, other_bytes);
       const auto first = SaveDownload({Utf8(source)}, static_cast<int64_t>(bytes.size()), {staging}, Utf8(destination), {"Peer", "Album", "旅行"}, "a.jpg");
-      const auto next = SaveDownload({Utf8(source)}, static_cast<int64_t>(bytes.size()), {staging}, Utf8(destination), {"Peer", "Album", "旅行"}, "a.jpg");
-      Expect(first == JoinPath(destination, L"Peer\\Album\\旅行\\a.jpg"), "Preserve hierarchy");
-      Expect(next == JoinPath(destination, L"Peer\\Album\\旅行\\a (1).jpg"), "Collision suffix");
-      Expect(Read(first) == bytes && Read(next) == bytes, "Saved bytes");
+      const auto next = SaveDownload({Utf8(other_source)}, static_cast<int64_t>(other_bytes.size()), {staging}, Utf8(destination), {"Peer", "Album", "旅行"}, "a.jpg");
+      // Saving resolves DOS short names and path casing; the temporary directory
+      // may use another spelling of the same location. Check the complete paths
+      // against file identity without relaxing hierarchy or collision checks.
+      Expect(std::filesystem::equivalent(first, JoinPath(destination, L"Peer\\Album\\旅行\\a.jpg")), "Preserve hierarchy");
+      Expect(std::filesystem::equivalent(next, JoinPath(destination, L"Peer\\Album\\旅行\\a (1).jpg")), "Collision suffix");
+      Expect(!std::filesystem::equivalent(first, next), "Collision creates a distinct file");
+      Expect(Read(first) == bytes && Read(next) == other_bytes, "Saved bytes without overwriting");
       Reject("INVALID_ARGUMENT", [&] { SaveDownload({Utf8(source)}, static_cast<int64_t>(bytes.size()), {staging}, Utf8(destination), {".."}, "a.jpg"); });
       Reject("INVALID_ARGUMENT", [&] { SaveDownload({Utf8(photo)}, static_cast<int64_t>(bytes.size()), {staging}, Utf8(destination), {}, "a.jpg"); });
+    });
+    test("download resolves equivalent destination path spellings", [&] {
+      auto alternate_destination = LocalPath(Utf8(destination));
+      alternate_destination[0] += L'a' - L'A';
+      const auto saved = SaveDownload({Utf8(source)}, static_cast<int64_t>(bytes.size()), {staging},
+                                      Utf8(alternate_destination), {"alternate", "旅行"}, "a.jpg");
+      const auto expected = JoinPath(alternate_destination, L"alternate\\旅行\\a.jpg");
+      Expect(saved != expected, "Fixture uses different path spellings");
+      Expect(std::filesystem::equivalent(saved, expected), "Equivalent paths identify the saved file");
+      Expect(Read(expected) == bytes, "Saved bytes remain accessible through the original spelling");
     });
     test("delete removes one saved file, preserves siblings and tolerates absent files", [&] {
       const auto saved = SaveDownload({Utf8(source)}, static_cast<int64_t>(bytes.size()), {staging},
@@ -442,7 +459,8 @@ int main() {
       Reject("INVALID_ARGUMENT", [&] { ReceivedName("../outside.jpg"); });
       Reject("INVALID_ARGUMENT", [&] { ReceivedName("a\\b.jpg"); });
       const auto saved = SaveDownload({Utf8(source)}, static_cast<int64_t>(bytes.size()), {staging}, Utf8(destination), {}, "CON.jpg");
-      Expect(saved == JoinPath(destination, L"_CON.jpg") && Read(saved) == bytes, "Save normalized reserved name");
+      Expect(std::filesystem::equivalent(saved, JoinPath(destination, L"_CON.jpg")), "Save normalized reserved name");
+      Expect(Read(saved) == bytes, "Reserved name conversion preserves saved bytes");
     });
     test("concurrent saves allocate unique names atomically", [&] {
       std::vector<std::wstring> saved(8);

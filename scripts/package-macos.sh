@@ -37,7 +37,7 @@ app_path='build/macos/Build/Products/Release/Tamayura.app'
 test -d "$app_path"
 minimum=$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$app_path/Contents/Info.plist")
 if [[ "$minimum" != '15.0' ]]; then
-  echo "最低系统版本应为 15.0，实际为 $minimum。" >&2
+  echo "最低系统版本应为 15.0，实际为 ${minimum}。" >&2
   exit 1
 fi
 codesign --verify --deep --strict --all-architectures "$app_path"
@@ -62,7 +62,7 @@ codesign --verify --deep --strict --all-architectures "$app_path"
 actual_version=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app_path/Contents/Info.plist")
 actual_build=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$app_path/Contents/Info.plist")
 if [[ "$actual_version" != "$version" || "$actual_build" != "$build_number" ]]; then
-  echo "应用版本与 pubspec 不一致：$actual_version+$actual_build，预期 $app_version。" >&2
+  echo "应用版本与 pubspec 不一致：${actual_version}+${actual_build}，预期 ${app_version}。" >&2
   exit 1
 fi
 for binary in "$app_path/Contents/MacOS/Tamayura" \
@@ -87,4 +87,4 @@ ditto -c -k --sequesterRsrc --keepParent "$app_path" "$output_dir/$archive_name"
   shasum -a 256 "$archive_name" > SHA256SUMS-macos
   shasum -a 256 -c SHA256SUMS-macos
 )
-echo "本地试用版已打包：$output_dir/$archive_name（未公证）"
+echo "本地试用版已打包：${output_dir}/${archive_name}（未公证）"

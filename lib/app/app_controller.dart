@@ -1385,10 +1385,31 @@ class AppController extends TamayuraModel {
 
   @override
   Future<void> loadMoreMedia() async {
-    if (!_hasMore ||
-        _loadingMore ||
+    if (_loadingMore ||
         _mediaSortOrderChanging ||
-        _repository == null) {
+        _repository == null ||
+        _disposed) {
+      return;
+    }
+    final selection = (
+      _selectedDeviceId,
+      _selectedCollectionKey,
+      _mediaSortOrder,
+    );
+    // A queued progress refresh temporarily clears _hasMore while rebuilding
+    // its cursor. Preserve this request until that refresh has finished, but
+    // never apply it to a different device, album, or sort order.
+    while (true) {
+      final reload = _reloadTail;
+      await reload;
+      if (_disposed ||
+          selection !=
+              (_selectedDeviceId, _selectedCollectionKey, _mediaSortOrder)) {
+        return;
+      }
+      if (identical(reload, _reloadTail)) break;
+    }
+    if (!_hasMore || _loadingMore || _mediaSortOrderChanging) {
       return;
     }
     final generation = _pageGeneration;
