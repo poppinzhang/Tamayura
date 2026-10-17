@@ -44,3 +44,125 @@
 * 新功能的开发将实现细节自动记录到 docs 目录下
 * 版本发布前需要所有测试全部通过
 * 项目要支持发布与打包
+
+## README 与开发文档的分工
+
+* `README.md` 面向用户，使用英文；`README.zh-CN.md` 为对应中文版。两份 README 的功能、平台要求、使用步骤、安装入口和限制保持一致，并提供语言切换链接。
+* README 介绍项目、实际可用的功能和使用方法，不放 AI 执行指令、开发环境搭建、测试命令、打包流程或逐次验证流水账。这些内容维护在本文件及 `docs/`。
+* 介绍当前源码功能时，明确区分 `CHANGELOG.md` 中的 `unstaged` 与已发布安装包；不能把尚未发布的功能写成既有安装包已支持，也不能把旧版测试数量和历史验收结果作为当前状态。
+* 实现细节写入对应的 `docs/` 文档，发布流程以 [发布与打包](docs/发布.md) 为准，历史交付及验证范围查看 [版本记录](docs/releases/)。不在多处复制版本流水账，不展示项目没有的渠道、服务或发布产物。
+
+## 仓库结构与当前实现
+
+* `lib/app/`：应用控制器、设备连接、页面状态与生命周期协调。
+* `lib/core/`、`lib/data/`：媒体和下载模型、SQLite 元数据、同步断点及持久下载任务。
+* `lib/network/`：gRPC 服务、客户端与范围下载；协议源文件为 `proto/media.proto`，生成文件为 `lib/network/generated/`。
+* `lib/background/`：下载调度、后台执行与恢复；`lib/platform/` 对接各平台能力；`lib/ui/` 为共享 Flutter 界面。
+* `android/`、`macos/`、`windows/`：当前已实现的原生平台工程。Linux、iOS 属于项目目标，不能仅因存在对应平台的界面测试就声称已支持运行或发布。
+* `test/`：Flutter 单元、集成行为与界面测试；各平台原生测试入口见下文。`scripts/` 保存协议生成、原生检查与打包脚本，`.github/workflows/` 保存三平台 CI。
+
+## 本地开发
+
+统一使用 Flutter **3.47.6 stable / Dart 3.13.5**，依赖由 `pubspec.lock` 固定。先检查 `flutter --version`，依赖解析、测试和构建使用同一 SDK；升级工具链时同步检查 CI、打包脚本与开发文档。
+
+| 平台 | 本机开发要求 | 运行入口 |
+| --- | --- | --- |
+| Android | Android SDK / Build Tools 36、JDK 21；源码编译目标为 Java 17，API 36 原生回归测试需要 Java 21 或更新版本 | `flutter run -d <device-id>` |
+| macOS | macOS 15.0+、已安装并初始化的完整 Xcode；仅 Command Line Tools 不能构建应用 | `FLUTTER_SWIFT_PACKAGE_MANAGER=true flutter run -d macos` |
+| Windows | x64 Windows、Visual Studio 2022 的“使用 C++ 的桌面开发”、Windows SDK 与 CMake | `flutter run -d windows` |
+
+在项目根目录解析依赖：
+
+```sh
+flutter --version
+flutter doctor -v
+flutter pub get
+```
+
+macOS 使用 Swift Package Manager，依赖解析应执行 `FLUTTER_SWIFT_PACKAGE_MANAGER=true flutter pub get`。缓存完整的离线环境可使用 `flutter pub get --offline`。可用 `flutter devices` 查看 Android 设备标识。
+
+Android 调试 APK 使用 `flutter build apk --debug`，输出为 `build/app/outputs/flutter-apk/app-debug.apk`；启用 USB 调试后可执行 `adb install -r build/app/outputs/flutter-apk/app-debug.apk`。debug 与 release 签名不同，签名冲突时先卸载；卸载会清除应用数据与目录授权，不能承诺保留缓存或下载任务。
+
+## 检查与测试
+
+公共检查在依赖解析后从根目录运行：
+
+```sh
+dart format --output=none --set-exit-if-changed lib test
+flutter analyze --no-pub
+flutter test --no-pub --coverage
+```
+
+按改动范围执行对应原生检查；发布前需完成全部适用平台的测试：
+
+```sh
+# Android：在有 Android SDK 和 JDK 21 的环境运行
+(cd android && ./gradlew testDebugUnitTest)
+
+# macOS：在 macOS 15.0+ 上运行
+scripts/test-macos-native.sh
+
+# Windows 源码交接白名单检查：可在非 Windows 主机执行
+python3 scripts/test-windows-source.py
+```
+
+Windows 原生检查在 Windows PowerShell 运行：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\test-windows-native.ps1
+```
+
+`scripts/test-macos-native.sh` 检查 Swift 存储、网络活动、窗口行为及工程权限配置；Windows 脚本通过 CMake / CTest 执行原生测试。针对 `RunnerTests` 使用隔离 Bundle 和空 Dart 入口的测试结果只能记为原生宿主测试，不能代替正常应用的 GUI 验收。
+
+`.github/workflows/android.yml` 执行公共检查、Android 原生测试和 debug APK 构建；macOS、Windows 工作流调用对应打包脚本。配置存在不表示 CI 已运行，历史通过不表示当前修改通过；仅记录本轮实际执行的检查与未验证范围。
+
+自动化测试不能替代真实设备的 Wi-Fi 发现、目录权限、跨平台原文件传输、断网/睡眠恢复、系统菜单、扫码和分享验收。平台功能按实际支持范围验证，不把回环 gRPC 或独立原生宿主检查写成完整跨设备验收。
+
+## 协议与生成代码
+
+协议生成文件已提交，日常开发无需安装 `protoc`。修改 `proto/media.proto` 后安装 Protocol Buffers 编译器，并执行：
+
+```sh
+scripts/generate-proto.sh
+```
+
+脚本使用 `protoc_plugin 22.5.0` 重新生成 Dart gRPC 代码。协议源文件和生成结果一起提交，不手工修改生成代码；协议行为变化同步更新客户端、服务端、测试及相应实现文档，遵循 v1.0.0 前不维护旧协议兼容的策略。
+
+## 打包与发布入口
+
+应用版本与构建号以 `pubspec.yaml` 为来源，Android、macOS、Windows 保持一致。发布时遵循 [发布与打包](docs/发布.md)，不要将固定版本号写入通用脚本或把旧试用包视为当前源码产物。
+
+* Android：配置专用 release 签名后执行 `flutter build apk --release --no-pub`；按需生成 `flutter build apk --release --split-per-abi` 或 `flutter build appbundle --release`。缺失 release 签名配置时不得回退到 debug 签名。打包前执行公共与 Android 原生检查，打包后核验版本、最低系统、架构、签名和对齐。
+* macOS：执行 `scripts/package-macos.sh`，脚本运行公共检查、原生测试与 Release 构建，核验最低系统、版本、Universal 架构和签名，输出 `dist/<version>/Tamayura-<version>-macos.zip` 及 `SHA256SUMS-macos`。完整 Xcode 位于标准位置时可由脚本自动选择；非标准位置用 `DEVELOPER_DIR`，不修改系统全局开发目录。当前流程用于 ad-hoc 本地试用签名；公开发行需独立的 Developer ID 签名与公证流程，不能覆盖已有正式签名。
+* Windows：在 x64 Windows 主机执行 `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\package-windows.ps1`，脚本运行公共检查、原生 CTest、Release 构建与完整目录归档核验，输出 `dist/<version>/Tamayura-<version>-windows-x64.zip` 及 `SHA256SUMS-windows`。必须分发完整 Release 目录，不能只发送 EXE；保留 SQLite、插件 DLL、Flutter 引擎和 `data`，排除测试专用且含本机路径的根 `native_assets.json`。
+* 非 Windows 主机可执行 `python3 scripts/package-windows-source.py` 制作 Windows 构建输入。源码 ZIP 不能代替 Windows 可执行包或完成发布的证明。
+
+打包脚本独立调用时会执行其完整检查。三平台可执行包全部完成构建、验证后才能标记全平台交付完成；联合校验和、`release.json` 与实际文件保持一致，各平台重打包不得覆盖其他平台的校验记录。构建及归档不得泄漏环境隐私，发布前核验归档及解压内容。签名配置和私钥不提交、不打印、不放入分发目录。
+
+本地生成安装包不等于已创建 Git tag、上传远端 Release 或上架应用商店；发布渠道与交付状态以实际执行结果为准。正式公开发布还需真实跨设备验收及干净环境或 CI 重建。
+
+## 实现约束与平台边界
+
+* 当前网络范围为 IPv4 局域网，无账号、鉴权或 TLS。默认端口为 `50728`，mDNS / DNS-SD 服务为 `_tamayura._tcp`；手动只填 IP 时使用默认端口，扫码与自动发现使用实际广播端口。
+* 元数据与缩略图保存到本地 SQLite，离线可浏览。同步不自动下载原文件，不跟踪原文件内容修改，也不进行跨设备内容去重。目录快照完整成功后才应用删除；断点恢复和独立缩略图缓存的约束见对应文档。
+* 当前自动同步按设备分别计时，默认间隔 12 小时，可设置 1–8760 小时；失败尝试也计时。手动刷新、明确重试、输入 IP 或扫码连接可立即尝试。尝试时间与最后成功时间分开保存，不能把设备发现、在线探测或下载原文件当成相册同步成功。
+* 本地目录扫描仍遍历轻量元数据；手动刷新、目录变更立即扫描，返回前台按扫描间隔判断。扫描期间保持旧目录可用，成功后整体替换；被移除或授权失效的目录及时停止共享。
+* 大于 **50 MiB** 的媒体使用四个 gRPC 范围流并发下载，其余使用单流。分片持久保存以便续传，保存时按顺序直接写接收目录，不另建完整合并暂存。连续 30 秒无数据触发重连，持续 30 分钟无数据后失败；有进度的大文件不受固定总时限限制。
+* 区分暂停与取消并删除；任务清理不得删除已保存的接收文件。保存失败保留可重试分片，峰值空间仍可能约为原文件两倍；容量预检不预留空间，部分 Android 文档提供者无法查询容量。文件保存与数据库登记不是跨系统事务，异常中断可能留下未登记副本。
+* 本地媒体删除只处理用户选择的已接收文件及对应下载记录，保留远端原文件、相册元数据与缩略图。不要把本地删除扩展成远端删除或自动清理原文件；授权失败、I/O 错误与数据库清理失败需可见且可重试。
+* Android 使用系统目录选择器和持久授权，不能直接授权存储根目录或 Download 根目录；共享目录拒绝重复或父子重叠。下载使用用户发起的后台传输任务；通知关闭仍可下载。来源端锁屏共享依赖“后台共享”及系统电源策略，不能承诺不受厂商限制。
+* macOS 最低 15.0，Windows 当前目标为 Windows 10 1809+ / Windows 11 x64。Windows 没有相机扫码或系统分享面板；已下载文件可默认应用打开或在资源管理器定位。
+* 桌面当前源码关闭窗口后通过菜单栏或托盘保留进程与已开始的下载；隐藏窗口后是否继续共享由“后台共享”控制。真正退出或系统睡眠会中断运行，不新增开机自启、后台系统服务或远程唤醒。托盘不可用时按文档处理，避免隐藏后无法找回。
+* 媒体可用格式受平台解码能力限制；缩略图解码失败显示占位，不应中断其他有效条目的同步。原文件下载仍严格校验文件状态和范围。
+
+## 实现文档导航
+
+| 工作范围 | 相关文档 |
+| --- | --- |
+| 平台架构与原生能力 | [Android 原型](docs/Android原型.md)、[目录与设备发现](docs/android-storage.md)、[Android 16+](docs/android16.md)、[macOS 实现](docs/macOS原型.md)、[Windows 实现与调试](docs/Windows原型.md) |
+| 设备与目录 | [设备身份与记忆](docs/设备身份与记忆.md)、[设备排序](docs/设备排序.md)、[多目录共享与合集](docs/多目录共享与合集.md) |
+| 同步与缓存 | [自动与手动同步](docs/自动与手动同步.md)、[同步进度](docs/同步进度.md)、[缩略图存储](docs/缩略图存储.md)、[单张缩略图容错](docs/单张缩略图容错.md) |
+| 下载、保存与删除 | [传输恢复](docs/传输恢复.md)、[下载存储与清理](docs/下载存储与清理.md)、[相册本地原图](docs/相册本地原图.md)、[本地媒体删除](docs/本地媒体删除.md) |
+| 后台与桌面生命周期 | [后台共享](docs/后台共享.md)、[桌面托盘与窗口生命周期](docs/桌面托盘与窗口生命周期.md) |
+| 相册浏览与外观 | [合集显示模式](docs/合集显示模式.md)、[合集图片排序](docs/合集图片排序.md)、[合集快速滚动](docs/合集快速滚动.md)、[主题与外观](docs/主题与外观.md)、[应用图标](docs/应用图标.md) |
+| 项目说明与发布 | [关于与项目缘起](docs/关于与项目缘起.md)、[发布与打包](docs/发布.md)、[版本记录](docs/releases/)、[变更日志](CHANGELOG.md) |

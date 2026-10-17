@@ -1,147 +1,125 @@
+<div align="center">
+
+<img src="assets/branding/app_icon.png" width="112" alt="Tamayura app icon">
+
 # Tamayura · 玉响
 
-把另一台设备里的照片，带到手边。
+### Your photos, within reach.
 
-Tamayura 是使用 Flutter 开发的局域网媒体共享应用。当前统一版本为 **0.5.0+8，支持 Android 16+（API 36）、macOS Sequoia 15.0+ 与 Windows x64**，支持 Tahoe 26 及后续版本。同一局域网内的设备可以发现彼此，浏览共享照片和视频的缩略图，点击下载原文件；Android 与 macOS 还可通过系统分享面板发送给其它应用。
+**Browse the photos and videos on your own devices.**<br>
+Share folders over your local network, browse previews even when a device is offline,<br>
+and save the originals you want with a tap.
 
-各端均支持相册断点恢复：同步中断或应用重启后，已收到的照片预览和分页进度保留，恢复连接后继续缺失部分。macOS 提供 arm64 / x86_64 通用 App，使用本地 ad-hoc 签名，尚未公证；真实双向断网恢复等验收仍待完成。产物和本次验证记录见 [0.5.0 试用版本说明](docs/releases/0.5.0.md)。
+![Android](https://img.shields.io/badge/Android-16%2B-3DDC84?logo=android&logoColor=white)
+![macOS](https://img.shields.io/badge/macOS-15%2B-111111?logo=apple&logoColor=white)
+![Windows](https://img.shields.io/badge/Windows-x64-0078D4)
+[![License](https://img.shields.io/badge/license-Apache--2.0-111111)](LICENSE)
 
-## 运行 Windows
+**[Quick start](#quick-start)** &nbsp;·&nbsp; **[Documentation](#documentation)** &nbsp;·&nbsp; **[Changelog](CHANGELOG.md)** &nbsp;·&nbsp; **English** · [简体中文](README.zh-CN.md)
 
-Windows x64 与 Android、macOS 统一使用 **0.5.0+8**，目标为 Windows 10 1809+ / Windows 11。本次 370 项 Flutter 测试、原生 CTest、Release 构建和 ZIP 核验通过，解压后的程序与本机 gRPC 启动冒烟通过；完整 GUI 和真实跨设备验证范围见版本说明。
+<br>
 
-在 Windows 安装 Flutter **3.47.6** 和 **Visual Studio 2022** 的「使用 C++ 的桌面开发」工作负载（包含 Windows SDK 与 CMake），解压源码后在根目录运行：
+<img src="docs/screenshots/macos-prototype.png" width="900" alt="Tamayura desktop interface showing photo collections grouped by device and shared folder">
 
-```powershell
-flutter doctor -v
-flutter pub get
-flutter run -d windows
-```
+<sub>Desktop interface preview with sample collections.</sub>
 
-Windows 支持系统目录选择、mDNS 自动发现、手动 IP、本机二维码、离线相册、按需下载和续传，使用 Ctrl 桌面快捷键；已下载文件可以默认应用打开或在资源管理器定位。当前没有 Windows 相机扫码或系统分享面板。首次联网仅在可信的专用网络中允许应用通过防火墙；下载和共享需要应用运行且系统清醒。
+</div>
 
-完整检查和 Release ZIP 打包：`powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\package-windows.ps1`。Mac 可执行 `python3 scripts/package-windows-source.py` 生成 `dist/0.5.0/Tamayura-0.5.0-windows-source.zip`，传到 Windows 调试。工具链、完整步骤、运行库与验收清单见 [Windows 实现与调试](docs/Windows原型.md)。
+## Is Tamayura for you?
 
-## 运行 macOS
+Your phone holds the everyday photos. Your computer holds the trips, videos, and older albums. Tamayura brings their previews together so you can find a moment and bring the original to the device in your hands.
 
-在安装并初始化完整 Xcode 的 Mac 上，使用 Flutter 3.47.6：
+- **Choose what to share.** Add one or more folders, including their subfolders, on each device.
+- **Browse before downloading.** Previously synced previews stay available when the source device is offline.
+- **Keep the originals you want.** Tap a photo or video to download it into your chosen folder.
 
-```sh
-FLUTTER_SWIFT_PACKAGE_MANAGER=true flutter pub get
-FLUTTER_SWIFT_PACKAGE_MANAGER=true flutter run -d macos
-```
+It is for browsing and transferring media between your own devices on the same local network. It does not automatically copy entire albums or track edits to file contents.
 
-在设置中添加共享目录、选择接收目录，允许系统的本地网络访问，然后与同局域网的 Android 或另一台 Mac 互相发现。也支持输入私有 IPv4 地址、显示二维码及相机扫码。下载可在切换应用或最小化后继续；后台共享开启时，Mac 在应用运行且系统清醒期间继续提供文件。退出应用或系统睡眠会中断，未完成下载可以重试续传。相册元数据与缩略图支持持久断点，已出现的照片在中断和重启后保留，恢复连接可继续同步；实现与首次升级注意事项见 [同步进度](docs/同步进度.md)。
+## Quick start
 
-打包入口为 `scripts/package-macos.sh`，输出 `dist/0.5.0/Tamayura-0.5.0-macos.zip` 及 `SHA256SUMS-macos` 独立校验文件；若 `xcode-select` 仍指向 Command Line Tools，脚本会自动使用 `/Applications/Xcode.app`，不更改系统设置。完整 Xcode 是必要条件，公开分发还需 Developer ID 签名和公证。平台实现与验收清单见 [macOS 实现](docs/macOS原型.md)。
+Tamayura is in early development. This README describes the current source; existing **0.5.0 trial packages** have an earlier feature set. Use the **same build** on all devices. See the [changelog](CHANGELOG.md) for unreleased changes.
 
-## 安装 0.5.0 试用版
+**1 · Install and connect.** Follow the [source build instructions](AGENTS.md#本地开发), or the [installation notes](docs/releases/0.5.0.md#安装与数据) if you already have a 0.5.0 trial package. Connect both devices to the same local network and open Tamayura. Allow local network access when prompted; on Windows, allow the app through the firewall on your trusted private network.
 
-本次三个平台的自动化测试、Release 构建和最终产物核验均已通过，安装包与校验文件如下。
+**2 · Choose your folders.** In **Settings (设置)**, add the folders you want to share and choose where downloaded files should go. For example, share `DCIM` and receive files in `Pictures/Tamayura`. Subfolders are included automatically. On Android, choose a subfolder rather than the storage root or the `Download` root.
 
-- Android：[Tamayura-0.5.0-android.apk](dist/0.5.0/Tamayura-0.5.0-android.apk)，沿用专用本地 release 证书，versionCode 为 **8**。
-- macOS：[Tamayura-0.5.0-macos.zip](dist/0.5.0/Tamayura-0.5.0-macos.zip)，最低 macOS 15.0，包含 arm64 / x86_64 通用 App，ad-hoc 签名、未公证。
-- Windows：[Tamayura-0.5.0-windows-x64.zip](dist/0.5.0/Tamayura-0.5.0-windows-x64.zip)，x64 完整运行目录，EXE 版本 **0.5.0.8**；未签名，需 Visual C++ x64 运行库。
-- 三平台产物校验：[SHA256SUMS](dist/0.5.0/SHA256SUMS)。功能、验证记录与限制：[0.5.0 试用版本说明](docs/releases/0.5.0.md)。
+**3 · Find your other device.** Open **Devices (设备)** and wait for automatic discovery. You can also enter the address shown on the other device. Android and macOS can scan its QR code.
 
-Android 可将 APK 传到手机后通过文件管理器安装，也可使用 USB 调试安装。同签名 release 版支持覆盖安装：
+**4 · Open an album.** In **Albums (相册)**, choose a shared collection and tap a photo or video to download its original. The source device must be online for downloads. After adding or removing media, refresh the source device, then refresh the receiving device to update its album immediately.
 
-```sh
-adb install -r dist/0.5.0/Tamayura-0.5.0-android.apk
-```
+## Supported platforms
 
-macOS 解压 ZIP，将 `Tamayura.app` 放入「应用程序」后打开。该本地包未进行 Apple 公证；系统可能阻止首次打开，请只在确认来源与校验结果后通过系统「隐私与安全性」页面确认打开。无需修改全局 Gatekeeper 设置。
+| Platform | Requirements | Package |
+| :-- | :-- | :-- |
+| Android | Android 16+ · API 36+ | APK |
+| macOS | macOS Sequoia 15.0+, including Tahoe 26 and later | Universal app for Apple silicon and Intel |
+| Windows | Windows 10 1809+ / Windows 11 · x64 | ZIP; Visual C++ x64 runtime required |
 
-**互联设备应使用相同的 0.5.0 版本。** 本次媒体库升至 schema 5（独立缩略图引用），下载任务库升至 schema 3，协议保持 v3。旧库直接清空重建，不迁移：设置、记住的设备、离线相册与缩略图、下载历史索引和下载任务列表会清空，需要重新选择目录并发现设备；旧的未完成分片由启动清理回收。**外部原始媒体与已保存的接收文件保留。** 允许同签名覆盖安装；若遇不兼容可清理数据或卸载重装。实现见 [缩略图存储](docs/缩略图存储.md) 和 [下载存储与清理](docs/下载存储与清理.md)。
+The existing macOS trial app is ad-hoc signed and not notarized; the Windows trial ZIP is unsigned. Installation details and validation limits are in the [trial release notes](docs/releases/0.5.0.md).
 
-Android debug 与 release 证书不同，安装过调试版时需先卸载。卸载会清除应用设置、目录授权、离线缓存、下载记录和未完成分片，外部共享与接收目录中的文件保留。
+Windows can display a connection QR code, open downloaded files in the default app, and reveal them in Explorer. Camera scanning and the system share sheet are available on Android and macOS.
 
-2026-10-17 完成 Android、macOS、Windows 三平台本地试用包交付；仓库未配置远端，未创建 Git tag、远端 Release 或应用商店版本。Android / macOS 最终安装包尚未做真机启动；Windows 已通过进程与本机 gRPC 冒烟。真实双机断网/睡眠恢复、完整 GUI、系统授权与双向原文件传输、无开发工具的 Windows 安装环境及远端 CI 仍待验证。
+## How it fits together
 
-## 0.5.0 功能
+Each device chooses its shared folders and remembers the other devices it has connected to. Tamayura first syncs the media list and small previews. Originals stay on their source device until you choose to download them.
 
-本版改进下载占用、暂停与清理、临时断线后的自动恢复，以及来源端重新扫描期间的共享连续性；三平台统一使用相同版本。
+Devices discover each other with mDNS / DNS-SD and transfer media directly over gRPC. There is no account or cloud relay to set up.
 
-- 原文件由有序分片直接写入接收目录，避免完整合并暂存，峰值占用由约三倍降至约两倍；下载与保存前检查可查询容量，保存失败保留分片，来源离线时也可重试保存完整分片。
-- 下载页区分「暂停下载」与「取消并删除」，显示已暂存字节，支持清理失败和暂停任务；启动时清理已完成、待删除及孤立暂存。清理任务不删除已保存的接收文件。
-- 缩略图改为独立表，正式与暂存目录复用图片，避免同步、目录增删及续传时复制已缓存图片。
-- 下载连续 30 秒无数据时重连并续传，对端暂时不可用时显示「等待下载」并自动退避重试；持续 30 分钟没有收到数据才失败，有进度的慢速大文件不受固定总时限限制。
-- 来源端重新扫描期间继续提供旧目录文件，成功后整体替换；被移除目录立即停止共享，失败或授权失效撤销共享。返回应用时距最近成功扫描不足 30 秒不重复扫描，手动刷新和目录变更仍立即扫描。
-- macOS 单个媒体被删除、大小变化或无法解码时返回空缩略图，让其它目录条目继续同步；原文件下载仍严格校验。
+## What it does
 
-详细实现见 [下载存储与清理](docs/下载存储与清理.md)、[缩略图存储](docs/缩略图存储.md)、[传输恢复](docs/传输恢复.md) 和 [单张缩略图容错](docs/单张缩略图容错.md)。
+### Your folders, your albums
 
-此前已实现的功能继续保留：
+Each shared folder becomes a collection, including media in its subfolders. Browse across devices, sort a collection by date or name, and choose a compact grid or a detailed view. On mobile, drag the scroll handle to move through a large collection. Downloaded photos use the local image for a clearer preview.
 
-- Android 后台共享先显示「正在启动」，初始化、目录扫描与本机 gRPC 核验通过后才显示「运行中」；失败和超时显示具体原因，支持取消及重试，迟到结果不会覆盖新会话。
-- macOS 共享和下载运行期间抑制 App Nap 限速，窗口隐藏后恢复可见也能正确恢复共享；仍允许系统正常睡眠。
-- Windows 提供桌面目录选择、媒体扫描预览、系统 DNS-SD、默认应用打开及资源管理器定位；本次原生测试与 Release 打包状态、实际 GUI 与跨设备验收范围见版本说明。
+### Previews that stay with you
 
-- 相册同步时逐步显示已收到的照片和合集，按设备显示已就绪数量；中断后保留预览与分页位置，恢复后「继续同步」。相同目录不重复接收完成页和缩略图；目录变化时复用匹配缩略图，完整成功后才应用删除。详见 [同步进度](docs/同步进度.md)。
-- macOS 增加桌面侧栏、系统目录授权、Bonjour 发现、缩略图和预览、系统打开与分享，下载任务可取消、重试和退出后恢复。下载和共享需要应用运行且系统清醒。
-- Android 扫描跳过非图片、非视频文件，避免无效非媒体条目中断共享目录同步；媒体本身的真实错误仍会提示处理。
+Synced thumbnails remain available offline. During a sync, photos appear as they arrive; interrupted syncs keep their progress so you can continue later. Automatic sync defaults to a 12-hour interval, which you can change in Settings. Refresh manually whenever you need an update, and check each device's last successful sync time.
 
-- 「设置 → 后台共享」允许来源手机锁屏共享，提供运行状态、运行通知中的停止入口和电池设置入口；关闭后释放唤醒锁，退后台停止共享及在途目录、媒体请求。实现与验收见 [后台共享](docs/后台共享.md)。
-- 设备发现丢失时先核验已记住的地址，不再直接标记离线；防止过期探测、IP 复用和目录权限错误误判设备状态。
-- 中性黑白灰界面，支持浅色、深色、跟随系统并保存选择，适配窄屏、大字体和系统栏；桌面图标改为橙底白字「たまゆら」。
-- 「设置 → 关于」展示实际安装包版本、项目简介、Apache-2.0 项目许可与第三方许可，支持离线阅读；「碎碎念」介绍项目名字、摄影与动画《玉响》的缘起。
-- Android 设备身份由系统标识派生，同一系统用户和应用签名下更稳定；macOS 使用本地保存的独立 UUID；界面优先显示系统设备名称，缺失时使用厂商与机型，同名设备独立保存。
-- 默认连接端口为 `50728`；刷新后同步更新设备名称，设备身份读取失败时提示重试，不生成随机替代身份。
+### Originals on demand
 
-- Android NSD 与 macOS Bonjour 完成 mDNS + DNS-SD 自动发现，也可输入局域网 IPv4 或扫描应用内二维码。
-- 系统文件夹选择器添加多个共享目录，递归扫描子目录，拒绝重复或父子重叠；可独立移除共享目录。
-- 接收文件按「设备名 / 共享目录名 / 原有子目录 / 文件名」保存，同名来源自动隔离。
-- SQLite 记住设备、远端媒体信息、缩略图、同步时间和下载记录。
-- 启动、返回应用或手动刷新时同步目录快照；对端离线仍可看上一次缓存。
-- 点一次媒体即下载；大于 50 MiB 使用四个 gRPC 范围流并发下载。
-- Android 用户发起的后台传输任务；允许通知时显示进度，关闭通知仍可下载。分片持久保存，断网重试可续传。完整接收后保存到指定目录并支持系统分享。
-- 相册按对端共享目录展示合集，合集内按页浏览全部子目录照片；支持离线缓存，元数据按版本同步，仅为新增条目下载缩略图。
-- 图片预览、双指/双击缩放、下滑返回与转场动画；下载任务页支持暂停、取消并删除和重试。
-- 仅同步增删，不跟踪原文件内容编辑，不自动下载整本相册。
+Tap to download a photo or video. Files are saved under **device / shared folder / original subfolders**, keeping their names and folder structure. Files larger than **50 MiB** use parallel downloads. You can pause, retry, or cancel a download and remove its temporary data; interrupted transfers can resume from saved progress.
 
-## 两台设备使用
+Already saved media can be removed from this device in the app. This leaves the source file and cached preview intact, so you can download it again later.
 
-1. 在 Android 16+、macOS 15.0+ 或 Windows x64 设备上安装相同版本，连接同一局域网，打开双方应用。
-2. 在每台设备「设置」中添加一个或多个共享目录，例如 **内部存储 / DCIM** 和 **Pictures**。选择 DCIM 后无需再添加其 Camera 子目录。接收目录建议新建 **Pictures / Tamayura**。
-3. 在「设备」中等待自动发现。发现不了时，输入另一台设备显示的 `IP:端口`，或扫描它的二维码。
-4. 在「相册」中打开对应共享目录合集，再点照片开始下载并进入预览。下载不要求通知权限，也不会弹出通知授权请求；需要下载提醒时，可在系统设置中允许应用通知。接收手机可以退到后台；Android 来源端在「设置 → 后台共享」开启后可锁屏共享；Mac 与 Windows 来源端需应用运行且系统清醒。Android、macOS 完成后可系统分享；Windows 可默认应用打开或在资源管理器定位。
-5. 拍摄/删除照片后，在来源设备返回应用或点击刷新，再在接收设备刷新。缓存更新不依赖实时目录监听。
+### Keep sharing in the background
 
-Android 系统文件夹选择器不允许直接授权存储根目录或 Download 根目录，请选择子目录。部分路由器的访客网络、AP 隔离会阻止设备互联。
+On Android, enable **Settings → Background sharing (后台共享)** to serve files while the phone is locked. Availability depends on the system's battery settings. Downloads can also continue in the background.
 
-## 本地开发
+On macOS and Windows, closing the window keeps Tamayura in the menu bar or system tray. Background sharing follows its setting, and downloads can continue while the app is running and the computer is awake. Quitting the app or putting the computer to sleep interrupts transfers.
 
-需要 Flutter stable（统一工具链为 3.47.6 / Dart 3.13.5）、JDK 21、Android SDK 36。Android 16 原生回归测试需要 Java 21 或更新版本，应用编译目标仍为 Java 17。
+### Light, dark, or your system's choice
 
-```sh
-flutter pub get
-flutter analyze
-flutter test
-flutter run
-flutter build apk --debug
-```
+A quiet black, white, and gray interface, with a saved theme preference across sessions.
 
-调试 APK：`build/app/outputs/flutter-apk/app-debug.apk`。可以使用 `adb install -r` 安装到已开启 USB 调试的 Android 设备。
+<div align="center">
+<img src="docs/screenshots/theme-light.png" width="280" alt="Tamayura settings in light mode">
+&nbsp;
+<img src="docs/screenshots/theme-dark.png" width="280" alt="Tamayura settings in dark mode">
+<br>
+<sub>Settings previews with sample folders.</sub>
+</div>
 
-协议生成文件已纳入项目，日常开发无需 protoc。修改 `proto/media.proto` 后安装 protoc 并执行 `scripts/generate-proto.sh`。
+## Documentation
 
-在「设置 → 关于」可查看实际安装包版本、项目及第三方开源许可；「碎碎念」介绍名字与摄影的缘起。默认连接端口为 `50728`，来自动画《玉响》中沢渡楓的生日纪念；仅输入 IP 时自动使用该端口，扫码和自动发现使用设备实际广播的端口。实现说明见 [关于与项目缘起](docs/关于与项目缘起.md)。
+Most detailed documentation is currently in Chinese.
 
-试用包与正式发布的签名、APK/AAB 打包和版本检查见 [发布流程](docs/发布.md)。架构与测试说明见 [Android 原型](docs/Android原型.md)，原生平台实现见 [目录与设备发现](docs/android-storage.md)，后台任务、续传与预览见 [Android 16+ 实现说明](docs/android16.md)。
+| Guide | What it covers |
+| :-- | :-- |
+| [Changelog](CHANGELOG.md) | Released and unreleased changes |
+| [0.5.0 trial notes](docs/releases/0.5.0.md) | Existing trial packages, installation, and known limits |
+| [Sync behavior](docs/自动与手动同步.md) | Automatic intervals, manual refresh, and sync status |
+| [Downloads and storage](docs/下载存储与清理.md) | Resuming downloads, temporary files, and cleanup |
+| [Background sharing](docs/后台共享.md) | Android background availability and battery settings |
+| [Development guide](AGENTS.md) | Setup, tests, builds, and implementation references |
 
-## 开源许可
+## Privacy
 
-本项目采用 [Apache License 2.0](LICENSE)。第三方组件保留各自的许可，可在应用「设置 → 关于 → 第三方开源许可」中查看。
+Media and previews travel directly between devices on your local network. Each device stores the synced media information and thumbnails locally so you can browse them offline. You choose which folders to share and where to save downloads.
 
-## 当前边界
+Tamayura currently uses **IPv4 local networks without authentication or transport encryption (TLS)**. Use it only on a trusted network. Guest Wi-Fi and client isolation may prevent devices from connecting.
 
-- Android 支持 16+，不支持 Android 15 及更早版本。接收任务使用 JobScheduler 的 UIDT；来源端可开启[后台共享](docs/后台共享.md)，长时间息屏需结合电池优化豁免及厂商策略验证。macOS 支持 Sequoia 15.0+，下载和共享依赖应用进程存活与系统清醒，完整双向验收待完成。Windows 当前支持 x64，目标 Windows 10 1809+ / Windows 11，共享和下载同样依赖应用运行且系统清醒。三端都不提供开机自启或纯局域网远程唤醒，退出后需主动打开。
-- IPv4 局域网；无账号、鉴权或 TLS，只在自己的可信局域网使用。
-- 非实时扫描；本地扫描仍需遍历整个目录的轻量元数据。网络分页和 SQLite 暂存事务取消了旧的 2,000 条/32 MiB 缩略图限制；极大目录的扫描耗时仍受存储提供者影响。
-- 支持分片续传，不跟踪文件内容编辑或跨设备内容去重。用户在系统任务管理器停止任务或强行停止应用后，需要回到应用重试。
-- 未完成分片会占用应用存储，完成、取消并删除或启动清理时回收；保存时分片与接收文件共存，峰值仍约为原文件两倍。容量预检不预留空间，部分 Android 文档提供者容量未知；保存到外部目录与数据库登记之间若进程被强杀，可能留下完整但未登记的副本，重试可能重名另存。
-- 停滞判定需要连续 30 秒无数据；持续 30 分钟没有收到数据后需要手动重试，实际断网、睡眠和系统强制终止场景仍待验收。
-- 缩略图解码失败显示占位，原文件仍可尝试下载；媒体可用格式由所在平台的解码能力决定。
-- 本机已下载文件被其它应用删除后，需要重新下载。无自动删除本机原文件功能。
+Before v1.0.0, updates may reset settings, cached albums, and download records. Files in your shared and receiving folders are preserved, but you may need to choose the folders and connect your devices again.
 
-自动化测试不能替代真实 Android、Mac 与 Windows 的 Wi-Fi、系统目录权限、断网恢复及各平台支持的扫码、分享验收；验收清单见开发文档。
+## License
+
+[Apache License 2.0](LICENSE). Third-party components retain their own licenses, available in the app under **Settings → About → Third-party licenses**.

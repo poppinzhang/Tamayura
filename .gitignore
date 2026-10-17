@@ -17,3 +17,4 @@ android/key.properties
 .tools/
 dist/
 android/keystore/
+.vscode/
