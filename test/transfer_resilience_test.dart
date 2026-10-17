@@ -37,9 +37,10 @@ Uint8List _bytes(int size) =>
 
 /// Serves real bytes slowly enough for a test to interrupt the stream.
 class _SlowSource implements LocalMediaSource {
-  _SlowSource(this.item, this.bytes);
+  _SlowSource(this.item, this.bytes, {this.afterFirstChunk});
   final MediaItem item;
   final Uint8List bytes;
+  final Future<void>? afterFirstChunk;
   final offsets = <int>[];
   Object? failure;
 
@@ -50,6 +51,7 @@ class _SlowSource implements LocalMediaSource {
   @override
   Future<Uint8List> readRange(String id, int offset, int length) async {
     offsets.add(offset);
+    if (offset > 0) await afterFirstChunk;
     await Future<void>.delayed(const Duration(milliseconds: 5));
     final error = failure;
     if (error != null) throw error;
@@ -122,18 +124,29 @@ void main() {
   test(
     'a silent peer is caught over real gRPC and its bytes are kept',
     () async {
-      final item = _media(4 * 1024 * 1024);
+      final item = _media(mediaChunkSize * 2);
+      final firstChunkPersisted = Completer<void>();
       final server = MediaRpcServer(
         identity: _source,
-        source: _SlowSource(item, _bytes(item.size)),
+        source: _SlowSource(
+          item,
+          _bytes(item.size),
+          afterFirstChunk: firstChunkPersisted.future,
+        ),
       );
       await server.start();
       addTearDown(server.stop);
       final proxy = await _BlackholeProxy.start(server.port);
       addTearDown(proxy.close);
+      addTearDown(() {
+        if (!firstChunkPersisted.isCompleted) firstChunkPersisted.complete();
+      });
       var received = 0;
       await expectLater(
-        MediaDownloader(stallTimeout: const Duration(milliseconds: 300))
+        // Real TCP/HTTP2 setup, identity verification and the first 2 MiB
+        // message need a CI-sized budget. Fast watchdog timing is covered by
+        // resumable_download_test; this test checks a real silent connection.
+        MediaDownloader(stallTimeout: const Duration(seconds: 5))
             .downloadResumable(
               peer: _source.copyWith(port: proxy.port),
               item: item,
@@ -141,13 +154,20 @@ void main() {
               taskId: 'silent',
               onProgress: (bytes, _) {
                 received = bytes;
-                if (bytes > 0) proxy.blackhole = true;
+                if (bytes > 0 && !firstChunkPersisted.isCompleted) {
+                  proxy.blackhole = true;
+                  // Do not let the second message get buffered before the
+                  // receiver has persisted the first and injected the outage.
+                  firstChunkPersisted.complete();
+                }
               },
             )
-            .timeout(const Duration(seconds: 10)),
+            .timeout(const Duration(seconds: 20)),
         throwsA(isA<TransferStalled>()),
       );
+      expect(proxy.blackhole, isTrue);
       expect(received, inExclusiveRange(0, item.size));
+      expect(received, mediaChunkSize);
       expect(
         await File(p.join(root.path, 'silent', '0.part')).length(),
         received,
