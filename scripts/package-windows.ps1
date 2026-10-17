@@ -66,6 +66,7 @@ try {
     $archiveName = "Tamayura-$version-windows-x64.zip"
     $archivePath = Join-Path $outputDir $archiveName
     New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
+    Add-Type -AssemblyName System.IO.Compression
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     $temporaryArchive = Join-Path $outputDir "$archiveName.tmp"
     try {

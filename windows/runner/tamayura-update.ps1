@@ -11,6 +11,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
+Add-Type -AssemblyName System.IO.Compression
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $script:ManifestName = 'tamayura-bundle.json'
 $script:Utf8 = New-Object Text.UTF8Encoding($false)
