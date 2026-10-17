@@ -731,8 +731,9 @@ void main() {
     test(
       'real gRPC file reaches export, commits both records, and cleans staging',
       () async {
+        // Two full chunks and a partial one.
         final bytes = Uint8List.fromList(
-          List.generate(600321, (index) => index % 251),
+          List.generate(mediaChunkSize * 2 + 76033, (index) => index % 251),
         );
         final item = _item(size: bytes.length);
         final source = _MemorySource(item, bytes);

@@ -503,8 +503,8 @@ FileInfo SafeFile::info() const {
 }
 
 Bytes SafeFile::Read(int64_t offset, int64_t length, int64_t expected_size) const {
-  if (offset < 0 || offset > expected_size || length < 0 || length > 256 * 1024) {
-    throw StorageError("INVALID_ARGUMENT", "Invalid media range; maximum chunk is 256 KiB");
+  if (offset < 0 || offset > expected_size || length < 0 || length > kMaxReadChunkBytes) {
+    throw StorageError("INVALID_ARGUMENT", "Invalid media range; maximum chunk is 2 MiB");
   }
   if (info().size != expected_size) throw StorageError("FILE_CHANGED", "Media size changed; refresh the album");
   const DWORD count = static_cast<DWORD>(std::min(length, expected_size - offset));

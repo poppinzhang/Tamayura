@@ -296,6 +296,17 @@ class GatedRepository implements TamayuraRepository {
   }
 
   @override
+  Future<PeerSyncApproval> rememberDiscoveredPeer(Peer peer) =>
+      inner.rememberDiscoveredPeer(peer);
+  @override
+  Future<bool> setPeerSyncApproval(
+    String deviceId,
+    PeerSyncApproval approval,
+  ) => inner.setPeerSyncApproval(deviceId, approval);
+  @override
+  Future<void> forgetPeer(String deviceId) => inner.forgetPeer(deviceId);
+
+  @override
   Future<void> close() => inner.close();
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);

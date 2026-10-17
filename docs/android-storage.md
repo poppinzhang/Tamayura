@@ -12,7 +12,7 @@
 
 每次扫描开始先取消更早的扫描并移除不再共享的根目录，保留目录的旧映射在扫描期间继续服务，完整成功后才整体发布新映射；扫描失败撤销全部映射。文件 ID 是共享目录 UUID 与文档 ID 的 SHA-256 摘要，局域网协议仅包含共享目录名与根下相对路径，不包含本机文档 URI 或绝对路径。多个目录作为完整快照一起发布，文件读取分别核验所属树的授权。读取分块及缩略图时检查授权、共享代数以及该文件是否仍以相同内容发布，文件被替换或移除时返回 `SCAN_CANCELLED` 供对端重试。旧请求或已移除根目录的延迟授权错误不会撤销当前目录，接收目录授权错误也不影响有效的共享目录。
 
-分块使用独立文件描述符执行 `pread`，单次最多 256 KiB，允许并发。仅提供管道的文档提供者退化为独立输入流跳读，速度可能下降；建议共享本机存储目录。
+分块使用独立文件描述符执行 `pread`，单次最多 2 MiB（`MAX_RANGE_BYTES`），允许并发。仅提供管道的文档提供者退化为独立输入流跳读，速度可能下降；建议共享本机存储目录。
 
 下载完的图片可通过 `readPreview(uri, maxDimension)` 预览：`ImageDecoder` 根据目标尺寸解码并处理图片方向，最长边不超过 2560 像素，返回最多 8 MiB 的 JPEG；不会将完整原图直接传入 Dart。预览为显示副本，接收目录中的原文件不变。
 
@@ -53,7 +53,7 @@ Activity 直接调度下载，不请求或等待 `POST_NOTIFICATIONS`，也不�
 | `scanDirectoriesMetadata` | `directories: [{id, uri, name}]` | `[{id, name, mimeType, size, modifiedMs, sharedFolderId, sharedFolderName, relativePath}]` |
 | `thumbnail` | `id` | 单张缩略图字节 |
 | `clearSharedDirectory` | 无 | 撤销共享映射并取消旧扫描 |
-| `readRange` | `id, offset, length` | 原始分块字节；最多 256 KiB |
+| `readRange` | `id, offset, length` | 原始分块字节；最多 2 MiB |
 | `readPreview` | `uri, maxDimension=2560` | 受限 JPEG 预览，最大 8 MiB |
 | `saveDownload` | `sourcePaths, expectedSize, directoryUri, name, mimeType, directories` | 保存后的文档 URI |
 | `transferSpace` | `directoryUri` | `{stagingAvailableBytes?}`；SAF 接收卷容量和卷关系未知 |

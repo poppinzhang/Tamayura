@@ -52,6 +52,11 @@ void validateMediaLocation(MediaMetadata item) {
   }
 }
 
+/// Whether the user allows synchronizing a remembered device's album.
+/// A device found by discovery waits for confirmation; addresses entered or
+/// scanned by the user are approved by that action.
+enum PeerSyncApproval { pending, approved, declined }
+
 class Peer {
   const Peer({
     required this.id,
@@ -61,6 +66,8 @@ class Peer {
     this.lastSeen,
     this.lastSync,
     this.lastSuccessfulSync,
+    this.syncApproval = PeerSyncApproval.approved,
+    this.lastSyncFailed = false,
   });
 
   final String id;
@@ -74,6 +81,13 @@ class Peer {
 
   /// Completion of the latest successful catalog synchronization.
   final DateTime? lastSuccessfulSync;
+
+  /// Read from storage only; peer writes never change the user's decision.
+  final PeerSyncApproval syncApproval;
+
+  /// The latest recorded attempt failed or was interrupted. Read-only, like
+  /// [syncApproval]: attempts and successful commits maintain it in storage.
+  final bool lastSyncFailed;
 
   Peer copyWith({
     String? name,
@@ -90,6 +104,8 @@ class Peer {
     lastSeen: lastSeen ?? this.lastSeen,
     lastSync: lastSync ?? this.lastSync,
     lastSuccessfulSync: lastSuccessfulSync ?? this.lastSuccessfulSync,
+    syncApproval: syncApproval,
+    lastSyncFailed: lastSyncFailed,
   );
 }
 
@@ -300,6 +316,11 @@ class SnapshotConflictException implements Exception {
   @override
   String toString() => '媒体目录已更新，请重试同步';
 }
+
+/// Largest original-file range read from a native adapter in one call, and
+/// the payload of one gRPC file chunk. Larger reads amortize per-call
+/// authorization and path resolution; tune it with real-device measurements.
+const mediaReadChunkBytes = 2 * 1024 * 1024;
 
 /// Native adapters keep file identifiers opaque and scoped to the shared folder.
 abstract class LocalMediaSource {

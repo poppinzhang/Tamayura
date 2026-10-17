@@ -122,6 +122,18 @@ void main() {
     }
   }
 
+  Future<void> lose(Peer peer) async {
+    final previousCount = clients.length;
+    bridge.events.add({
+      'type': 'lost',
+      'id': peer.id,
+      'host': peer.host,
+      'port': peer.port,
+    });
+    await waitForAutoSync(() => clients.length > previousCount);
+    await clients.last.closed.future;
+  }
+
   Future<DateTime?> savedAttempt([String id = 'remote']) async =>
       (await db.listPeers()).singleWhere((peer) => peer.id == id).lastSync;
 
@@ -302,18 +314,91 @@ void main() {
   });
 
   test(
-    'newly discovered devices synchronize immediately and then wait',
+    'a newly discovered device waits for approval, then syncs and waits',
     () async {
       await model.initialize();
       await discover(remote);
+      expect(syncCount(), 0);
+      expect(model.devices.single.id, remote.id);
+      expect(model.devices.single.online, isTrue);
+      expect(model.devices.single.syncApproval, PeerSyncApproval.pending);
+      expect(model.syncApprovalRequests.single.id, remote.id);
+      final saved = (await db.listPeers()).single;
+      expect(saved.syncApproval, PeerSyncApproval.pending);
+      expect(saved.lastSync, isNull);
+
+      // Closing the prompt keeps the device pending and does not ask again.
+      model.dismissSyncApproval(remote.id);
+      expect(model.syncApprovalRequests, isEmpty);
+      await discover(remote, expectConnection: false);
+      expect(model.syncApprovalRequests, isEmpty);
+      await model.refresh();
+      now = now.add(const Duration(hours: 13));
+      await model.refreshAfterResume();
+      expect(syncCount(), 0);
+      expect(await savedAttempt(), isNull);
+
+      await model.setDeviceSyncEnabled(remote.id, true);
       expect(syncCount(), 1);
       expect(await savedAttempt(), now);
+      expect(model.devices.single.syncApproval, PeerSyncApproval.approved);
+      expect(
+        (await db.listPeers()).single.syncApproval,
+        PeerSyncApproval.approved,
+      );
       now = now.add(const Duration(minutes: 1));
       await discover(remote, expectConnection: false);
       await model.refreshAfterResume();
       expect(syncCount(), 1);
     },
   );
+
+  test(
+    'a declined device stays remembered without prompts until enabled',
+    () async {
+      await model.initialize();
+      await discover(remote);
+      await model.setDeviceSyncEnabled(remote.id, false);
+      expect(syncCount(), 0);
+      expect(model.syncApprovalRequests, isEmpty);
+      expect(model.devices.single.syncApproval, PeerSyncApproval.declined);
+
+      await model.shutdown();
+      db = await TamayuraRepository.open(
+        path: '${temporary.path}/catalog.db',
+        factory: databaseFactoryFfi,
+      );
+      tasks = await TransferStore.open(
+        path: '${temporary.path}/tasks.db',
+        factory: databaseFactoryFfi,
+      );
+      model = controller();
+      await model.initialize();
+      expect(model.devices.single.syncApproval, PeerSyncApproval.declined);
+      await discover(remote);
+      await model.refresh();
+      expect(syncCount(), 0);
+      expect(model.syncApprovalRequests, isEmpty);
+      expect(model.devices.single.online, isTrue);
+
+      await model.setDeviceSyncEnabled(remote.id, true);
+      expect(syncCount(), 1);
+      expect(
+        (await db.listPeers()).single.syncApproval,
+        PeerSyncApproval.approved,
+      );
+    },
+  );
+
+  test('an unknown or incompatible announcement is not remembered', () async {
+    await model.initialize();
+    identityFailure = const FormatException('对端不是兼容的 Tamayura 设备');
+    await discover(remote);
+    expect(model.devices, isEmpty);
+    expect(await db.listPeers(), isEmpty);
+    expect(model.syncApprovalRequests, isEmpty);
+    expect(syncCount(), 0);
+  });
 
   test('each device has its own last synchronization deadline', () async {
     final recent = now.subtract(const Duration(hours: 2));
@@ -697,20 +782,76 @@ void main() {
   );
 
   test(
-    'rediscovery does not retry a failed catalog before the deadline',
+    'the first announcement after a failed attempt retries it once',
     () async {
       await db.upsertPeer(remote);
       catalogFailure = StateError('catalog unavailable');
       await model.initialize();
-      final failedAt = now;
       expect(syncCount(), 1);
+      expect((await db.listPeers()).single.lastSyncFailed, isTrue);
       catalogFailure = null;
       now = now.add(const Duration(minutes: 1));
-      await discover(remote, expectConnection: false);
-      await discover(remote, expectConnection: false);
-      expect(syncCount(), 1);
-      expect(await savedAttempt(), failedAt);
+      await discover(remote);
+      expect(syncCount(), 2, reason: 'An mDNS rising edge retries the failure');
+      expect(await savedAttempt(), now);
+      expect(await savedSuccess(), isNotNull);
+      expect((await db.listPeers()).single.lastSyncFailed, isFalse);
       expect(model.devices.single.online, isTrue);
+      now = now.add(const Duration(minutes: 1));
+      await discover(remote, expectConnection: false);
+      expect(syncCount(), 2);
+    },
+  );
+
+  test('a failing device is retried only on a new announcement edge', () async {
+    await db.upsertPeer(remote);
+    catalogFailure = StateError('catalog unavailable');
+    await model.initialize();
+    expect(syncCount(), 1);
+    await discover(remote);
+    expect(syncCount(), 2);
+    // Repeated or updated announcements of a present device do not poll it.
+    await discover(remote, expectConnection: false);
+    final moved = remote.copyWith(host: '10.0.0.20');
+    await discover(moved);
+    expect(syncCount(), 2, reason: 'An address update only checks identity');
+    expect((await db.listPeers()).single.host, moved.host);
+    // Lost and found again is a new edge.
+    await lose(moved);
+    expect(syncCount(), 2);
+    catalogFailure = null;
+    await discover(moved);
+    expect(syncCount(), 3);
+    expect(model.syncProgress.single.phase, SyncPhase.completed);
+    // A successful last attempt is not retried by a later edge.
+    await lose(moved);
+    await discover(moved, expectConnection: false);
+    expect(syncCount(), 3);
+  });
+
+  test(
+    'a failed attempt is retried by the first announcement after restart',
+    () async {
+      await db.upsertPeer(remote);
+      identityFailure = const SocketException('offline');
+      await model.initialize();
+      await model.shutdown();
+      db = await TamayuraRepository.open(
+        path: '${temporary.path}/catalog.db',
+        factory: databaseFactoryFfi,
+      );
+      tasks = await TransferStore.open(
+        path: '${temporary.path}/tasks.db',
+        factory: databaseFactoryFfi,
+      );
+      identityFailure = null;
+      now = now.add(const Duration(hours: 1));
+      model = controller();
+      await model.initialize();
+      expect(syncCount(), 0, reason: 'Startup still waits for the interval');
+      await discover(remote);
+      expect(syncCount(), 1);
+      expect(await savedAttempt(), now);
     },
   );
 
@@ -726,8 +867,12 @@ void main() {
       final moved = remote.copyWith(host: '10.0.0.20', port: 50729);
       now = now.add(const Duration(minutes: 1));
       await discover(moved);
-      expect(syncCount(), 1, reason: 'Rediscovery only checks identity');
-      expect(await savedAttempt(), failedAt);
+      expect(
+        syncCount(),
+        2,
+        reason: 'The rediscovery edge retries the catalog',
+      );
+      expect(await savedAttempt(), isNot(failedAt));
       expect((await db.listPeers()).single.host, moved.host);
       expect((await db.listPeers()).single.port, moved.port);
 
@@ -736,7 +881,7 @@ void main() {
       await model.retrySync(remote.id);
       expect(connections.last.host, moved.host);
       expect(connections.last.port, moved.port);
-      expect(syncCount(), 2);
+      expect(syncCount(), 3);
       expect(await savedAttempt(), now);
       expect(model.syncProgress.single.phase, SyncPhase.completed);
     },

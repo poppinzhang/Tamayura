@@ -59,6 +59,9 @@ struct FileInfo {
   int64_t modified_ms;
 };
 
+// Largest media range read in one call; matches mediaReadChunkBytes in Dart.
+constexpr int64_t kMaxReadChunkBytes = 2 * 1024 * 1024;
+
 // Every component is held without FILE_SHARE_WRITE or FILE_SHARE_DELETE.
 // This prevents junction replacement, directory renames and file mutation while
 // an operation is in progress. All components reject reparse points.

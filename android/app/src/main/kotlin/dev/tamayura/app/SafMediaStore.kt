@@ -485,7 +485,8 @@ internal class SafMediaStore(private val context: Context) {
 
     companion object {
         private val destinationLock = Any()
-        private const val MAX_RANGE_BYTES = 256 * 1024
+        // Matches mediaReadChunkBytes in lib/core/models.dart.
+        internal const val MAX_RANGE_BYTES = 2 * 1024 * 1024
         private val COLUMNS = arrayOf(Document.COLUMN_DOCUMENT_ID, Document.COLUMN_DISPLAY_NAME,
             Document.COLUMN_MIME_TYPE, Document.COLUMN_SIZE, Document.COLUMN_LAST_MODIFIED)
     }

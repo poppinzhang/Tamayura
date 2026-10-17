@@ -126,7 +126,11 @@ struct StorageCoreTests {
       try expect(catalog.read(id, offset: 1000, length: 1).isEmpty, "EOF")
       try rejects("negative", code: "INVALID_ARGUMENT") { _ = try catalog.read(id, offset: -1, length: 2) }
       try rejects("past EOF", code: "INVALID_ARGUMENT") { _ = try catalog.read(id, offset: 1001, length: 0) }
-      try rejects("oversized", code: "INVALID_ARGUMENT") { _ = try catalog.read(id, offset: 0, length: 262145) }
+      try expect(SafeFile.maxReadChunkBytes == 2 * 1024 * 1024, "2 MiB read chunk")
+      try expect(catalog.read(id, offset: 0, length: SafeFile.maxReadChunkBytes) == bytes, "largest chunk")
+      try rejects("oversized", code: "INVALID_ARGUMENT") {
+        _ = try catalog.read(id, offset: 0, length: SafeFile.maxReadChunkBytes + 1)
+      }
       try rejects("unknown ID", code: "FILE_NOT_FOUND") { _ = try catalog.read("unknown", offset: 0, length: 1) }
       try Data([1]).write(to: photo)
       try rejects("changed", code: "FILE_CHANGED") { _ = try catalog.read(id, offset: 0, length: 1) }

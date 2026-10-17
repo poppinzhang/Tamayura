@@ -174,6 +174,17 @@ class SafMediaStoreTest {
         assertEquals(listOf("kept.jpg"), scan().map { it["relativePath"] })
     }
 
+    @Test fun rangeReadsAcceptAtMostTwoMebibytes() {
+        assertEquals(2 * 1024 * 1024, SafMediaStore.MAX_RANGE_BYTES)
+        assertThrows(IllegalArgumentException::class.java) {
+            store.readRange("any-id", 0, SafMediaStore.MAX_RANGE_BYTES + 1)
+        }
+        // A valid length reaches the catalog, which has nothing published yet.
+        assertThrows(SecurityException::class.java) {
+            store.readRange("any-id", 0, SafMediaStore.MAX_RANGE_BYTES)
+        }
+    }
+
     @Test fun permissionLossWhileSizingAFileStillFailsTheScan() {
         provider.children["root"] = listOf(Row("photo", "photo.jpg", "image/jpeg"))
         provider.onOpen = { throw SecurityException("Grant revoked") }
