@@ -37,9 +37,9 @@ It is for browsing and transferring media between your own devices on the same l
 
 ## Quick start
 
-Tamayura is in early development. The downloads below are the published **0.7.0** packages for Android, macOS, and Windows, available as a [Pre-release](https://github.com/poppinzhang/Tamayura/releases/tag/v0.7.0). The current **0.8.0** source is being prepared for release; its packages are not yet available. See the [0.7.0 release record](docs/releases/0.7.0.md) for the published packages and the [0.8.0 preparation record](docs/releases/0.8.0.md) for the upcoming version. Use the **same build** on all devices; compatibility between releases is not guaranteed before v1.0.0, and protocol v4 does not connect to 0.5.0.
+Tamayura is in early development. The published **0.8.0** packages for Android, macOS, and Windows are available as a [Pre-release](https://github.com/poppinzhang/Tamayura/releases/tag/v0.8.0). See the [0.8.0 release record](docs/releases/0.8.0.md) for installation and validation scope. Use the **same build** on all devices; compatibility between releases is not guaranteed before v1.0.0, and protocol v4 does not connect to 0.5.0.
 
-**1 · Install and connect.** Choose the package for your platform from the [0.7.0 Pre-release](https://github.com/poppinzhang/Tamayura/releases/tag/v0.7.0), and read the [installation notes](docs/releases/0.7.0.md#安装与数据). To run from source, see the [source build instructions](AGENTS.md#本地开发). Android 0.7.0 keeps the release certificate used by 0.6.1 and can update an app with the same signature. Uninstall a 0.5.0 or earlier trial app with the old signature first; this clears app data and folder permissions. Connect both devices to the same local network and open Tamayura. Allow local network access when prompted; on Windows, allow the app through the firewall on your trusted private network.
+**1 · Install and connect.** Choose the package for your platform from the [0.8.0 Pre-release](https://github.com/poppinzhang/Tamayura/releases/tag/v0.8.0), and read the [installation notes](docs/releases/0.8.0.md#安装与数据). To run from source, see the [source build instructions](AGENTS.md#本地开发). Android 0.8.0 keeps the release certificate used since 0.6.1 and can update an app with the same signature. Uninstall a 0.5.0 or earlier trial app with the old signature first; this clears app data and folder permissions. Connect both devices to the same local network and open Tamayura. Allow local network access when prompted; on Windows, allow the app through the firewall on your trusted private network.
 
 **2 · Choose your folders.** In **Settings (设置)**, add the folders you want to share and choose where downloaded files should go. For example, share `DCIM` and receive files in `Pictures/Tamayura`. Subfolders are included automatically. On Android, choose a subfolder rather than the storage root or the `Download` root.
 
@@ -47,11 +47,11 @@ Tamayura is in early development. The downloads below are the published **0.7.0*
 
 **4 · Open an album.** In **Albums (相册)**, choose a shared collection and tap a photo or video to download its original. The source device must be online for downloads. After adding or removing media, refresh the source device, then refresh the receiving device to update its album immediately.
 
-## Check for updates in 0.8.0
+## Check for updates
 
-The upcoming **0.8.0** adds **Settings → Check for updates**. It checks GitHub Releases, including pre-releases, and asks for your confirmation before proceeding. Android downloads and verifies the APK, then opens the system installation flow; allow this installation source when prompted and confirm the update. Windows downloads and verifies the full ZIP, replaces the complete application folder, and restarts. It requires a complete release bundle in a dedicated writable local folder whose parent is also writable; it does not provide a separate installer or automatically request administrator access. macOS opens the selected release page for you to download and install the update yourself.
+Open **Settings → Check for updates** to check GitHub Releases, including pre-releases. Tamayura asks for your confirmation before proceeding. Android downloads and verifies the APK, then opens the system installation flow; allow this installation source when prompted and confirm the update. Windows downloads and verifies the full ZIP, replaces the complete application folder, and restarts. It requires a complete release bundle in a dedicated writable local folder whose parent is also writable; it does not provide a separate installer or automatically request administrator access. macOS opens the selected release page for you to download and install the update yourself.
 
-Install 0.8.0 manually once it is published; the existing 0.7.0 packages do not have this feature. Checking and downloading updates requires internet access. Updating interrupts sharing and transfers; interrupted media downloads can be retried after reopening the app. See the [0.8.0 preparation record](docs/releases/0.8.0.md) for status and limitations.
+Install 0.8.0 manually first; the existing 0.7.0 packages do not have this feature. Checking and downloading updates requires internet access. Updating interrupts sharing and transfers; interrupted media downloads can be retried after reopening the app. See the [0.8.0 release record](docs/releases/0.8.0.md) for limitations and the remaining device acceptance work.
 
 ## Supported platforms
 
@@ -61,7 +61,7 @@ Install 0.8.0 manually once it is published; the existing 0.7.0 packages do not 
 | macOS | macOS Sequoia 15.0+, including Tahoe 26 and later | Universal app for Apple silicon and Intel |
 | Windows | Windows 10 1809+ / Windows 11 · x64 | ZIP; Visual C++ x64 runtime required |
 
-The macOS Pre-release app uses ad-hoc signing and is not notarized; the Windows ZIP is unsigned. Installation details and validation limits are in the [0.7.0 release record](docs/releases/0.7.0.md). iOS and Linux are planned but do not yet have runnable or downloadable builds.
+The macOS Pre-release app uses ad-hoc signing and is not notarized; the Windows ZIP is unsigned. Installation details and validation limits are in the [0.8.0 release record](docs/releases/0.8.0.md). iOS and Linux are planned but do not yet have runnable or downloadable builds.
 
 Windows can display a connection QR code, open downloaded files in the default app, and reveal them in Explorer. Camera scanning and the system share sheet are available on Android and macOS.
 
@@ -115,8 +115,8 @@ Most detailed documentation is currently in Chinese.
 | :-- | :-- |
 | [Changelog](CHANGELOG.md) | Released and unreleased changes |
 | [GitHub Releases](https://github.com/poppinzhang/Tamayura/releases) | Published packages and checksums |
-| [0.7.0 release record](docs/releases/0.7.0.md) | Installation, setting changes, and validation scope |
-| [0.8.0 preparation record](docs/releases/0.8.0.md) | Upcoming update feature, installation requirements, and release status |
+| [0.8.0 release record](docs/releases/0.8.0.md) | Update feature, installation requirements, and validation scope |
+| [0.7.0 release record](docs/releases/0.7.0.md) | Previous release and setting changes |
 | [Sync behavior](docs/自动与手动同步.md) | Automatic intervals, manual refresh, and sync status |
 | [New and forgotten devices](docs/新设备确认与忘记设备.md) | Confirming newly discovered devices, retrying when a device comes back, and forgetting devices |
 | [Downloads and storage](docs/下载存储与清理.md) | Resuming downloads, temporary files, and cleanup |
