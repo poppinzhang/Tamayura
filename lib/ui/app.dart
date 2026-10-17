@@ -17,6 +17,7 @@ import 'downloads_page.dart';
 import 'desktop_layout.dart';
 import 'media_preview.dart';
 import 'sync_notices.dart';
+import 'update_page.dart';
 
 class TamayuraApp extends StatelessWidget {
   const TamayuraApp({super.key, required this.model});
@@ -1857,6 +1858,28 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
       ),
       const SizedBox(height: 28),
       const _SectionLabel('关于项目'),
+      _SurfaceCard(
+        child: ListTile(
+          key: const Key('check-update-entry'),
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 18,
+            vertical: 8,
+          ),
+          leading: Icon(
+            Icons.system_update_alt_rounded,
+            color: Theme.of(context).colorScheme.primary,
+          ),
+          title: const Text('检查更新'),
+          subtitle: const Text('从 GitHub 检查新版本，由你确认后更新'),
+          trailing: const Icon(Icons.chevron_right_rounded),
+          onTap: () => Navigator.of(context).push<void>(
+            MaterialPageRoute(
+              builder: (_) => UpdatePage(shutdown: model.shutdownForUpdate),
+            ),
+          ),
+        ),
+      ),
+      const SizedBox(height: 12),
       _SurfaceCard(
         child: ListTile(
           key: const Key('about-entry'),

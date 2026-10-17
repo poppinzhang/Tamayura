@@ -19,6 +19,7 @@
 namespace tamayura {
 class WindowsStorage;
 class LanDiscovery;
+class WindowsUpdate;
 
 // Flutter's desktop messenger must only be called from its platform thread.
 // Queue ownership avoids posting heap pointers to a window that might close.
@@ -62,6 +63,7 @@ class WindowsPlatform {
   using Map = flutter::EncodableMap;
   using Result = flutter::MethodResult<Value>;
   void Handle(const flutter::MethodCall<Value>& call, std::unique_ptr<Result> result);
+  void HandleUpdate(const flutter::MethodCall<Value>& call, std::unique_ptr<Result> result);
   Map SharingStatus() const;
   void Background(std::shared_ptr<Result> result, std::function<Value()> operation);
   HWND window_;
@@ -69,10 +71,12 @@ class WindowsPlatform {
   std::shared_ptr<UiDispatcher> dispatcher_;
   std::shared_ptr<WindowsStorage> storage_;
   std::unique_ptr<LanDiscovery> discovery_;
+  std::shared_ptr<WindowsUpdate> updates_;
   WorkerPool workers_;
   std::unique_ptr<flutter::EventSink<Value>> discovery_sink_;
   std::unique_ptr<flutter::EventSink<Value>> sharing_sink_;
   std::unique_ptr<flutter::MethodChannel<Value>> methods_;
+  std::unique_ptr<flutter::MethodChannel<Value>> update_methods_;
   std::unique_ptr<flutter::EventChannel<Value>> discovery_channel_;
   std::unique_ptr<flutter::EventChannel<Value>> sharing_channel_;
 };

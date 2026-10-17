@@ -30,6 +30,13 @@ swiftc -swift-version 5 -target "$(uname -m)-apple-macos15.0" \
   -o "$test_dir/desktop-status-tests"
 "$test_dir/desktop-status-tests"
 
+swiftc -swift-version 5 -target "$(uname -m)-apple-macos15.0" \
+  -module-cache-path "${SWIFT_MODULE_CACHE_PATH:-${TMPDIR:-/tmp}/tamayura-swift-module-cache}" \
+  "$repo_root/macos/Runner/ReleasePage.swift" \
+  "$repo_root/macos/Tests/ReleasePageTests.swift" \
+  -o "$test_dir/release-page-tests"
+"$test_dir/release-page-tests"
+
 plutil -lint "$repo_root/macos/Runner/Info.plist" \
   "$repo_root/macos/Runner/DebugProfile.entitlements" \
   "$repo_root/macos/Runner/Release.entitlements" \

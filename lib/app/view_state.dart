@@ -136,6 +136,7 @@ abstract class TamayuraModel extends ChangeNotifier {
   bool get hasMoreMedia => false;
   bool get loadingMoreMedia => false;
   Future<void> initialize();
+  Future<void> shutdownForUpdate() async {}
   Future<void> setThemeMode(ThemeMode mode);
   Future<void> setAlbumDetailedMode(bool enabled) async {}
   Future<void> setAutoSyncIntervalMinutes(int minutes) async {}

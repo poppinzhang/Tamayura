@@ -54,6 +54,15 @@ class WindowsSourceTests(unittest.TestCase):
         PACKAGE.package_source(self.root)
         self.assertEqual(original, archive.read_bytes())
 
+    def test_update_helpers_and_regression_scripts_are_included(self):
+        required = ("windows/runner/tamayura-update.ps1", "windows/runner/windows_update.cpp", "windows/runner/windows_update.h", "windows/tests/update_test.ps1")
+        for name in required:
+            self.write(name, "source\n")
+        archive, _ = PACKAGE.package_source(self.root)
+        with zipfile.ZipFile(archive) as bundle:
+            names = {name.split("/", 1)[1] for name in bundle.namelist()}
+            self.assertTrue(set(required).issubset(names))
+
     def test_symlink_is_rejected(self):
         target = self.write("private.dart", "LOCAL_ONLY\n")
         try:

@@ -37,7 +37,7 @@ It is for browsing and transferring media between your own devices on the same l
 
 ## Quick start
 
-Tamayura is in early development. This README describes the published **0.7.0** packages for Android, macOS, and Windows, available as a [Pre-release](https://github.com/poppinzhang/Tamayura/releases/tag/v0.7.0). See the [0.7.0 release record](docs/releases/0.7.0.md) for installation and validation scope. Use the **same build** on all devices; compatibility between releases is not guaranteed before v1.0.0, and protocol v4 does not connect to 0.5.0.
+Tamayura is in early development. The downloads below are the published **0.7.0** packages for Android, macOS, and Windows, available as a [Pre-release](https://github.com/poppinzhang/Tamayura/releases/tag/v0.7.0). The current **0.8.0** source is being prepared for release; its packages are not yet available. See the [0.7.0 release record](docs/releases/0.7.0.md) for the published packages and the [0.8.0 preparation record](docs/releases/0.8.0.md) for the upcoming version. Use the **same build** on all devices; compatibility between releases is not guaranteed before v1.0.0, and protocol v4 does not connect to 0.5.0.
 
 **1 · Install and connect.** Choose the package for your platform from the [0.7.0 Pre-release](https://github.com/poppinzhang/Tamayura/releases/tag/v0.7.0), and read the [installation notes](docs/releases/0.7.0.md#安装与数据). To run from source, see the [source build instructions](AGENTS.md#本地开发). Android 0.7.0 keeps the release certificate used by 0.6.1 and can update an app with the same signature. Uninstall a 0.5.0 or earlier trial app with the old signature first; this clears app data and folder permissions. Connect both devices to the same local network and open Tamayura. Allow local network access when prompted; on Windows, allow the app through the firewall on your trusted private network.
 
@@ -46,6 +46,12 @@ Tamayura is in early development. This README describes the published **0.7.0** 
 **3 · Find your other device.** Open **Devices (设备)** and wait for automatic discovery. When a new device is found, Tamayura asks whether to sync its album; if you choose not to, you can turn syncing on later from its card. You can also enter the address shown on the other device, or scan its QR code on Android and macOS; these connect and sync right away.
 
 **4 · Open an album.** In **Albums (相册)**, choose a shared collection and tap a photo or video to download its original. The source device must be online for downloads. After adding or removing media, refresh the source device, then refresh the receiving device to update its album immediately.
+
+## Check for updates in 0.8.0
+
+The upcoming **0.8.0** adds **Settings → Check for updates**. It checks GitHub Releases, including pre-releases, and asks for your confirmation before proceeding. Android downloads and verifies the APK, then opens the system installation flow; allow this installation source when prompted and confirm the update. Windows downloads and verifies the full ZIP, replaces the complete application folder, and restarts. It requires a complete release bundle in a dedicated writable local folder whose parent is also writable; it does not provide a separate installer or automatically request administrator access. macOS opens the selected release page for you to download and install the update yourself.
+
+Install 0.8.0 manually once it is published; the existing 0.7.0 packages do not have this feature. Checking and downloading updates requires internet access. Updating interrupts sharing and transfers; interrupted media downloads can be retried after reopening the app. See the [0.8.0 preparation record](docs/releases/0.8.0.md) for status and limitations.
 
 ## Supported platforms
 
@@ -110,6 +116,7 @@ Most detailed documentation is currently in Chinese.
 | [Changelog](CHANGELOG.md) | Released and unreleased changes |
 | [GitHub Releases](https://github.com/poppinzhang/Tamayura/releases) | Published packages and checksums |
 | [0.7.0 release record](docs/releases/0.7.0.md) | Installation, setting changes, and validation scope |
+| [0.8.0 preparation record](docs/releases/0.8.0.md) | Upcoming update feature, installation requirements, and release status |
 | [Sync behavior](docs/自动与手动同步.md) | Automatic intervals, manual refresh, and sync status |
 | [New and forgotten devices](docs/新设备确认与忘记设备.md) | Confirming newly discovered devices, retrying when a device comes back, and forgetting devices |
 | [Downloads and storage](docs/下载存储与清理.md) | Resuming downloads, temporary files, and cleanup |

@@ -417,6 +417,23 @@ Future<void> _pump(
 }
 
 void main() {
+  testWidgets('settings exposes check for updates', (tester) async {
+    await tester.pumpWidget(TamayuraApp(model: _FakeModel()));
+    await tester.tap(find.byKey(const Key('settings-tab')));
+    await tester.pumpAndSettle();
+    final entry = find.byKey(const Key('check-update-entry'));
+    await tester.scrollUntilVisible(
+      entry,
+      400,
+      scrollable: find
+          .descendant(
+            of: find.byKey(const PageStorageKey('settings-scroll')),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    );
+    expect(find.text('检查更新'), findsOneWidget);
+  });
   testWidgets(
     'album and devices only refresh from explicit actions on every platform',
     (tester) async {

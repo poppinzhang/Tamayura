@@ -8,6 +8,15 @@ target_include_directories(discovery_core_test PRIVATE ../runner)
 add_test(NAME discovery_core_test COMMAND discovery_core_test)
 
 if(WIN32)
+  add_executable(windows_update_old_fixture update_fixture.cpp update_fixture.rc)
+  add_executable(windows_update_new_fixture update_fixture.cpp update_fixture.rc)
+  target_compile_definitions(windows_update_old_fixture PRIVATE UPDATE_PATCH=3 UPDATE_BUILD=4)
+  target_compile_definitions(windows_update_new_fixture PRIVATE UPDATE_PATCH=4 UPDATE_BUILD=5)
+  add_test(NAME windows_update_test COMMAND powershell.exe -NoLogo -NoProfile
+    -NonInteractive -ExecutionPolicy Bypass -File "${CMAKE_CURRENT_SOURCE_DIR}/update_test.ps1"
+    -OldExecutable "$<TARGET_FILE:windows_update_old_fixture>"
+    -NewExecutable "$<TARGET_FILE:windows_update_new_fixture>")
+  set_tests_properties(windows_update_test PROPERTIES TIMEOUT 120)
   add_executable(windows_desktop_tray_test desktop_tray_test.cpp ../runner/desktop_tray.cpp)
   target_compile_features(windows_desktop_tray_test PRIVATE cxx_std_17)
   target_include_directories(windows_desktop_tray_test PRIVATE ../runner)

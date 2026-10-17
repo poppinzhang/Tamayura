@@ -145,6 +145,21 @@ void main() {
       });
 
       test(
+        'update shutdown stops discovery and sharing before installation',
+        () async {
+          await model.initialize();
+          await model.setBackgroundSharing(true);
+          expect(model.port, greaterThan(0));
+          expect(bridge.events.hasListener, isTrue);
+          await model.shutdownForUpdate();
+          expect(model.port, 0);
+          expect(bridge.events.hasListener, isFalse);
+          expect(bridge.changes.hasListener, isFalse);
+          expect(bridge.activeTransfers, isEmpty);
+        },
+      );
+
+      test(
         'repeated close and restore retains sharing and one discovery listener',
         () async {
           await model.initialize();

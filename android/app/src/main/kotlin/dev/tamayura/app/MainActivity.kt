@@ -40,6 +40,12 @@ class MainActivity : FlutterActivity() {
     override fun onResume() {
         super.onResume()
         BackgroundSharing.get(applicationContext).restore()
+        AppUpdateInstaller.get(applicationContext).resumed(this)
+    }
+
+    override fun onPause() {
+        AppUpdateInstaller.get(applicationContext).paused(this)
+        super.onPause()
     }
 
     // Kept as the Activity-facing entry for callers that need an attached UI.
@@ -133,6 +139,7 @@ class MainActivity : FlutterActivity() {
 
     override fun onDestroy() {
         alive = false
+        AppUpdateInstaller.get(applicationContext).paused(this)
         pickerResult?.error("ACTIVITY_CLOSED", "页面已关闭", null)
         pickerResult = null
         workers.shutdown()

@@ -11,6 +11,7 @@
 #include "discovery_core.h"
 #include "lan_discovery.h"
 #include "windows_storage.h"
+#include "windows_update.h"
 
 namespace tamayura {
 namespace {
@@ -151,11 +152,16 @@ WindowsPlatform::WindowsPlatform(flutter::BinaryMessenger* messenger, HWND windo
       storage_(std::make_shared<WindowsStorage>()),
       discovery_(std::make_unique<LanDiscovery>(dispatcher_, [this](const Map& event) {
         if (discovery_sink_) discovery_sink_->Success(Value(event));
-      })) {
+      })), updates_(std::make_shared<WindowsUpdate>()) {
   const auto* codec = &flutter::StandardMethodCodec::GetInstance();
   methods_ = std::make_unique<flutter::MethodChannel<Value>>(messenger, "tamayura/platform", codec);
   methods_->SetMethodCallHandler([this](const auto& call, auto result) {
     Handle(call, std::move(result));
+  });
+  update_methods_ = std::make_unique<flutter::MethodChannel<Value>>(
+      messenger, "tamayura/updates", codec);
+  update_methods_->SetMethodCallHandler([this](const auto& call, auto result) {
+    HandleUpdate(call, std::move(result));
   });
   discovery_channel_ = std::make_unique<flutter::EventChannel<Value>>(
       messenger, "tamayura/discovery", codec);
@@ -183,6 +189,7 @@ WindowsPlatform::WindowsPlatform(flutter::BinaryMessenger* messenger, HWND windo
 
 WindowsPlatform::~WindowsPlatform() {
   methods_->SetMethodCallHandler(nullptr);
+  update_methods_->SetMethodCallHandler(nullptr);
   discovery_->Stop();
   // Invalidate all active scans before joining the bounded worker pool.
   storage_->Handle("clearSharedDirectory", {}, window_);
@@ -218,6 +225,45 @@ void WindowsPlatform::Background(std::shared_ptr<Result> result,
       dispatcher->Post([result] { result->Error("PLATFORM_ERROR", "Windows 操作失败"); });
     }
   });
+}
+
+void WindowsPlatform::HandleUpdate(const flutter::MethodCall<Value>& call,
+                                   std::unique_ptr<Result> owned_result) {
+  std::shared_ptr<Result> result(std::move(owned_result));
+  try {
+    if (call.method_name() == "updateDirectory") {
+      result->Success(Value(WindowsUpdate::Directory()));
+    } else if (call.method_name() == "installUpdate") {
+      const auto* args = call.arguments() ? std::get_if<Map>(call.arguments()) : nullptr;
+      if (!args) throw StorageError("INVALID_ARGUMENT", "Missing update arguments.");
+      const auto path = ArgumentString(*args, "path");
+      const auto sha256 = ArgumentString(*args, "sha256");
+      const auto version = ArgumentString(*args, "version");
+      int64_t build = 0;
+      const auto found = args->find(Value("buildNumber"));
+      if (found != args->end()) {
+        if (const auto value = std::get_if<int32_t>(&found->second)) build = *value;
+        if (const auto value = std::get_if<int64_t>(&found->second)) build = *value;
+      }
+      const auto updates = updates_;
+      Background(result, [updates, path, sha256, version, build] {
+        updates->Prepare(path, sha256, version, build);
+        return Value("readyToExit");
+      });
+    } else if (call.method_name() == "exitForUpdate") {
+      if (!updates_->prepared()) {
+        throw StorageError("UPDATE_NOT_READY", "No update is ready to install.");
+      }
+      result->Success();
+      PostQuitMessage(EXIT_SUCCESS);
+    } else {
+      result->NotImplemented();
+    }
+  } catch (const StorageError& error) {
+    result->Error(error.code, error.what());
+  } catch (const std::exception&) {
+    result->Error("UPDATE_ERROR", "The Windows update operation failed. Check file permissions and retry.");
+  }
 }
 
 void WindowsPlatform::Handle(const flutter::MethodCall<Value>& call,

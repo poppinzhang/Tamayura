@@ -2437,6 +2437,9 @@ class AppController extends TamayuraModel {
     }
   }
 
+  @override
+  Future<void> shutdownForUpdate() => shutdown();
+
   Future<void> shutdown() async {
     _disposed = true;
     _initializationStartup?.cancel();

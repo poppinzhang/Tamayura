@@ -13,6 +13,7 @@ add_executable(${BINARY_NAME} WIN32
   "utils.cpp"
   "win32_window.cpp"
   "windows_platform.cpp"
+  "windows_update.cpp"
   "lan_discovery.cpp"
   "discovery_core.cpp"
   "windows_storage.cpp"

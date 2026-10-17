@@ -33,6 +33,8 @@ internal class AndroidRuntime private constructor(private val context: Context) 
         try {
             MethodChannel(engine.dartExecutor.binaryMessenger, "tamayura/platform")
                 .setMethodCallHandler { call, result -> handleMethod(call, result) }
+            MethodChannel(engine.dartExecutor.binaryMessenger, "tamayura/updates")
+                .setMethodCallHandler { call, result -> AppUpdateInstaller.get(context).handle(call, result) }
             EventChannel(engine.dartExecutor.binaryMessenger, "tamayura/discovery")
                 .setStreamHandler(discovery)
             EventChannel(engine.dartExecutor.binaryMessenger, "tamayura/sharing")

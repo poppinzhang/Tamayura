@@ -28,7 +28,7 @@ SOURCE_SUFFIXES = {
     "proto": {".proto"},
     "assets": {".png", ".jpg", ".jpeg", ".webp", ".ico", ".svg"},
     "docs": {".md"},
-    "windows": {".cc", ".cpp", ".h", ".hpp", ".cmake", ".txt", ".manifest", ".rc", ".ico"},
+    "windows": {".cc", ".cpp", ".h", ".hpp", ".cmake", ".txt", ".manifest", ".rc", ".ico", ".ps1"},
     "scripts": {".ps1", ".py"},
 }
 EXCLUDED_PARTS = {

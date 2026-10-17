@@ -44,7 +44,20 @@ final class MacOSPlatform: NSObject, NSSharingServicePickerDelegate, NSSharingSe
     events.setStreamHandler(discovery)
     let sharingEvents = FlutterEventChannel(name: "tamayura/sharing", binaryMessenger: messenger)
     sharingEvents.setStreamHandler(sharing)
-    channels = [methods, events, sharingEvents]
+    let updates = FlutterMethodChannel(name: "tamayura/updates", binaryMessenger: messenger)
+    updates.setMethodCallHandler { call, result in
+      guard call.method == "openRelease" else { result(FlutterMethodNotImplemented); return }
+      guard let args = call.arguments as? [String: Any], let url = args["url"] as? String else {
+        result(FlutterError(code: "INVALID_UPDATE_URL", message: "更新页面地址无效", details: nil)); return
+      }
+      do {
+        try ReleasePage.open(url)
+        result(nil)
+      } catch {
+        result(FlutterError(code: "OPEN_RELEASE_FAILED", message: "无法打开更新页面，请检查默认浏览器后重试", details: nil))
+      }
+    }
+    channels = [methods, events, sharingEvents, updates]
   }
 
   private func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {

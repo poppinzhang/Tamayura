@@ -56,6 +56,11 @@ try {
     if ($actualVersion -ne $expectedVersion) {
         throw "Executable version mismatch: $actualVersion; expected $expectedVersion."
     }
+    $windowsPowerShell = Join-Path ([Environment]::SystemDirectory) 'WindowsPowerShell\v1.0\powershell.exe'
+    Invoke-Checked -Command $windowsPowerShell -Arguments @('-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $releaseDir 'tamayura-update.ps1'), '-Mode', 'Manifest', '-Target', $releaseDir, '-Version', $version, '-BuildNumber', $buildNumber)
+    if (-not (Test-Path -LiteralPath (Join-Path $releaseDir 'tamayura-bundle.json'))) {
+        throw 'The release bundle update manifest was not generated.'
+    }
 
     $outputDir = Join-Path $repoRoot "dist\$version"
     $archiveName = "Tamayura-$version-windows-x64.zip"
