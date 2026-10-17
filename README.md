@@ -37,9 +37,9 @@ It is for browsing and transferring media between your own devices on the same l
 
 ## Quick start
 
-Tamayura is in early development. The available Android, macOS, and Windows packages are **0.6.1**, published as a [Pre-release](https://github.com/poppinzhang/Tamayura/releases/tag/v0.6.1). This README describes those packages except where a change is marked **0.7.0 source (release pending)**; see the [0.7.0 release record](docs/releases/0.7.0.md) for its status and the [0.6.1 release record](docs/releases/0.6.1.md) for the available packages' validation scope. Existing 0.5.0 trial packages have an earlier feature set. Use the **same build** on all devices; protocol v4 does not connect to 0.5.0.
+Tamayura is in early development. This README describes the published **0.7.0** packages for Android, macOS, and Windows, available as a [Pre-release](https://github.com/poppinzhang/Tamayura/releases/tag/v0.7.0). See the [0.7.0 release record](docs/releases/0.7.0.md) for installation and validation scope. Use the **same build** on all devices; compatibility between releases is not guaranteed before v1.0.0, and protocol v4 does not connect to 0.5.0.
 
-**1 · Install and connect.** Choose the package for your platform from the [0.6.1 Pre-release](https://github.com/poppinzhang/Tamayura/releases/tag/v0.6.1), and read the [installation notes](docs/releases/0.6.1.md#安装与数据). To run from source, see the [source build instructions](AGENTS.md#本地开发). Android 0.6.1 uses a new signing certificate: uninstall a 0.5.0 or earlier trial app before installing it; this clears app data and folder permissions. Connect both devices to the same local network and open Tamayura. Allow local network access when prompted; on Windows, allow the app through the firewall on your trusted private network.
+**1 · Install and connect.** Choose the package for your platform from the [0.7.0 Pre-release](https://github.com/poppinzhang/Tamayura/releases/tag/v0.7.0), and read the [installation notes](docs/releases/0.7.0.md#安装与数据). To run from source, see the [source build instructions](AGENTS.md#本地开发). Android 0.7.0 keeps the release certificate used by 0.6.1 and can update an app with the same signature. Uninstall a 0.5.0 or earlier trial app with the old signature first; this clears app data and folder permissions. Connect both devices to the same local network and open Tamayura. Allow local network access when prompted; on Windows, allow the app through the firewall on your trusted private network.
 
 **2 · Choose your folders.** In **Settings (设置)**, add the folders you want to share and choose where downloaded files should go. For example, share `DCIM` and receive files in `Pictures/Tamayura`. Subfolders are included automatically. On Android, choose a subfolder rather than the storage root or the `Download` root.
 
@@ -55,7 +55,7 @@ Tamayura is in early development. The available Android, macOS, and Windows pack
 | macOS | macOS Sequoia 15.0+, including Tahoe 26 and later | Universal app for Apple silicon and Intel |
 | Windows | Windows 10 1809+ / Windows 11 · x64 | ZIP; Visual C++ x64 runtime required |
 
-The macOS Pre-release app uses ad-hoc signing and is not notarized; the Windows ZIP is unsigned. Installation details and validation limits are in the [0.6.1 release record](docs/releases/0.6.1.md). iOS and Linux are planned but do not yet have runnable or downloadable builds.
+The macOS Pre-release app uses ad-hoc signing and is not notarized; the Windows ZIP is unsigned. Installation details and validation limits are in the [0.7.0 release record](docs/releases/0.7.0.md). iOS and Linux are planned but do not yet have runnable or downloadable builds.
 
 Windows can display a connection QR code, open downloaded files in the default app, and reveal them in Explorer. Camera scanning and the system share sheet are available on Android and macOS.
 
@@ -73,9 +73,9 @@ Each shared folder becomes a collection, including media in its subfolders. Brow
 
 ### Previews that stay with you
 
-Synced thumbnails remain available offline. During a sync, photos appear as they arrive; interrupted syncs keep their progress so you can continue later. In the published 0.6.1 packages, automatic sync defaults to a 12-hour interval, which you can change in Settings. If the last sync with a device failed, Tamayura retries as soon as that device appears on the network again. Refresh manually whenever you need an update, and check each device's last successful sync time.
+Synced thumbnails remain available offline. During a sync, photos appear as they arrive; interrupted syncs keep their progress so you can continue later. Automatic sync defaults to **10 minutes**; Settings accepts a whole number from **1 to 525600 minutes** (up to one year). If the last sync with a device failed, Tamayura retries as soon as that device appears on the network again. Refresh manually whenever you need an update, and check each device's last successful sync time.
 
-**0.7.0 source (release pending):** automatic sync now defaults to **10 minutes**. Settings accepts a whole number from **1 to 525600 minutes** (up to one year). The previous hour-based setting is not carried over; without a saved minute-based setting, the default is 10 minutes. This version also fixes interrupted mobile fast-scroll drags and the thumb staying visible after release. Windows uses available embedded RAW previews and keeps recently generated thumbnails in memory to reduce repeated decoding; format support still depends on installed system codecs.
+When upgrading to 0.7.0, the previous hour-based setting is not carried over; without a saved minute-based setting, the default is 10 minutes. Mobile fast scrolling supports continuous drags and hides automatically after release. Windows uses available embedded RAW previews and keeps recently generated thumbnails in memory to reduce repeated decoding; format support still depends on installed system codecs.
 
 ### Originals on demand
 
@@ -109,8 +109,7 @@ Most detailed documentation is currently in Chinese.
 | :-- | :-- |
 | [Changelog](CHANGELOG.md) | Released and unreleased changes |
 | [GitHub Releases](https://github.com/poppinzhang/Tamayura/releases) | Published packages and checksums |
-| [0.6.1 release record](docs/releases/0.6.1.md) | Release progress, installation, and known limits |
-| [0.7.0 release record](docs/releases/0.7.0.md) | Pending release, setting changes, and validation scope |
+| [0.7.0 release record](docs/releases/0.7.0.md) | Installation, setting changes, and validation scope |
 | [Sync behavior](docs/自动与手动同步.md) | Automatic intervals, manual refresh, and sync status |
 | [New and forgotten devices](docs/新设备确认与忘记设备.md) | Confirming newly discovered devices, retrying when a device comes back, and forgetting devices |
 | [Downloads and storage](docs/下载存储与清理.md) | Resuming downloads, temporary files, and cleanup |
