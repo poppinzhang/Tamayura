@@ -5,8 +5,15 @@ param(
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
-$updater = Join-Path $PSScriptRoot '../runner/tamayura-update.ps1'
-. $updater
+$updater = [IO.Path]::GetFullPath([IO.Path]::Combine($PSScriptRoot, '../runner/tamayura-update.ps1'))
+$previousModulePath = $env:PSModulePath
+$unavailableModulePath = [IO.Path]::Combine([IO.Path]::GetTempPath(), 'tamayura-unavailable-modules-' + [guid]::NewGuid().ToString('N'))
+try {
+    $env:PSModulePath = $unavailableModulePath
+    . $updater
+} finally {
+    $env:PSModulePath = $previousModulePath
+}
 $root = Join-Path ([IO.Path]::GetTempPath()) ('tamayura-update-tests-' + [guid]::NewGuid().ToString('N'))
 [IO.Directory]::CreateDirectory($root) | Out-Null
 $script:caseCount = 0
@@ -55,6 +62,12 @@ function New-Zip([string]$Name, [string[]]$Entries, [int]$Attributes = 0) {
 }
 
 try {
+    Invoke-Case 'Load native utility and management commands despite an inherited invalid module path' {
+        foreach ($name in @('Get-FileHash', 'ConvertFrom-Json', 'ConvertTo-Json', 'Start-Process', 'Get-ChildItem', 'Add-Type', 'New-Object')) {
+            $command = Get-Command -Name $name -ErrorAction Stop
+            Assert-True ($command.ModuleName -in @('Microsoft.PowerShell.Management', 'Microsoft.PowerShell.Utility')) 'The updater did not load its own built-in command module.'
+        }
+    }
     Invoke-Case 'Keep expected errors readable and redact filesystem exceptions' {
         try { Stop-Update 'Readable update failure.' }
         catch { Assert-True ((Get-UpdateErrorMessage $_) -eq 'Readable update failure.') 'Expected errors should remain readable.' }
@@ -208,7 +221,9 @@ try {
         [IO.Directory]::CreateDirectory($script:Workspace) | Out-Null
         Copy-Item -LiteralPath $updater -Destination (Join-Path $script:Workspace 'tamayura-update.ps1')
         $running = Start-Process -FilePath (Join-Path $script:Target 'Tamayura.exe') -ArgumentList '--wait' -PassThru
+        $previousHelperModulePath = $env:PSModulePath
         try {
+            $env:PSModulePath = $unavailableModulePath
             $script:ParentProcessId = $running.Id
             Prepare-Update
             $null = Assert-Bundle $script:Target '1.2.3' 4
@@ -232,6 +247,7 @@ try {
             }
             Assert-True $complete 'The helper did not install the prepared bundle.'
         } finally {
+            $env:PSModulePath = $previousHelperModulePath
             if (-not $running.HasExited) { $running.Kill(); $running.WaitForExit() }
             $running.Dispose()
         }
