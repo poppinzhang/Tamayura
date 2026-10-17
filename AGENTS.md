@@ -146,11 +146,11 @@ scripts/generate-proto.sh
 发布必须按以下顺序执行，详细核验清单以 `docs/发布.md` 为准：
 
 1. 同步并检查 `main`，更新版本、构建号、`CHANGELOG.md` 及相关文档，将本次发布内容 commit 并 push 到 GitHub 的 `main`，记录完整提交 SHA。尚未执行的测试和发布不得提前写为成功。
-2. 对该已推送提交执行当前完整的本地测试、Release 打包及版本、系统、架构、签名、归档、隐私和校验和核验。macOS 主机执行 Android 与 macOS 流程；Windows 在 x64 Windows 环境执行，缺少该环境时须等待同一提交的 Windows 分支 CI 完整通过并下载核验其产物，不能省略或用源码 ZIP 替代。已触发的三平台分支 CI 均通过后才进入下一步。
+2. 对该已推送提交执行当前完整的本地测试、Release 打包及版本、系统、架构、签名、归档、隐私和校验和核验。macOS 主机执行 Android 与 macOS 流程；Windows 在 x64 Windows 环境执行，缺少该环境时以同一提交的 Windows 分支 CI 完整测试、打包和自动核验成功为准，不要求再下载产物，也不能用源码 ZIP 替代。已触发的三平台分支 CI 均通过后才进入下一步。
 3. 确认本地 `main`、远端 `main` 与已核验提交一致，再为该明确提交创建附注版本 Tag 并推送 GitHub。测试失败或待发布提交变化时回到前两步，不给未经验证的新提交打 Tag，不强制移动既有版本 Tag。
-4. 等待该 Tag 的 GitHub 自动发布全部成功，核对远端 Tag 实际提交、Release 正文与 Tag 内 CHANGELOG、三个包及 `SHA256SUMS` / `release.json` 共五个附件；从 Release 下载五个附件，核对三个包的 SHA-256、字节数、版本和元数据，并确认 Android 签名一致，全部通过才能报告发布完成。GitHub 自动生成的源码归档不计入五个附件。
+4. 等待该 Tag 的准备、Android、macOS、Windows 和发布五个 job 全部成功，由 Agent 核对远端 Tag 实际提交、Release 正文与 Tag 内 CHANGELOG，以及三个包和 `SHA256SUMS` / `release.json` 共五个附件的元信息后报告完成。产物版本、系统、架构、签名、完整性、独立 SHA-256、联合元数据及上传后附件的大小、状态和可用摘要由 CI 自动核验；不再下载 Windows artifact 或 Release 附件重复手工比对，不得声称执行了下载校验。GitHub 自动生成的源码归档不计入五个附件。
 
-仅讨论或维护流程时不执行发布；已授权发布时连续完成上述步骤，无需逐步重复询问。发现遗漏、版本冲突或缺少必要条件时先说明，不先推送 Tag。当前远端发布为 Pre-release，保留 macOS 未公证、Windows 未签名和真机验收范围的说明。发布后实际结果补充到对应版本记录，不回改已发布 Tag。
+仅讨论或维护流程时不执行发布；已授权发布时由 Agent 连续执行上述步骤并等待结束，无需人工下载、逐步确认或重复申请批准。首次配置完成后沿用当前签名 Secrets 与工作流 `GITHUB_TOKEN`，不将 Chrome 下载、`gh`、个人 API 令牌或新 OAuth 授权设为每次发布前提。实际失败时停在失败步骤处理，可在不覆盖公开版本、不移动 Tag 的条件下自动安全重试；发现遗漏、版本冲突或缺少必要条件时如实说明，不跳过检查。当前远端发布为 Pre-release，保留 macOS 未公证、Windows 未签名和真机验收范围的说明。发布后实际结果补充到对应版本记录，不回改已发布 Tag。
 
 * Android：配置专用 release 签名后执行 `scripts/package-android.sh`，运行公共与原生检查、Release 构建及版本、系统、架构、签名和对齐核验，输出 APK 与独立校验和。按需生成 `flutter build apk --release --split-per-abi` 或 `flutter build appbundle --release`。缺失 release 签名配置时不得回退到 debug 签名。CI 签名通过 Actions Secrets 临时配置，详情见 `docs/发布.md`。
 * macOS：执行 `scripts/package-macos.sh`，脚本运行公共检查、原生测试与 Release 构建，核验最低系统、版本、Universal 架构和签名，输出 `dist/<version>/Tamayura-<version>-macos.zip` 及 `SHA256SUMS-macos`。完整 Xcode 位于标准位置时可由脚本自动选择；非标准位置用 `DEVELOPER_DIR`，不修改系统全局开发目录。当前流程用于 ad-hoc 本地试用签名；公开发行需独立的 Developer ID 签名与公证流程，不能覆盖已有正式签名。

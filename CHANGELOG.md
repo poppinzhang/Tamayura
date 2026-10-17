@@ -4,7 +4,7 @@
 
 ## 0.6.1
 
-版本日期：2026-10-17。Android、macOS 与 Windows 统一使用 `0.6.1+10`，Windows EXE 数字版本为 `0.6.1.10`。本版采用 GitHub Pre-release 分发，包含 Android APK、macOS Universal ZIP、Windows x64 ZIP，以及联合校验和与发布元数据；实际构建、发布及下载核验结果记录在 `docs/releases/0.6.1.md`。macOS 未公证、Windows 未签名，真实设备及跨平台验收仍待完成。
+版本日期：2026-10-17。Android、macOS 与 Windows 统一使用 `0.6.1+10`，Windows EXE 数字版本为 `0.6.1.10`。本版采用 GitHub Pre-release 分发，包含 Android APK、macOS Universal ZIP、Windows x64 ZIP，以及联合校验和与发布元数据；实际构建、发布及自动核验结果记录在 `docs/releases/0.6.1.md`。macOS 未公证、Windows 未签名，真实设备及跨平台验收仍待完成。
 
 ### 已完成功能
 
@@ -28,7 +28,7 @@
 
 ### 改进
 
-- 固化版本发布顺序：先更新 CHANGELOG、版本和文档并提交推送 `main`，再对同一提交执行完整测试、打包和核验，通过后创建并推送 Tag；等待 GitHub 自动发布，核对提交、正文和五个附件，下载验证 SHA-256 后才确认完成。补充 Windows 构建环境、失败后重新验证及发布记录要求，见 `docs/发布.md` 和 `AGENTS.md`。
+- 固化全自动版本发布顺序：先更新 CHANGELOG、版本和文档并提交推送 `main`，再对同一提交执行完整本地流程并等待三平台分支 CI 成功，随后创建并推送 Tag。CI 完成三平台测试、构建、签名与完整性核验、SHA-256 和元数据汇总及附件上传核验；Agent 等待五个发布 job 全部成功，核对提交、正文和五个附件元信息后报告完成。取消 Windows artifact 和 Release 附件的重复下载手工校验，沿用已有 Secrets 与 `GITHUB_TOKEN`，授权后无需人工介入或逐步确认；保留同一提交检查、失败处理和发布记录要求，见 `docs/发布.md` 和 `AGENTS.md`。
 - 上一次同步失败的设备在 mDNS 上线边沿（发现会话中首次广播或下线后再次广播）立即重试一次，不再等待完整的自动同步间隔；重复广播、地址或名称更新不会触发同步，持续失败的设备只在下一次上线时重试。失败状态持久保存，重启后的首次发现同样重试。
 - 原文件分块从 256 KiB 提高到 2 MiB（`mediaReadChunkBytes`，暂定，待真机测量后调整），Dart 与 Android / macOS / Windows 原生上限同步修改，大文件的原生授权核验、路径解析和平台通道往返减少到原来的八分之一。单路吞吐低于约 70 KiB/s 时，30 秒停滞检测可能把慢速传输判为停滞并重连，见 `docs/传输恢复.md`。
 - Windows 原生工作线程数由固定 4 个改为本机 `std::thread::hardware_concurrency()` 报告的并发线程数（无法取得时仍为 4），减少扫描、缩略图、对端读取和保存之间的排队。
