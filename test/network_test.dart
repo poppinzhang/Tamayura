@@ -34,25 +34,29 @@ class MemorySource implements LocalMediaSource {
   String sharedFolderName = 'Camera';
   String pathPrefix = '2026/Trip';
 
+  /// Appended after [ids], as a native scanner might return them.
+  List<(String, String)> extra = [];
+
+  MediaMetadata item(String id, String relativePath) => MediaMetadata(
+    id: id,
+    deviceId: identity.id,
+    name: relativePath.split('/').last,
+    sharedFolderId: 'camera',
+    sharedFolderName: sharedFolderName,
+    relativePath: relativePath,
+    mimeType: 'image/jpeg',
+    size: bytes.length,
+    modifiedMs: 123,
+  );
+
   @override
   Future<List<MediaMetadata>> scan() async {
     if (failScan) throw const FileSystemException('Access revoked');
     if (empty) return [];
-    return ids
-        .map(
-          (id) => MediaMetadata(
-            id: id,
-            deviceId: identity.id,
-            name: '$id.jpg',
-            sharedFolderId: 'camera',
-            sharedFolderName: sharedFolderName,
-            relativePath: '$pathPrefix/$id.jpg',
-            mimeType: 'image/jpeg',
-            size: bytes.length,
-            modifiedMs: 123,
-          ),
-        )
-        .toList();
+    return [
+      for (final id in ids) item(id, '$pathPrefix/$id.jpg'),
+      for (final (id, path) in extra) item(id, path),
+    ];
   }
 
   @override
@@ -457,19 +461,20 @@ void main() {
     );
 
     test(
-      'thumbnail limits and scan failures leave the committed library intact',
+      'an oversized preview completes as empty and scan failures keep the library',
       () async {
         await client.synchronize(repository);
-        final originalRevision = await repository.peerRevision(identity.id);
         source.ids.add('too-big');
         source.oversizedThumbnail = true;
         await server.refresh();
-        await expectLater(
-          client.synchronize(repository),
-          throwsA(grpcCode(StatusCode.resourceExhausted)),
-        );
-        expect(await repository.countMedia(), 1);
-        expect(await repository.peerRevision(identity.id), originalRevision);
+        final result = await client.synchronize(repository);
+        expect(result.totalCount, 2);
+        expect(result.thumbnailRequests, 1);
+        final tooBig = await repository.getMedia(identity.id, 'too-big');
+        expect(tooBig!.thumbnail, isEmpty);
+        final kept = await repository.getMedia(identity.id, 'safe-id');
+        expect(kept!.thumbnail, [1, 2, 3]);
+        expect(await repository.peerRevision(identity.id), server.revision);
         source.failScan = true;
         await expectLater(
           server.refresh(),
@@ -479,7 +484,30 @@ void main() {
           client.synchronize(repository),
           throwsA(grpcCode(StatusCode.failedPrecondition)),
         );
-        expect(await repository.countMedia(), 1);
+        expect(await repository.countMedia(), 2);
+      },
+    );
+
+    test(
+      'thrown preview failures are retryable and report a changed catalog',
+      () async {
+        final revision = (await client.listMediaPage()).revision;
+        source.beforeThumbnail = (_) async {
+          throw const FileSystemException('Provider is busy');
+        };
+        await expectLater(
+          client.thumbnail('safe-id', revision: revision),
+          throwsA(grpcCode(StatusCode.unavailable)),
+        );
+        source.beforeThumbnail = (_) async {
+          source.ids = ['other'];
+          await server.refresh();
+          throw const FileSystemException('Catalog was replaced');
+        };
+        await expectLater(
+          client.thumbnail('safe-id', revision: revision),
+          throwsA(grpcCode(StatusCode.aborted)),
+        );
       },
     );
 
@@ -544,16 +572,31 @@ void main() {
     );
 
     test(
-      'unsafe source paths revoke the catalog rather than exposing a partial scan',
+      'unsafe and repeated source entries are left out of a valid catalog',
       () async {
-        await client.synchronize(repository);
-        source.pathPrefix = '../private';
-        await expectLater(server.refresh(), throwsFormatException);
+        source.extra = [
+          ('escape', '../private/escape.jpg'),
+          ('control', '2026/bad\u0001name.jpg'),
+          ('safe-id', 'other/safe-id.jpg'),
+          ('copy', '2026/Trip/safe-id.jpg'),
+          ('kept', 'kept.jpg'),
+        ];
+        await server.refresh();
+        expect(server.scanError, isNull);
+        expect(server.localMedia.map((item) => item.relativePath).toSet(), {
+          '2026/Trip/safe-id.jpg',
+          'kept.jpg',
+        });
+        final result = await client.synchronize(repository);
+        expect(result.totalCount, 2);
+        final shared = await repository.listMedia();
+        expect(shared.map((item) => item.id).toSet(), {'safe-id', 'kept'});
+        final kept = await client.readRange('kept', 0, 3).toList();
+        expect(kept.single, source.bytes.sublist(0, 3));
         await expectLater(
-          client.synchronize(repository),
-          throwsA(grpcCode(StatusCode.failedPrecondition)),
+          client.readRange('escape', 0, 1).toList(),
+          throwsA(grpcCode(StatusCode.notFound)),
         );
-        expect(await repository.countMedia(), 1);
       },
     );
 
@@ -572,6 +615,80 @@ void main() {
         await client.readRange('safe-id', source.bytes.length, 0).toList(),
         isEmpty,
       );
+    });
+
+    test('a paused receiver keeps the source within one read window', () async {
+      final bytes = Uint8List(maxReadWindowBytes * 2 + 1234);
+      for (var index = 0; index < bytes.length; index++) {
+        bytes[index] = index % 253;
+      }
+      source.bytes = bytes;
+      await server.refresh();
+      final offsets = <int>[];
+      source.beforeRead = (offset) async => offsets.add(offset);
+      int furthest() => offsets.reduce((a, b) => a > b ? a : b);
+      var position = 0;
+      var matches = true;
+      final firstChunk = Completer<void>();
+      final done = Completer<void>();
+      late StreamSubscription<Uint8List> subscription;
+      subscription = client
+          .readRange('safe-id', 0, bytes.length)
+          .listen(
+            (chunk) {
+              for (var index = 0; index < chunk.length; index++) {
+                if (chunk[index] != bytes[position + index]) matches = false;
+              }
+              position += chunk.length;
+              if (!firstChunk.isCompleted) {
+                subscription.pause();
+                firstChunk.complete();
+              }
+            },
+            onError: done.completeError,
+            onDone: done.complete,
+          );
+      try {
+        await firstChunk.future.timeout(const Duration(seconds: 5));
+        // Let the source read ahead as far as it is allowed to.
+        await Future<void>.delayed(const Duration(milliseconds: 500));
+        expect(furthest(), lessThan(maxReadWindowBytes));
+        subscription.resume();
+        await done.future.timeout(const Duration(seconds: 30));
+      } finally {
+        await subscription.cancel();
+      }
+      expect(position, bytes.length);
+      expect(matches, isTrue);
+      expect(furthest(), greaterThanOrEqualTo(maxReadWindowBytes * 2));
+    });
+
+    test('the source rejects a read larger than one window', () async {
+      source.bytes = Uint8List(maxReadWindowBytes + 1);
+      await server.refresh();
+      final channel = ClientChannel(
+        '127.0.0.1',
+        port: server.port,
+        options: const ChannelOptions(
+          credentials: ChannelCredentials.insecure(),
+        ),
+      );
+      addTearDown(channel.shutdown);
+      final request = wire.ReadRequest(
+        id: 'safe-id',
+        offset: Int64(0),
+        length: Int64(maxReadWindowBytes + 1),
+      );
+      final raw = wire.MediaLibraryClient(channel);
+      await expectLater(
+        raw.readFile(request).toList(),
+        throwsA(grpcCode(StatusCode.invalidArgument)),
+      );
+      expect(source.requestedIds, isEmpty);
+      final chunks = await client
+          .readRange('safe-id', 0, source.bytes.length)
+          .toList();
+      expect(chunks.expand((chunk) => chunk).length, maxReadWindowBytes + 1);
     });
 
     test(
@@ -918,6 +1035,36 @@ void main() {
       await expectLater(client.listMediaPage(), throwsFormatException);
     });
 
+    test(
+      'NOT_FOUND previews complete as empty; other preview errors stay pending',
+      () async {
+        final repository = await TamayuraRepository.open(
+          path: inMemoryDatabasePath,
+          factory: databaseFactoryFfi,
+        );
+        try {
+          service.thumbnailError = const GrpcError.unavailable('Busy');
+          await expectLater(
+            client.synchronize(repository),
+            throwsA(grpcCode(StatusCode.unavailable)),
+          );
+          expect((await repository.findPeerSnapshot(identity))!.readyCount, 0);
+          expect(await repository.peerRevision(identity.id), isNull);
+          service.thumbnailError = const GrpcError.notFound('No preview');
+          final result = await client.synchronize(repository);
+          expect(result.totalCount, 1);
+          expect(
+            (await repository.getMedia(identity.id, 'safe-id'))!.thumbnail,
+            isEmpty,
+          );
+          expect(await repository.findPeerSnapshot(identity), isNull);
+          expect(await repository.peerRevision(identity.id), 'broken-revision');
+        } finally {
+          await repository.close();
+        }
+      },
+    );
+
     test('duplicate media identifiers reject the entire snapshot', () async {
       service.duplicateMetadata = true;
       await expectLater(client.listMedia(), throwsFormatException);
@@ -954,6 +1101,7 @@ class BrokenService extends wire.MediaLibraryServiceBase {
   bool breakMetadata = false;
   bool duplicateMetadata = false;
   bool wrongOffset = false;
+  GrpcError? thumbnailError;
   int protocolVersion = mediaProtocolVersion;
   String sharedFolderId = 'camera';
   String sharedFolderName = 'Camera';
@@ -996,11 +1144,14 @@ class BrokenService extends wire.MediaLibraryServiceBase {
   Future<wire.ThumbnailResponse> getThumbnail(
     ServiceCall call,
     wire.ThumbnailRequest request,
-  ) async => wire.ThumbnailResponse(
-    id: request.id,
-    revision: request.revision,
-    data: [1],
-  );
+  ) async {
+    if (thumbnailError != null) throw thumbnailError!;
+    return wire.ThumbnailResponse(
+      id: request.id,
+      revision: request.revision,
+      data: [1],
+    );
+  }
 
   @override
   Stream<wire.FileChunk> readFile(

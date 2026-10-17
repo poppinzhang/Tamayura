@@ -56,7 +56,7 @@ internal class LanDiscovery(context: Context) : EventChannel.StreamHandler {
                 this.port = port
                 setAttribute("id", id)
                 setAttribute("name", utf8Prefix(name, 180))
-                setAttribute("version", "3")
+                setAttribute("version", "4")
             }
             manager.registerService(service, NsdManager.PROTOCOL_DNS_SD, executor, listener)
             val browser = object : NsdManager.DiscoveryListener {

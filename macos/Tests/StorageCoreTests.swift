@@ -89,6 +89,37 @@ struct StorageCoreTests {
       try fm.removeItem(at: colon)
       _ = try catalog.scan([shared], expected: catalog.clear())
     }
+    try test("scan skips unreadable files and subfolders and names peers cannot store") {
+      let unreadable = root.appendingPathComponent("private.jpg")
+      let blocked = root.appendingPathComponent("blocked")
+      let backslash = root.appendingPathComponent("a\\b.jpg")
+      let control = root.appendingPathComponent("bad\u{1}name.jpg")
+      try fm.createDirectory(at: blocked, withIntermediateDirectories: true)
+      for file in [unreadable, blocked.appendingPathComponent("inside.jpg"), backslash, control] {
+        try bytes.write(to: file)
+      }
+      func permissions(_ value: Int, _ url: URL) throws {
+        try fm.setAttributes([.posixPermissions: value], ofItemAtPath: url.path)
+      }
+      defer {
+        try? permissions(0o755, blocked); try? permissions(0o644, unreadable)
+      }
+      try permissions(0o000, unreadable); try permissions(0o000, blocked)
+      let entries = try catalog.scan([shared], expected: catalog.clear())
+      try expect(entries.map { $0["relativePath"] as? String } == ["旅行/a.jpg"], "only readable, storable media: \(entries)")
+      try expect(catalog.read(id, offset: 0, length: 10) == bytes.subdata(in: 0..<10), "readable media is served")
+      try permissions(0o644, unreadable); try permissions(0o755, blocked)
+      let released = try catalog.scan([shared], expected: catalog.clear())
+      try expect(Set(released.compactMap { $0["relativePath"] as? String }) ==
+        ["旅行/a.jpg", "private.jpg", "blocked/inside.jpg"], "readable again: \(released)")
+      for item in [unreadable, blocked, backslash, control] { try fm.removeItem(at: item) }
+      access.roots["missing"] = root.appendingPathComponent("missing-root")
+      try rejects("missing shared folder", code: "FILE_NOT_FOUND") {
+        _ = try catalog.scan([SharedDirectory(id: "gone", uri: "missing", name: "Gone")], expected: catalog.clear())
+      }
+      access.roots.removeValue(forKey: "missing")
+      _ = try catalog.scan([shared], expected: catalog.clear())
+    }
     try test("range boundaries, partial tails, invalid limits and changed files") {
       try expect(catalog.read(id, offset: 10, length: 20) == bytes.subdata(in: 10..<30), "range data")
       try expect(catalog.read(id, offset: 990, length: 20) == bytes.subdata(in: 990..<1000), "tail")

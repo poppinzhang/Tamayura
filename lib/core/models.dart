@@ -265,7 +265,13 @@ class SnapshotConflictException implements Exception {
 
 /// Native adapters keep file identifiers opaque and scoped to the shared folder.
 abstract class LocalMediaSource {
+  /// Lists shareable media. Leave out a file that cannot be read or named
+  /// safely; throw only when a shared folder itself cannot be scanned.
   Future<List<MediaMetadata>> scan();
+
+  /// Returns empty bytes when this one file is missing, changed or cannot be
+  /// decoded. Throw for permission, catalog or resource failures: peers retry
+  /// those later instead of storing an empty preview.
   Future<Uint8List> readThumbnail(String id);
 
   /// Throws [MediaSourceInterrupted] when the catalog changed during the read,

@@ -163,13 +163,10 @@ EncodableValue WindowsStorage::Handle(const std::string& method,
     return EncodableValue(catalog_.Read(String(arguments, "id"),
                                         Integer(arguments, "offset"), Integer(arguments, "length")));
   } else if (method == "thumbnail") {
-    return EncodableValue(catalog_.WithMedia(String(arguments, "id"),
+    // Metadata remains available without an installed codec or a readable file.
+    return EncodableValue(catalog_.Thumbnail(String(arguments, "id"),
         [](const MediaEntry& entry, const SafeFile& file) {
-          try { return JpegPreview(file, 256, entry.mime_type.rfind("video/", 0) == 0); }
-          catch (const StorageError& error) {
-            if (error.code != "PREVIEW_FAILED") throw;
-            return Bytes{};  // Metadata remains available without an installed codec.
-          }
+          return JpegPreview(file, 256, entry.mime_type.rfind("video/", 0) == 0);
         }));
   } else if (method == "readPreview") {
     const auto maximum = Integer(arguments, "maxDimension");

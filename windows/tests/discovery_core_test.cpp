@@ -11,6 +11,10 @@ int main() {
   using namespace tamayura;
   try {
     Require(IsPeerId("android-peer_123"), "valid peer ID");
+    Require(IsCompatibleVersion("4"), "current protocol version");
+    for (const auto& version : {"", "3", "5", "4 ", "04"}) {
+      Require(!IsCompatibleVersion(version), "other protocol versions rejected");
+    }
     for (const auto& id : {"", "peer.local", "peer/name", "设备", "peer\n"}) {
       Require(!IsPeerId(id), "invalid peer ID rejected");
     }

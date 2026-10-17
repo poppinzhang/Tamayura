@@ -11,10 +11,15 @@ import '../core/models.dart';
 import '../core/catalog_repository.dart';
 import 'generated/media.pbgrpc.dart' as wire;
 
-const mediaProtocolVersion = 3;
+const mediaProtocolVersion = 4;
 const maxCatalogPageSize = 500;
 const mediaChunkSize = 256 * 1024;
 const maxThumbnailBytes = 512 * 1024;
+
+/// grpc-dart never pauses a server stream for HTTP/2 flow control: chunks the
+/// network has not sent yet are queued in memory. Each ReadFile request is
+/// therefore limited, and receivers request a large range one window at a time.
+const maxReadWindowBytes = 8 * 1024 * 1024;
 
 class MediaRpcServer {
   MediaRpcServer({required Peer identity, required LocalMediaSource source})
@@ -145,9 +150,16 @@ class _MediaService extends wire.MediaLibraryServiceBase {
       final scanned = await source.scan();
       if (generation != _refreshGeneration) return;
       final next = <String, MediaMetadata>{};
+      final locations = <String>{};
       for (final item in scanned) {
-        if (!_validMetadata(item) || next.containsKey(item.id)) {
-          throw const FormatException('共享目录包含无效媒体信息，请重新选择目录');
+        // Receivers reject a catalog with an invalid entry or a repeated ID or
+        // location, so skip that file rather than withholding every other file.
+        // Some document providers allow two children with the same name.
+        final location = jsonEncode([item.sharedFolderId, item.relativePath]);
+        if (!_validMetadata(item) ||
+            next.containsKey(item.id) ||
+            !locations.add(location)) {
+          continue;
         }
         // Never retain inline thumbnail bytes, even if a legacy adapter returns
         // MediaItem instances. The catalog is only a lightweight metadata index.
@@ -320,14 +332,22 @@ class _MediaService extends wire.MediaLibraryServiceBase {
       try {
         bytes = await source.readThumbnail(request.id);
       } catch (_) {
-        throw const GrpcError.notFound('Thumbnail source is unavailable');
+        // Report a catalog that changed or failed meanwhile as such.
+        _checkRevision(request.revision);
+        // Sources return empty bytes for one missing or undecodable file.
+        // A thrown error is a permission, catalog or resource failure that can
+        // recover, so receivers must retry instead of caching a blank preview.
+        throw const GrpcError.unavailable(
+          'Thumbnail source is temporarily unavailable; retry shortly',
+        );
       }
       if (call.isCanceled || call.trailers == null) {
         throw const GrpcError.cancelled();
       }
       _checkRevision(request.revision);
       if (bytes.length > maxThumbnailBytes) {
-        throw const GrpcError.resourceExhausted('Thumbnail is too large');
+        // Retrying cannot shrink this file's preview; it simply has none.
+        throw const GrpcError.notFound('Thumbnail is unavailable');
       }
       return wire.ThumbnailResponse(
         revision: revision,
@@ -359,6 +379,11 @@ class _MediaService extends wire.MediaLibraryServiceBase {
         length > item.size - offset) {
       throw const GrpcError.outOfRange(
         'Requested range is outside the media file',
+      );
+    }
+    if (length > maxReadWindowBytes) {
+      throw const GrpcError.invalidArgument(
+        'Requested range exceeds the read window',
       );
     }
     var cursor = offset;
@@ -516,6 +541,18 @@ class MediaRpcClient implements MediaTransferClient {
     return Uint8List.fromList(response.data);
   }
 
+  /// NOT_FOUND means the source lists this item but has no preview for it.
+  /// Store a completed empty preview so one file cannot block the catalog;
+  /// every other error leaves the item pending for a later attempt.
+  Future<Uint8List> _thumbnailOrEmpty(String id, String revision) async {
+    try {
+      return await thumbnail(id, revision: revision);
+    } on GrpcError catch (error) {
+      if (error.code != StatusCode.notFound) rethrow;
+      return Uint8List(0);
+    }
+  }
+
   /// One metadata page and at most four thumbnail buffers are held at a time.
   /// Only a completed, revision-consistent stage can replace the offline cache.
   Future<SyncResult> synchronize(
@@ -600,7 +637,7 @@ class MediaRpcClient implements MediaTransferClient {
             // failed request, before releasing the stage to a subsequent attempt.
             await Future.wait(
               missing.skip(offset).take(4).map((item) async {
-                final bytes = await thumbnail(item.id, revision: revision);
+                final bytes = await _thumbnailOrEmpty(item.id, revision);
                 thumbnailRequests++;
                 await repository.saveStagedThumbnail(stage, item.id, bytes);
                 ready++;
@@ -716,21 +753,35 @@ class MediaRpcClient implements MediaTransferClient {
     _identity ??= await identity();
     var cursor = offset;
     final end = offset + length;
-    // No total deadline: a large range on slow Wi-Fi may legitimately take
-    // longer than any fixed bound. MediaDownloader's idle watchdog ends stalls.
-    final response = _client.readFile(
-      wire.ReadRequest(id: id, offset: Int64(offset), length: Int64(length)),
-    );
-    await for (final chunk in response) {
-      if (chunk.offset.toInt() != cursor ||
-          chunk.data.isEmpty ||
-          chunk.data.length > end - cursor) {
-        throw const FormatException('收到的文件分片有误，请重新下载');
+    // Request one bounded window at a time: the source then reads at most a
+    // window ahead of what this receiver has consumed. An empty range still
+    // makes one request so the source validates its offset.
+    do {
+      final windowEnd = end - cursor > maxReadWindowBytes
+          ? cursor + maxReadWindowBytes
+          : end;
+      // No total deadline: a window on slow Wi-Fi may legitimately take longer
+      // than any fixed bound. MediaDownloader's idle watchdog ends stalls.
+      final response = _client.readFile(
+        wire.ReadRequest(
+          id: id,
+          offset: Int64(cursor),
+          length: Int64(windowEnd - cursor),
+        ),
+      );
+      await for (final chunk in response) {
+        if (chunk.offset.toInt() != cursor ||
+            chunk.data.isEmpty ||
+            chunk.data.length > windowEnd - cursor) {
+          throw const FormatException('收到的文件分片有误，请重新下载');
+        }
+        cursor += chunk.data.length;
+        yield Uint8List.fromList(chunk.data);
       }
-      cursor += chunk.data.length;
-      yield Uint8List.fromList(chunk.data);
-    }
-    if (cursor != end) throw const FormatException('文件传输提前结束，请重新下载');
+      if (cursor != windowEnd) {
+        throw const FormatException('文件传输提前结束，请重新下载');
+      }
+    } while (cursor < end);
   }
 
   @override

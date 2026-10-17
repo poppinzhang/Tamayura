@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package tamayura.v1;
 
-// Protocol v3. Keep the service path so GetIdentity can reject older peers.
+// Protocol v4. Keep the service path so GetIdentity can reject older peers.
 service MediaLibrary {
   rpc GetIdentity(Empty) returns (DeviceIdentity);
   rpc ListMediaPage(CatalogRequest) returns (CatalogResponse);
@@ -60,6 +60,8 @@ message ThumbnailResponse {
 message ReadRequest {
   string id = 1;
   int64 offset = 2;
+  // At most 8 MiB. Receivers request a larger range one window at a time, so
+  // a source never queues more than one window per stream in memory.
   int64 length = 3;
 }
 

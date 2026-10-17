@@ -9,5 +9,8 @@ bool IsPeerId(const std::string& value);
 bool IsWindowsId(const std::string& value);
 bool IsPrivateIPv4(const std::string& value);
 std::string LimitUtf8(const std::string& value, size_t maximum_bytes);
+// The DNS-SD TXT "version" matches mediaProtocolVersion in media_rpc.dart.
+inline constexpr char kProtocolVersion[] = "4";
+bool IsCompatibleVersion(const std::string& value);
 }  // namespace tamayura
 #endif

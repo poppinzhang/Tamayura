@@ -225,6 +225,84 @@ int main() {
       Reject("FILE_NOT_FOUND", [&] { catalog.Read(id, 0, 1); });
       catalog.Scan({shared}, catalog.Clear());
     });
+    test("individual thumbnails fall back to empty without weakening reads", [&] {
+      catalog.Scan({shared}, catalog.Clear());
+      const auto usable = [](const MediaEntry&, const SafeFile&) { return Bytes{3, 4}; };
+      const auto unexpected = [](const MediaEntry&, const SafeFile&) -> Bytes {
+        throw std::runtime_error("A missing or changed file reached the decoder");
+      };
+      Expect(catalog.Thumbnail(id, usable) == Bytes({3, 4}), "Usable previews are returned");
+      Expect(catalog.Thumbnail(id, [](const MediaEntry&, const SafeFile& file) {
+        return JpegPreview(file, 256, false);
+      }).empty(), "An undecodable image has an empty preview");
+      Write(photo, Bytes{0});
+      Expect(catalog.Thumbnail(id, unexpected).empty(), "A changed file has an empty preview");
+      Reject("FILE_CHANGED", [&] { catalog.Read(id, 0, 1); });
+      Expect(DeleteFileW(photo.c_str()) != FALSE, "Delete media fixture");
+      Expect(catalog.Thumbnail(id, unexpected).empty(), "A deleted file has an empty preview");
+      Reject("FILE_NOT_FOUND", [&] { catalog.Read(id, 0, 1); });
+      Write(photo, bytes);
+      catalog.Scan({shared}, catalog.Clear());
+    });
+    test("thumbnail fallback preserves sharing, I/O, root and catalog errors", [&] {
+      catalog.Scan({shared}, catalog.Clear());
+      const auto usable = [](const MediaEntry&, const SafeFile&) { return Bytes{1}; };
+      for (const auto* code : {"PERMISSION_LOST", "IO_ERROR", "INVALID_ARGUMENT", "SCAN_CANCELLED"}) {
+        Reject(code, [&] {
+          catalog.Thumbnail(id, [&](const MediaEntry&, const SafeFile&) -> Bytes {
+            throw StorageError(code, code);
+          });
+        });
+      }
+      {
+        Handle writer(CreateFileW(photo.c_str(), GENERIC_WRITE, 0, nullptr, OPEN_EXISTING,
+                                  FILE_ATTRIBUTE_NORMAL, nullptr));
+        Expect(writer.get() != INVALID_HANDLE_VALUE, "Lock media fixture");
+        Reject("PERMISSION_LOST", [&] { catalog.Thumbnail(id, usable); });
+      }
+      Reject("FILE_NOT_FOUND", [&] { catalog.Thumbnail("unknown", usable); });
+      Reject("SCAN_CANCELLED", [&] {
+        catalog.Thumbnail(id, [&](const MediaEntry&, const SafeFile&) -> Bytes {
+          catalog.Clear();
+          throw StorageError("PREVIEW_FAILED", "Undecodable image");
+        });
+      });
+      catalog.Scan({shared}, catalog.Clear());
+      const auto moved = JoinPath(base, L"photos-moved");
+      Expect(MoveFileExW(root.c_str(), moved.c_str(), 0) != FALSE, "Move shared folder");
+      Reject("FILE_NOT_FOUND", [&] { catalog.Thumbnail(id, usable); });
+      Expect(MoveFileExW(moved.c_str(), root.c_str(), 0) != FALSE, "Restore shared folder");
+      catalog.Scan({shared}, catalog.Clear());
+    });
+    test("scan skips locked files, unreadable subfolders and invalid names", [&] {
+      const auto locked = JoinPath(root, L"locked.jpg");
+      const auto blocked = JoinPath(root, L"blocked");
+      const auto trailing = L"\\\\?\\" + JoinPath(root, L"trailing.");
+      Write(locked, bytes);
+      std::filesystem::create_directories(blocked);
+      Write(JoinPath(blocked, L"inside.jpg"), bytes);
+      Expect(CreateDirectoryW(trailing.c_str(), nullptr) != FALSE, "Create folder with a trailing dot");
+      Write(JoinPath(trailing, L"hidden.jpg"), bytes);
+      {
+        Handle file_lock(CreateFileW(locked.c_str(), GENERIC_READ, 0, nullptr, OPEN_EXISTING,
+                                     FILE_ATTRIBUTE_NORMAL, nullptr));
+        Handle folder_lock(CreateFileW(blocked.c_str(), GENERIC_READ, 0, nullptr, OPEN_EXISTING,
+                                       FILE_FLAG_BACKUP_SEMANTICS, nullptr));
+        Expect(file_lock.get() != INVALID_HANDLE_VALUE && folder_lock.get() != INVALID_HANDLE_VALUE,
+               "Lock scan fixtures");
+        const auto entries = catalog.Scan({shared}, catalog.Clear());
+        Expect(entries.size() == 1 && entries[0].id == id, "Only readable media is shared");
+        Expect(catalog.Read(id, 0, 10) == Bytes(bytes.begin(), bytes.begin() + 10),
+               "Readable media is served");
+      }
+      Expect(catalog.Scan({shared}, catalog.Clear()).size() == 3,
+             "Released files and folders are shared by the next scan");
+      Expect(DeleteFileW(locked.c_str()) != FALSE, "Remove locked fixture");
+      std::filesystem::remove_all(blocked);
+      Expect(DeleteFileW(JoinPath(trailing, L"hidden.jpg").c_str()) != FALSE &&
+             RemoveDirectoryW(trailing.c_str()) != FALSE, "Remove trailing-dot fixture");
+      Expect(catalog.Scan({shared}, catalog.Clear()).size() == 1, "Fixtures removed");
+    });
     test("deleted media cannot be read and refresh removes its metadata", [&] {
       catalog.Scan({shared}, catalog.Clear());
       Expect(DeleteFileW(photo.c_str()) != FALSE, "Delete media fixture");

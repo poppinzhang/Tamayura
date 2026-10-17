@@ -226,6 +226,8 @@ final class MediaCatalog {
   }
 
   /// A failed scan never leaves a partly updated or previously authorized catalog.
+  /// Files and subfolders that cannot be read or named are skipped; only an
+  /// unreadable shared folder fails the scan.
   func scan(_ directories: [SharedDirectory], expected: UInt64) throws -> [[String: Any]] {
     do {
       return try scanAuthorized(directories, expected: expected)
@@ -254,23 +256,36 @@ final class MediaCatalog {
         var enumerationError: Error?
         guard let enumerator = FileManager.default.enumerator(at: root,
           includingPropertiesForKeys: [.isRegularFileKey, .isDirectoryKey, .isSymbolicLinkKey],
-          options: [.skipsHiddenFiles, .skipsPackageDescendants], errorHandler: { _, error in
+          options: [.skipsHiddenFiles, .skipsPackageDescendants], errorHandler: { url, error in
+            // An unreadable subfolder is skipped like an unreadable file. Failing
+            // to list the shared folder itself still fails the scan.
+            if StoragePaths.contains(root, url), url.standardizedFileURL != root.standardizedFileURL {
+              return true
+            }
             enumerationError = error
             return false
           }) else { throw PlatformFailure(code: "FILE_NOT_FOUND", message: "无法读取共享目录") }
         for case let url as URL in enumerator {
           try assertScan(expected)
-          let values = try url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
-          // Foundation does not descend through symlinks. Calling skipDescendants
-          // on a non-directory link would incorrectly skip its sibling entries.
-          if values.isSymbolicLink == true { continue }
-          guard values.isRegularFile == true, let type = UTType(filenameExtension: url.pathExtension),
-                type.conforms(to: .image) || type.conforms(to: .movie),
-                let mime = type.preferredMIMEType else { continue }
-          let parts = try StoragePaths.relative(url, root: root)
-          let path = parts.joined(separator: "/")
-          _ = try StoragePaths.components(path)
-          let info = try rootHandle.file(parts).info()
+          let parts: [String], path: String, mime: String, info: stat
+          do {
+            let values = try url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
+            // Foundation does not descend through symlinks. Calling skipDescendants
+            // on a non-directory link would incorrectly skip its sibling entries.
+            if values.isSymbolicLink == true { continue }
+            guard values.isRegularFile == true, let type = UTType(filenameExtension: url.pathExtension),
+                  type.conforms(to: .image) || type.conforms(to: .movie),
+                  let preferred = type.preferredMIMEType else { continue }
+            parts = try StoragePaths.relative(url, root: root)
+            path = parts.joined(separator: "/")
+            _ = try StoragePaths.components(path)
+            info = try rootHandle.file(parts).info()
+            mime = preferred
+          } catch {
+            // Leave out a file that vanished, cannot be opened or has a name
+            // peers cannot store, instead of withholding the whole folder.
+            continue
+          }
           let id = SHA256.hash(data: Data("\(directory.id)\u{0}\(path)".utf8))
             .map { String(format: "%02x", $0) }.joined()
           next[id] = SharedMedia(directoryURI: directory.uri, relativePath: path, mimeType: mime, size: info.st_size)
@@ -279,6 +294,9 @@ final class MediaCatalog {
             "sharedFolderId": directory.id, "sharedFolderName": directory.name, "relativePath": path])
         }
         if let error = enumerationError { throw error }
+        // If the folder vanished or lost access mid-scan, its files were skipped;
+        // fail instead of publishing that as every file having been deleted.
+        _ = try SafeFile.directory(root)
       }
     }
     lock.lock(); defer { lock.unlock() }

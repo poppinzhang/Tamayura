@@ -134,7 +134,7 @@ struct LanDiscovery::Resolve : std::enable_shared_from_this<Resolve> {
                 }
               }
               const auto host = AddressText(*instance->ip4Address);
-              if (IsPeerId(id) && id != owner->id && !host.empty() && version == "3") {
+              if (IsPeerId(id) && id != owner->id && !host.empty() && IsCompatibleVersion(version)) {
                 if (name.empty()) name = id;
                 Map event{{Value("type"), Value("found")}, {Value("id"), Value(id)},
                     {Value("name"), Value(LimitUtf8(name, 512))}, {Value("host"), Value(host)},
@@ -331,8 +331,9 @@ void LanDiscovery::Start(const std::string& id, const std::string& name, uint16_
   const auto host = ComputerName() + L".local";
   const auto wide_id = Wide(id);
   const auto wide_name = Wide(LimitUtf8(name, 180));
+  const auto wide_version = Wide(kProtocolVersion);
   const wchar_t* keys[] = {L"id", L"name", L"version"};
-  const wchar_t* values[] = {wide_id.c_str(), wide_name.c_str(), L"3"};
+  const wchar_t* values[] = {wide_id.c_str(), wide_name.c_str(), wide_version.c_str()};
   auto registration = std::make_shared<Registration>();
   registration->state = state;
   registration->request.Version = DNS_QUERY_REQUEST_VERSION1;

@@ -123,55 +123,89 @@ internal class SafMediaStore(private val context: Context) {
         val nextFiles = mutableMapOf<String, SharedCatalog.Entry<SharedFile>>()
         shared.forEach { directory ->
             val tree = authorizedTree(directory.uri)
+            val rootId = DocumentsContract.getTreeDocumentId(tree)
             val directories = ArrayDeque<PendingDirectory>()
             val visited = mutableSetOf<String>()
-            directories.add(PendingDirectory(DocumentsContract.getTreeDocumentId(tree), ""))
+            directories.add(PendingDirectory(rootId, ""))
             while (!directories.isEmpty()) {
                 assertScan(expected)
                 val current = directories.removeFirst()
                 if (!visited.add(current.documentId)) continue
-                val children = DocumentsContract.buildChildDocumentsUriUsingTree(tree, current.documentId)
-                val cursor = resolver.query(children, COLUMNS, null, null, null)
-                    ?: throw FileNotFoundException("无法读取目录，请检查目录是否仍存在")
+                val cursor = queryChildren(tree, current.documentId, required = current.documentId == rootId)
+                    ?: continue
                 cursor.use {
                     while (it.moveToNext()) {
                         assertScan(expected)
-                        val documentId = it.getString(0) ?: continue
-                        val name = it.getString(1)
-                        var mimeType = it.getString(2) ?: "application/octet-stream"
-                        if (mimeType == "application/octet-stream" && name != null) {
-                            val extension = name.substringAfterLast('.', "").lowercase(java.util.Locale.ROOT)
-                            mimeType = MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension) ?: mimeType
+                        try {
+                            val documentId = it.getString(0) ?: continue
+                            val name = it.getString(1)
+                            var mimeType = it.getString(2) ?: "application/octet-stream"
+                            if (mimeType == "application/octet-stream" && name != null) {
+                                val extension = name.substringAfterLast('.', "").lowercase(java.util.Locale.ROOT)
+                                mimeType = MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension) ?: mimeType
+                            }
+                            // Ignore non-media before validating paths or opening files for their size.
+                            if (mimeType != Document.MIME_TYPE_DIR &&
+                                !mimeType.startsWith("image/") && !mimeType.startsWith("video/")) continue
+                            if (name == null) continue
+                            val relativePath = StoragePaths.relativePath(current.relativePath, name)
+                            if (mimeType == Document.MIME_TYPE_DIR) {
+                                directories.add(PendingDirectory(documentId, relativePath))
+                                continue
+                            }
+                            val uri = DocumentsContract.buildDocumentUriUsingTree(tree, documentId)
+                            val size = if (it.isNull(3)) resolver.openFileDescriptor(uri, "r")?.use { file -> file.statSize }
+                                ?: -1L else it.getLong(3)
+                            if (size < 0) continue
+                            val modified = if (it.isNull(4)) 0L else it.getLong(4)
+                            val id = MessageDigest.getInstance("SHA-256")
+                                .digest("${directory.id}\u0000$documentId".toByteArray(Charsets.UTF_8))
+                                .joinToString("") { byte -> "%02x".format(byte.toInt() and 0xff) }
+                            nextFiles[id] = SharedCatalog.Entry(directory.uri, SharedFile(uri, size, mimeType))
+                            entries.add(mapOf("id" to id, "name" to name, "mimeType" to mimeType,
+                                "size" to size, "modifiedMs" to modified, "sharedFolderId" to directory.id,
+                                "sharedFolderName" to directory.name, "relativePath" to relativePath))
+                        } catch (error: SecurityException) {
+                            throw error
+                        } catch (error: CancellationException) {
+                            throw error
+                        } catch (_: Exception) {
+                            // Leave out an entry that cannot be named, sized or opened
+                            // instead of withholding every other shared file.
                         }
-                        // Ignore non-media before validating paths or opening files for their size.
-                        if (mimeType != Document.MIME_TYPE_DIR &&
-                            !mimeType.startsWith("image/") && !mimeType.startsWith("video/")) continue
-                        if (name == null) throw java.io.IOException("文档提供方返回了缺少名称的文件")
-                        val relativePath = StoragePaths.relativePath(current.relativePath, name)
-                        if (mimeType == Document.MIME_TYPE_DIR) {
-                            directories.add(PendingDirectory(documentId, relativePath))
-                            continue
-                        }
-                        val uri = DocumentsContract.buildDocumentUriUsingTree(tree, documentId)
-                        val size = if (it.isNull(3)) resolver.openFileDescriptor(uri, "r")?.use { file -> file.statSize }
-                            ?: -1L else it.getLong(3)
-                        if (size < 0) throw IllegalStateException("无法确定 $name 的大小，请选择本机媒体目录")
-                        val modified = if (it.isNull(4)) 0L else it.getLong(4)
-                        val id = MessageDigest.getInstance("SHA-256")
-                            .digest("${directory.id}\u0000$documentId".toByteArray(Charsets.UTF_8))
-                            .joinToString("") { byte -> "%02x".format(byte.toInt() and 0xff) }
-                        nextFiles[id] = SharedCatalog.Entry(directory.uri, SharedFile(uri, size, mimeType))
-                        entries.add(mapOf("id" to id, "name" to name, "mimeType" to mimeType,
-                            "size" to size, "modifiedMs" to modified, "sharedFolderId" to directory.id,
-                            "sharedFolderName" to directory.name, "relativePath" to relativePath))
                     }
                 }
             }
+            // Entries skipped because the root vanished mid-scan must not be
+            // published as if every file had been deleted.
+            requireRoot(tree, rootId)
         }
         // Publish all roots together; a failure in any root leaves nothing servable.
         shared.forEach { authorizedTree(it.uri) }
         catalog.publish(expected, nextFiles)
         return entries
+    }
+
+    /** The shared root must be listable; an unreadable subfolder is skipped like a file. */
+    private fun queryChildren(tree: Uri, documentId: String, required: Boolean): android.database.Cursor? {
+        val children = DocumentsContract.buildChildDocumentsUriUsingTree(tree, documentId)
+        val cursor = try {
+            resolver.query(children, COLUMNS, null, null, null)
+        } catch (error: SecurityException) {
+            throw error
+        } catch (error: Exception) {
+            if (required) throw error
+            null
+        }
+        if (cursor == null && required) throw FileNotFoundException("无法读取目录，请检查目录是否仍存在")
+        return cursor
+    }
+
+    private fun requireRoot(tree: Uri, rootId: String) {
+        val root = DocumentsContract.buildDocumentUriUsingTree(tree, rootId)
+        val found = resolver.query(root, arrayOf(Document.COLUMN_DOCUMENT_ID), null, null, null)
+            ?.use { it.moveToFirst() } ?: false
+        if (!found) throw FileNotFoundException("共享目录已不存在，请重新选择目录")
     }
 
     fun thumbnail(id: String): ByteArray {

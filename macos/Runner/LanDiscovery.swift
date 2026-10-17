@@ -30,7 +30,7 @@ final class LanDiscovery: NSObject, FlutterStreamHandler, NetServiceBrowserDeleg
     var label = String(name.prefix(100))
     while label.utf8.count > 180 { label.removeLast() }
     service.setTXTRecord(NetService.data(fromTXTRecord: [
-      "id": Data(id.utf8), "name": Data(label.utf8), "version": Data("3".utf8),
+      "id": Data(id.utf8), "name": Data(label.utf8), "version": Data("4".utf8),
     ]))
     publisher = service
     service.publish()
