@@ -463,6 +463,7 @@ class MediaRpcClient implements MediaTransferClient {
       port: peer.port,
       lastSeen: DateTime.now(),
       lastSync: peer.lastSync,
+      lastSuccessfulSync: peer.lastSuccessfulSync,
     );
   }
 
@@ -605,7 +606,7 @@ class MediaRpcClient implements MediaTransferClient {
           ready = total;
           report(SyncPhase.completed);
           return SyncResult(
-            peer: device.copyWith(lastSync: DateTime.now()),
+            peer: device,
             revision: first.revision,
             totalCount: first.totalCount,
             addedCount: 0,
@@ -702,7 +703,7 @@ class MediaRpcClient implements MediaTransferClient {
         session = null;
         report(SyncPhase.completed);
         return SyncResult(
-          peer: device.copyWith(lastSync: DateTime.now()),
+          peer: device,
           revision: revision,
           totalCount: committed.totalCount,
           addedCount: committed.addedCount,

@@ -43,7 +43,7 @@ class TamayuraRepository implements CatalogRepository {
     final database = await dbFactory.openDatabase(
       dbPath,
       options: OpenDatabaseOptions(
-        version: 5,
+        version: 6,
         // UI and headless engines own independent connections and lifetimes.
         singleInstance: false,
         onConfigure: (db) async {
@@ -92,6 +92,7 @@ class TamayuraRepository implements CatalogRepository {
     await db.execute('''CREATE TABLE peers (
       id TEXT PRIMARY KEY, name TEXT NOT NULL, host TEXT NOT NULL,
       port INTEGER NOT NULL, last_seen INTEGER, last_sync INTEGER,
+      last_successful_sync INTEGER,
       catalog_revision TEXT NOT NULL DEFAULT '',
       catalog_generation INTEGER NOT NULL DEFAULT 0
     )''');
@@ -178,11 +179,18 @@ class TamayuraRepository implements CatalogRepository {
     return rows.map(_peerFromRow).toList();
   }
 
-  Future<void> upsertPeer(Peer peer) => _upsertPeer(_database, peer);
+  Future<void> upsertPeer(Peer peer) =>
+      _upsertPeer(_database, peer, updateSyncTime: true);
 
   // Do not use INSERT OR REPLACE: SQLite REPLACE deletes the parent row and
   // would cascade-delete all of its offline media while updating its address.
-  static Future<void> _upsertPeer(DatabaseExecutor db, Peer peer) async {
+  static Future<void> _upsertPeer(
+    DatabaseExecutor db,
+    Peer peer, {
+    bool updateSyncTime = false,
+  }) async {
+    // Success is written only by a completed catalog transaction. Discovery
+    // and older Peer objects must never replace that durable timestamp.
     final values = <String, Object?>{
       'id': peer.id,
       'name': peer.name,
@@ -190,7 +198,9 @@ class TamayuraRepository implements CatalogRepository {
       'port': peer.port,
       if (peer.lastSeen != null)
         'last_seen': peer.lastSeen!.millisecondsSinceEpoch,
-      if (peer.lastSync != null)
+      // The controller records attempts before network work. Catalog writes
+      // may carry an older peer and must not replace that attempt time.
+      if (updateSyncTime && peer.lastSync != null)
         'last_sync': peer.lastSync!.millisecondsSinceEpoch,
     };
     await db.insert(
@@ -262,10 +272,18 @@ class TamayuraRepository implements CatalogRepository {
   Future<MediaPage> listMediaPage({
     String? deviceId,
     String? sharedFolderId,
+    MediaSortOrder sortOrder = MediaSortOrder.dateDescending,
     MediaCursor? after,
     int limit = 60,
   }) async {
     if (limit < 1 || limit > 200) throw ArgumentError.value(limit, 'limit');
+    if (after != null && after.sortOrder != sortOrder) {
+      throw ArgumentError.value(after, 'after', 'Cursor sort order must match');
+    }
+    final sortsByName = _sortsByName(sortOrder);
+    final ascending = _sortsAscending(sortOrder);
+    // Use the same explicit filename collation in ordering and cursor checks.
+    final sortColumn = sortsByName ? 'name COLLATE BINARY' : 'modified_ms';
     final view = _mediaReadView();
     final conditions = <String>[];
     final arguments = <Object?>[];
@@ -278,12 +296,13 @@ class TamayuraRepository implements CatalogRepository {
       arguments.add(sharedFolderId);
     }
     if (after != null) {
+      final sortValue = sortsByName ? after.name : after.modifiedMs;
       conditions.add(
-        '(modified_ms < ? OR (modified_ms = ? AND (device_id > ? OR (device_id = ? AND id > ?))))',
+        '($sortColumn ${ascending ? '>' : '<'} ? OR ($sortColumn = ? AND (device_id > ? OR (device_id = ? AND id > ?))))',
       );
       arguments.addAll([
-        after.modifiedMs,
-        after.modifiedMs,
+        sortValue,
+        sortValue,
         after.deviceId,
         after.deviceId,
         after.mediaId,
@@ -293,7 +312,7 @@ class TamayuraRepository implements CatalogRepository {
       '${view.prefix}SELECT ${view.columns('v')} '
       'FROM ${view.table} v '
       '${conditions.isEmpty ? '' : 'WHERE ${conditions.join(' AND ')}'} '
-      'ORDER BY modified_ms DESC, device_id, id LIMIT ?',
+      'ORDER BY $sortColumn ${ascending ? 'ASC' : 'DESC'}, device_id ASC, id ASC LIMIT ?',
       [...view.arguments, ...arguments, limit + 1],
     );
     final hasMore = rows.length > limit;
@@ -310,9 +329,78 @@ class TamayuraRepository implements CatalogRepository {
               modifiedMs: last.modifiedMs,
               deviceId: last.deviceId,
               mediaId: last.id,
+              name: last.name,
+              sortOrder: sortOrder,
             )
           : null,
     );
+  }
+
+  static bool _sortsByName(MediaSortOrder order) =>
+      order == MediaSortOrder.nameAscending ||
+      order == MediaSortOrder.nameDescending;
+
+  static bool _sortsAscending(MediaSortOrder order) =>
+      order == MediaSortOrder.nameAscending ||
+      order == MediaSortOrder.dateAscending;
+
+  /// Read only identifiers and sort labels for the entire selected album.
+  /// The projection deliberately excludes thumbnail BLOBs, including staged
+  /// catalog previews, so fast scrolling does not decode the whole library.
+  Future<List<MediaScrollEntry>> listMediaScrollEntries({
+    required String deviceId,
+    required String sharedFolderId,
+    MediaSortOrder sortOrder = MediaSortOrder.dateDescending,
+  }) async {
+    final view = _mediaReadView();
+    final column = _sortsByName(sortOrder)
+        ? 'name COLLATE BINARY'
+        : 'modified_ms';
+    final direction = _sortsAscending(sortOrder) ? 'ASC' : 'DESC';
+    final rows = await _database.rawQuery(
+      '${view.prefix}SELECT id, device_id, name, modified_ms '
+      'FROM ${view.table} WHERE device_id = ? AND shared_folder_id = ? '
+      'ORDER BY $column $direction, device_id ASC, id ASC',
+      [...view.arguments, deviceId, sharedFolderId],
+    );
+    return rows
+        .map(
+          (row) => MediaScrollEntry(
+            id: row['id']! as String,
+            deviceId: row['device_id']! as String,
+            name: row['name']! as String,
+            modified: DateTime.fromMillisecondsSinceEpoch(
+              row['modified_ms']! as int,
+            ),
+          ),
+        )
+        .toList(growable: false);
+  }
+
+  /// Fetch a bounded window by identity instead of offset: concurrent catalog
+  /// insertions cannot shift the requested thumbnails onto different tiles.
+  Future<List<MediaItem>> readMediaScrollEntries(
+    List<MediaScrollEntry> entries,
+  ) async {
+    if (entries.length > 200) {
+      throw ArgumentError.value(entries.length, 'entries.length');
+    }
+    if (entries.isEmpty) return [];
+    final view = _mediaReadView();
+    final rows = await _database.rawQuery(
+      '${view.prefix}SELECT ${view.columns('v')} FROM ${view.table} v '
+      'WHERE ${List.filled(entries.length, '(device_id = ? AND id = ?)').join(' OR ')}',
+      [
+        ...view.arguments,
+        for (final entry in entries) ...[entry.deviceId, entry.id],
+      ],
+    );
+    final byKey = <String, MediaItem>{};
+    for (final row in rows) {
+      final item = _mediaFromRow(row);
+      byKey[item.key] = item;
+    }
+    return [for (final entry in entries) ?byKey[entry.key]];
   }
 
   Future<MediaItem?> getMedia(String deviceId, String id) async {
@@ -338,8 +426,22 @@ class TamayuraRepository implements CatalogRepository {
   }
 
   @override
-  Future<void> markPeerSynced(Peer peer) =>
-      upsertPeer(peer.copyWith(lastSync: DateTime.now()));
+  Future<void> markPeerSynced(Peer peer) => _database.transaction((txn) async {
+    await _upsertPeer(txn, peer);
+    await _recordSuccessfulSync(txn, peer.id);
+  });
+
+  static Future<void> _recordSuccessfulSync(
+    DatabaseExecutor db,
+    String deviceId,
+  ) async {
+    await db.update(
+      'peers',
+      {'last_successful_sync': DateTime.now().millisecondsSinceEpoch},
+      where: 'id = ?',
+      whereArgs: [deviceId],
+    );
+  }
 
   @override
   Future<SnapshotCheckpoint?> findPeerSnapshot(
@@ -668,7 +770,6 @@ class TamayuraRepository implements CatalogRepository {
               : DateTime.fromMillisecondsSinceEpoch(
                   session['last_seen']! as int,
                 ),
-          lastSync: DateTime.now(),
         ),
       );
       await txn.update(
@@ -700,6 +801,7 @@ class TamayuraRepository implements CatalogRepository {
         whereArgs: [deviceId],
       );
       await _deleteUnusedThumbnails(txn);
+      await _recordSuccessfulSync(txn, deviceId);
       return SnapshotCommit(
         totalCount: total,
         addedCount: added,
@@ -800,7 +902,7 @@ class TamayuraRepository implements CatalogRepository {
       }
     }
     await _database.transaction((txn) async {
-      await _upsertPeer(txn, peer.copyWith(lastSync: DateTime.now()));
+      await _upsertPeer(txn, peer);
       await txn.rawUpdate(
         "UPDATE peers SET catalog_revision = '', catalog_generation = catalog_generation + 1 WHERE id = ?",
         [peer.id],
@@ -831,6 +933,7 @@ class TamayuraRepository implements CatalogRepository {
       }
       await batch.commit(noResult: true);
       await _deleteUnusedThumbnails(txn);
+      await _recordSuccessfulSync(txn, peer.id);
     });
   }
 
@@ -895,5 +998,10 @@ class TamayuraRepository implements CatalogRepository {
     lastSync: row['last_sync'] == null
         ? null
         : DateTime.fromMillisecondsSinceEpoch(row['last_sync']! as int),
+    lastSuccessfulSync: row['last_successful_sync'] == null
+        ? null
+        : DateTime.fromMillisecondsSinceEpoch(
+            row['last_successful_sync']! as int,
+          ),
   );
 }

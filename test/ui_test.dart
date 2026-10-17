@@ -10,11 +10,21 @@ import 'package:tamayura/ui/app.dart';
 
 class _FakeModel extends TamayuraModel {
   @override
+  bool albumDetailedMode = false;
+  @override
   ThemeMode themeMode = ThemeMode.system;
   @override
   bool themeModeSaving = false;
   final List<ThemeMode> themeModeRequests = [];
   Completer<void>? themeSave;
+  @override
+  int autoSyncIntervalHours = 12;
+  @override
+  bool autoSyncIntervalSaving = false;
+  final List<int> autoSyncIntervalRequests = [];
+  Completer<void>? autoSyncIntervalSave;
+  bool failAutoSyncInterval = false;
+  bool reportAutoSyncIntervalError = false;
   @override
   bool backgroundSharingEnabled = false;
   @override
@@ -136,6 +146,25 @@ class _FakeModel extends TamayuraModel {
   }
 
   @override
+  Future<void> setAutoSyncIntervalHours(int hours) async {
+    autoSyncIntervalRequests.add(hours);
+    autoSyncIntervalSaving = true;
+    notifyListeners();
+    try {
+      await autoSyncIntervalSave?.future;
+      if (failAutoSyncInterval) throw StateError('Could not save interval');
+      if (reportAutoSyncIntervalError) {
+        error = '同步间隔未能保存，请重试。';
+        return;
+      }
+      autoSyncIntervalHours = hours;
+    } finally {
+      autoSyncIntervalSaving = false;
+      notifyListeners();
+    }
+  }
+
+  @override
   Future<void> refresh() async {
     refreshCalls++;
     notifyListeners();
@@ -242,7 +271,11 @@ class _FakeModel extends TamayuraModel {
   }
 
   @override
-  Future<Uint8List?> loadPreview(MediaView item) async {
+  Future<Uint8List?> loadPreview(
+    MediaView item, {
+    int maxDimension = 2560,
+    bool Function()? isCurrent,
+  }) async {
     previewCalls++;
     if (failPreview) throw StateError('Cannot read local file');
     return previewBytes;
@@ -354,6 +387,20 @@ Future<void> _scrollSettingsTo(WidgetTester tester, Finder finder) async {
   await tester.pumpAndSettle();
 }
 
+Future<void> _scrollDevicesTo(WidgetTester tester, Finder finder) async {
+  await tester.scrollUntilVisible(
+    finder,
+    200,
+    scrollable: find
+        .descendant(
+          of: find.byKey(const PageStorageKey('devices-scroll')),
+          matching: find.byType(Scrollable),
+        )
+        .first,
+  );
+  await tester.pumpAndSettle();
+}
+
 Future<void> _pump(
   WidgetTester tester,
   _FakeModel model, {
@@ -370,6 +417,216 @@ Future<void> _pump(
 }
 
 void main() {
+  testWidgets(
+    'album and devices only refresh from explicit actions on every platform',
+    (tester) async {
+      final model = _FakeModel();
+      await _pump(tester, model);
+      expect(find.byType(RefreshIndicator), findsNothing);
+      expect(find.textContaining('下拉'), findsNothing);
+      await tester.drag(
+        find.byKey(const PageStorageKey('album-scroll')),
+        const Offset(0, 350),
+      );
+      await tester.pumpAndSettle();
+      expect(model.refreshCalls, 0);
+      await tester.tap(find.byKey(const Key('refresh')));
+      await tester.pumpAndSettle();
+      expect(model.refreshCalls, 1);
+      await tester.tap(find.byKey(const Key('devices-tab')));
+      await tester.pumpAndSettle();
+      expect(find.byType(RefreshIndicator), findsNothing);
+      await tester.drag(
+        find.byKey(const PageStorageKey('devices-scroll')),
+        const Offset(0, 350),
+      );
+      await tester.pumpAndSettle();
+      expect(model.refreshCalls, 1);
+      await tester.tap(find.byKey(const Key('refresh')));
+      await tester.pumpAndSettle();
+      expect(model.refreshCalls, 2);
+      model.busy = true;
+      model.notifyListeners();
+      await tester.pump();
+      expect(
+        tester.widget<IconButton>(find.byKey(const Key('refresh'))).onPressed,
+        isNull,
+      );
+      expect(tester.takeException(), isNull);
+    },
+    variant: TargetPlatformVariant.all(),
+  );
+
+  testWidgets(
+    'auto sync interval edits and cancels on mobile and desktop platforms',
+    (tester) async {
+      final model = _FakeModel();
+      await _pump(tester, model);
+      await tester.tap(find.byKey(const Key('settings-tab')));
+      await tester.pumpAndSettle();
+      final setting = find.byKey(const Key('auto-sync-interval'));
+      await _scrollSettingsTo(tester, setting);
+      expect(find.textContaining('超过 12 小时'), findsOneWidget);
+      for (final hours in [1, 8760, 24]) {
+        await tester.tap(setting);
+        await tester.pumpAndSettle();
+        final input = find.byKey(const Key('auto-sync-interval-input'));
+        expect(
+          tester.widget<TextField>(input).controller!.text,
+          '${model.autoSyncIntervalHours}',
+        );
+        await tester.enterText(input, '$hours');
+        await tester.tap(find.byKey(const Key('auto-sync-interval-save')));
+        await tester.pumpAndSettle();
+        expect(find.byType(AlertDialog), findsNothing);
+        expect(model.autoSyncIntervalHours, hours);
+        expect(find.textContaining('超过 $hours 小时'), findsOneWidget);
+      }
+      await tester.tap(setting);
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const Key('auto-sync-interval-input')),
+        '48',
+      );
+      await tester.tap(find.byKey(const Key('auto-sync-interval-cancel')));
+      await tester.pumpAndSettle();
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(model.autoSyncIntervalRequests, [1, 8760, 24]);
+      expect(model.autoSyncIntervalHours, 24);
+      expect(model.refreshCalls, 0);
+      expect(tester.takeException(), isNull);
+    },
+    variant: TargetPlatformVariant.all(),
+  );
+
+  testWidgets('auto sync interval validates whole hours before saving', (
+    tester,
+  ) async {
+    final model = _FakeModel();
+    await _pump(tester, model);
+    await tester.tap(find.byKey(const Key('settings-tab')));
+    await tester.pumpAndSettle();
+    final setting = find.byKey(const Key('auto-sync-interval'));
+    await _scrollSettingsTo(tester, setting);
+    await tester.tap(setting);
+    await tester.pumpAndSettle();
+    for (final invalid in ['', '0', '-1', '1.5', '8761', 'abc', '1e3', '+1']) {
+      await tester.enterText(
+        find.byKey(const Key('auto-sync-interval-input')),
+        invalid,
+      );
+      await tester.tap(find.byKey(const Key('auto-sync-interval-save')));
+      await tester.pumpAndSettle();
+      expect(find.text('请输入 1–8760 之间的整数小时'), findsOneWidget);
+      expect(model.autoSyncIntervalRequests, isEmpty);
+      expect(find.byType(AlertDialog), findsOneWidget);
+    }
+    expect(model.autoSyncIntervalHours, 12);
+  });
+
+  testWidgets('auto sync interval disables edits and dismissal while saving', (
+    tester,
+  ) async {
+    final model = _FakeModel()..autoSyncIntervalSave = Completer<void>();
+    await _pump(tester, model);
+    await tester.tap(find.byKey(const Key('settings-tab')));
+    await tester.pumpAndSettle();
+    final setting = find.byKey(const Key('auto-sync-interval'));
+    await _scrollSettingsTo(tester, setting);
+    await tester.tap(setting);
+    await tester.pumpAndSettle();
+    final input = find.byKey(const Key('auto-sync-interval-input'));
+    await tester.enterText(input, '24');
+    final save = find.byKey(const Key('auto-sync-interval-save'));
+    await tester.tap(save);
+    await tester.pumpAndSettle();
+    expect(tester.widget<TextField>(input).enabled, isFalse);
+    expect(tester.widget<FilledButton>(save).onPressed, isNull);
+    expect(
+      tester
+          .widget<TextButton>(
+            find.byKey(const Key('auto-sync-interval-cancel')),
+          )
+          .onPressed,
+      isNull,
+    );
+    expect(tester.widget<ListTile>(setting).onTap, isNull);
+    await tester.tap(save);
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(find.byType(AlertDialog), findsOneWidget);
+    expect(model.autoSyncIntervalRequests, [24]);
+    model.autoSyncIntervalSave!.complete();
+    await tester.pumpAndSettle();
+    expect(find.byType(AlertDialog), findsNothing);
+    expect(model.autoSyncIntervalHours, 24);
+    expect(tester.widget<ListTile>(setting).onTap, isNotNull);
+  });
+
+  for (final throwFailure in [true, false]) {
+    testWidgets('auto sync interval preserves failed edits ($throwFailure)', (
+      tester,
+    ) async {
+      final model = _FakeModel()
+        ..failAutoSyncInterval = throwFailure
+        ..reportAutoSyncIntervalError = !throwFailure;
+      await _pump(tester, model);
+      await tester.tap(find.byKey(const Key('settings-tab')));
+      await tester.pumpAndSettle();
+      final setting = find.byKey(const Key('auto-sync-interval'));
+      await _scrollSettingsTo(tester, setting);
+      await tester.tap(setting);
+      await tester.pumpAndSettle();
+      final input = find.byKey(const Key('auto-sync-interval-input'));
+      await tester.enterText(input, '24');
+      await tester.tap(find.byKey(const Key('auto-sync-interval-save')));
+      await tester.pumpAndSettle();
+      expect(find.byType(AlertDialog), findsOneWidget);
+      expect(find.text('同步间隔未能保存，请重试。'), findsWidgets);
+      expect(tester.widget<TextField>(input).controller!.text, '24');
+      expect(tester.widget<TextField>(input).enabled, isTrue);
+      expect(model.autoSyncIntervalHours, 12);
+      if (throwFailure) {
+        expect(find.text('操作未能完成，请检查网络与目录权限后重试。'), findsOneWidget);
+      }
+      model.failAutoSyncInterval = false;
+      model.reportAutoSyncIntervalError = false;
+      await tester.tap(find.byKey(const Key('auto-sync-interval-save')));
+      await tester.pumpAndSettle();
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(model.autoSyncIntervalHours, 24);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  testWidgets('auto sync settings fit a small phone with large text', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(320, 640);
+    tester.view.devicePixelRatio = 1;
+    tester.platformDispatcher.textScaleFactorTestValue = 1.6;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+    final model = _FakeModel();
+    await _pump(tester, model);
+    await tester.tap(find.byKey(const Key('settings-tab')));
+    await tester.pumpAndSettle();
+    final setting = find.byKey(const Key('auto-sync-interval'));
+    await _scrollSettingsTo(tester, setting);
+    await tester.tap(setting);
+    await tester.pumpAndSettle();
+    expect(find.byType(AlertDialog), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    final input = find.byKey(const Key('auto-sync-interval-input'));
+    await _ensureVisible(tester, input);
+    await tester.enterText(input, '36');
+    await tester.tap(find.byKey(const Key('auto-sync-interval-save')));
+    await tester.pumpAndSettle();
+    expect(model.autoSyncIntervalHours, 36);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('first sync waits for photos and shows arrivals while busy', (
     tester,
   ) async {
@@ -413,7 +670,6 @@ void main() {
     await tester.pump();
     expect(find.text('正在接收相册'), findsNothing);
     expect(find.text('已就绪 1 / 3000 项，可边同步边浏览。'), findsOneWidget);
-    expect(find.byKey(const Key('media-phone-b/photo-1')), findsOneWidget);
     expect(
       tester
           .widget<LinearProgressIndicator>(
@@ -423,7 +679,17 @@ void main() {
       closeTo(1 / 3000, 0.000001),
     );
     final photo = find.byKey(const Key('media-phone-b/photo-1'));
-    await Scrollable.ensureVisible(tester.element(photo));
+    await tester.scrollUntilVisible(
+      photo,
+      200,
+      scrollable: find
+          .descendant(
+            of: find.byKey(const PageStorageKey('album-scroll')),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    );
+    expect(photo, findsOneWidget);
     await tester.pump();
     await tester.tap(photo);
     await tester.pump();
@@ -532,14 +798,26 @@ void main() {
           const SyncProgress(
             peerId: 'phone-b',
             peerName: '另一部手机',
-            phase: SyncPhase.failed,
+            phase: SyncPhase.receiving,
             totalCount: 10,
             receivedCount: 10,
             readyCount: 10,
-            error: '连接已中断',
           ),
         ];
       await _pump(tester, model);
+      model.syncProgress = [
+        const SyncProgress(
+          peerId: 'phone-b',
+          peerName: '另一部手机',
+          phase: SyncPhase.failed,
+          totalCount: 10,
+          receivedCount: 10,
+          readyCount: 10,
+          error: '连接已中断',
+        ),
+      ];
+      model.notifyListeners();
+      await tester.pump();
       expect(find.text('本次同步未完成'), findsOneWidget);
       expect(find.text('已保留 10 项，恢复连接后可继续同步。'), findsOneWidget);
       expect(find.text('继续同步'), findsOneWidget);
@@ -1115,6 +1393,10 @@ void main() {
     await _pump(tester, model, openCollection: false);
     await tester.tap(find.byKey(const Key('settings-tab')));
     await tester.pumpAndSettle();
+    await _scrollSettingsTo(
+      tester,
+      find.byKey(const Key('shared-folder-camera')),
+    );
     expect(find.byKey(const Key('shared-folder-camera')), findsOneWidget);
     expect(
       find.text('可添加多个文件夹，自动包含所有子目录。已添加的目录及其父目录、子目录不能重复添加。'),
@@ -1230,9 +1512,10 @@ void main() {
     final model = _withPhoto();
     final photo = model.items.single;
     await _pump(tester, model);
-    expect(find.text(photo.name), findsOneWidget);
+    expect(find.text(photo.name), findsNothing);
     await tester.tap(find.byKey(Key('media-${photo.key}')));
     await tester.pumpAndSettle();
+    expect(find.text(photo.name), findsOneWidget);
     expect(model.downloadCalls, 1);
     expect(find.text('40%'), findsOneWidget);
     expect(find.byKey(const Key('media-preview-page')), findsOneWidget);
@@ -1257,9 +1540,9 @@ void main() {
   });
 
   testWidgets(
-    'offline cached media remains visible and failed download can retry',
+    'detailed mode keeps offline information and a failed download retry',
     (tester) async {
-      final model = _withPhoto(online: false);
+      final model = _withPhoto(online: false)..albumDetailedMode = true;
       final photo = model.items.single;
       model.transfers[photo.key] = const TransferView(
         progress: 0,
@@ -1302,6 +1585,154 @@ void main() {
     await tester.pumpAndSettle();
     expect(model.initializeCalls, 0);
   });
+
+  testWidgets(
+    'devices show their last successful sync independently of connection and attempts',
+    (tester) async {
+      tester.view.physicalSize = const Size(1200, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final model = _withPhoto()
+        ..devices = [
+          DeviceView(
+            id: 'phone-b',
+            name: '在线伙伴',
+            address: '192.0.2.11:50728',
+            online: true,
+            lastSync: DateTime(2026, 1, 9, 12),
+            lastSuccessfulSync: DateTime(2026, 1, 2, 3, 4, 5).toUtc(),
+          ),
+          DeviceView(
+            id: 'offline',
+            name: '离线伙伴',
+            address: '192.0.2.12:50728',
+            online: false,
+            lastSync: DateTime(2026, 1, 9, 12),
+            lastSuccessfulSync: DateTime(2025, 12, 31, 23, 59, 58).toUtc(),
+          ),
+          DeviceView(
+            id: 'never-synced',
+            name: '新伙伴',
+            address: '192.0.2.13:50728',
+            online: true,
+            lastSync: DateTime(2026, 1, 9, 12),
+          ),
+        ];
+      model.items.add(_photo(deviceId: 'offline'));
+      await _pump(tester, model, openCollection: false);
+      await tester.tap(find.byKey(const Key('devices-tab')));
+      await tester.pumpAndSettle();
+      for (final (id, details) in [
+        ('phone-b', '在线\n192.0.2.11:50728\n最后成功同步：2026-01-02 03:04:05'),
+        ('offline', '离线 · 可浏览缓存\n192.0.2.12:50728\n最后成功同步：2025-12-31 23:59:58'),
+        ('never-synced', '在线\n192.0.2.13:50728\n最后成功同步：尚未成功同步'),
+      ]) {
+        final tile = find.byKey(Key('device-$id'));
+        await _scrollDevicesTo(tester, tile);
+        expect(
+          find.descendant(of: tile, matching: find.text(details)),
+          findsOneWidget,
+        );
+      }
+      expect(find.textContaining('2026-01-09'), findsNothing);
+      final offline = find.byKey(const Key('device-offline'));
+      await _scrollDevicesTo(tester, offline);
+      await tester.tap(offline);
+      await tester.pumpAndSettle();
+      expect(model.selectedDeviceId, 'offline');
+      expect(
+        find.byKey(const Key('collection-offline/camera')),
+        findsOneWidget,
+      );
+      expect(find.byKey(const Key('collection-phone-b/camera')), findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+    variant: TargetPlatformVariant({
+      TargetPlatform.android,
+      TargetPlatform.macOS,
+      TargetPlatform.windows,
+    }),
+  );
+
+  testWidgets('device last successful sync updates when the model changes', (
+    tester,
+  ) async {
+    final model = _withPhoto();
+    await _pump(tester, model, openCollection: false);
+    await tester.tap(find.byKey(const Key('devices-tab')));
+    await tester.pumpAndSettle();
+    final tile = find.byKey(const Key('device-phone-b'));
+    await _scrollDevicesTo(tester, tile);
+    expect(find.textContaining('最后成功同步：尚未成功同步'), findsOneWidget);
+
+    for (final online in [true, false]) {
+      model.devices = [
+        DeviceView(
+          id: 'phone-b',
+          name: '另一部手机',
+          address: '192.0.2.11:50728',
+          online: online,
+          lastSync: DateTime(2026, 1, online ? 2 : 3, 12),
+          lastSuccessfulSync: DateTime(2026, 1, 2, 3, 4, 5).toUtc(),
+        ),
+      ];
+      model.notifyListeners();
+      await tester.pumpAndSettle();
+      expect(find.textContaining('最后成功同步：尚未成功同步'), findsNothing);
+      expect(find.textContaining('最后成功同步：2026-01-02 03:04:05'), findsOneWidget);
+    }
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+    'device last successful sync wraps with large text in narrow layouts',
+    (tester) async {
+      tester.view.physicalSize = const Size(320, 640);
+      tester.view.devicePixelRatio = 1;
+      tester.platformDispatcher.textScaleFactorTestValue = 1.6;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+      final model = _withPhoto()
+        ..devices = [
+          DeviceView(
+            id: 'phone-b',
+            name: '客厅的平板电脑',
+            address: '192.0.2.11:50728',
+            online: false,
+            lastSuccessfulSync: DateTime(2026, 1, 2, 3, 4, 5).toUtc(),
+          ),
+        ];
+      await _pump(tester, model, openCollection: false);
+      await tester.tap(find.byKey(const Key('devices-tab')));
+      await tester.pumpAndSettle();
+      final tile = find.byKey(const Key('device-phone-b'));
+      await _scrollDevicesTo(tester, tile);
+      final details = find.textContaining('最后成功同步：2026-01-02 03:04:05');
+      expect(details, findsOneWidget);
+      final paragraph = tester.renderObject<RenderParagraph>(details);
+      expect(paragraph.didExceedMaxLines, isFalse);
+      final tileRect = tester.getRect(tile);
+      final detailsRect = tester.getRect(details);
+      expect(tileRect.contains(detailsRect.topLeft), isTrue);
+      expect(tileRect.contains(detailsRect.bottomRight), isTrue);
+      expect(tester.takeException(), isNull);
+      await tester.tap(tile);
+      await tester.pumpAndSettle();
+      expect(model.selectedDeviceId, 'phone-b');
+      expect(
+        find.byKey(const Key('collection-phone-b/camera')),
+        findsOneWidget,
+      );
+      expect(tester.takeException(), isNull);
+    },
+    variant: TargetPlatformVariant({
+      TargetPlatform.android,
+      TargetPlatform.macOS,
+      TargetPlatform.windows,
+    }),
+  );
 
   testWidgets('settings show chosen folders and background sharing guidance', (
     tester,
@@ -1426,7 +1857,7 @@ void main() {
       expect(model.selectedDeviceId, deviceId);
       await tester.tap(find.byKey(const Key('collection-$deviceId/camera')));
       await tester.pumpAndSettle();
-      expect(find.text(deviceName), findsNWidgets(2));
+      expect(find.text(deviceName), findsOneWidget);
       expect(
         find.bySemanticsLabel(RegExp('IMG_20261008.jpg，来自$deviceName')),
         findsWidgets,
@@ -1447,7 +1878,7 @@ void main() {
       expect(model.selectedDeviceId, deviceId);
       expect(model.selectedCollectionKey, '$deviceId/camera');
       expect(find.text(deviceName), findsNothing);
-      expect(find.text(renamed), findsNWidgets(2));
+      expect(find.text(renamed), findsOneWidget);
       expect(
         tester
             .widget<ChoiceChip>(find.widgetWithText(ChoiceChip, renamed))
@@ -1511,14 +1942,22 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('media-$secondId/photo-1')), findsOneWidget);
       expect(find.byKey(const Key('media-$firstId/photo-1')), findsNothing);
-      expect(find.text('设备离线'), findsOneWidget);
+      expect(find.byTooltip('设备离线'), findsOneWidget);
       _expectDeviceIdHidden(firstId);
       _expectDeviceIdHidden(secondId);
 
       await tester.tap(find.byKey(const Key('devices-tab')));
       await tester.pumpAndSettle();
-      final firstDevice = find.widgetWithText(ListTile, name).first;
-      await _ensureVisible(tester, firstDevice);
+      final firstDevice = find.byKey(const Key('device-$firstId'));
+      await tester.scrollUntilVisible(
+        firstDevice,
+        200,
+        scrollable: find.descendant(
+          of: find.byKey(const PageStorageKey('devices-scroll')),
+          matching: find.byType(Scrollable),
+        ),
+      );
+      await tester.pumpAndSettle();
       await tester.tap(firstDevice);
       await tester.pumpAndSettle();
       expect(model.selectedDeviceId, firstId);
@@ -1707,10 +2146,17 @@ void main() {
       item: photo,
     );
     await _pump(tester, model);
+    final albumImage = tester.widget<Image>(
+      find.byKey(ValueKey('local-album-image-${photo.key}')),
+    );
+    expect(
+      ((albumImage.image as ResizeImage).imageProvider as MemoryImage).bytes,
+      same(model.previewBytes),
+    );
     await tester.tap(find.byKey(Key('media-${photo.key}')));
     await tester.pumpAndSettle();
     expect(model.downloadCalls, 0);
-    expect(model.previewCalls, 1);
+    expect(model.previewCalls, 2);
     expect(find.text('本机原图 · 双指缩放'), findsOneWidget);
     expect(find.byKey(const ValueKey('full-preview')), findsOneWidget);
     final image = tester.widget<Image>(
@@ -1738,7 +2184,7 @@ void main() {
       expect(find.text('原文件预览读取失败，可重试或用其他应用打开。'), findsOneWidget);
       await tester.tap(find.text('重新读取预览'));
       await tester.pumpAndSettle();
-      expect(model.previewCalls, 2);
+      expect(model.previewCalls, 3);
       await _ensureVisible(tester, find.byKey(Key('open-${photo.key}')));
       await tester.tap(find.byKey(Key('open-${photo.key}')));
       await tester.pumpAndSettle();
@@ -1824,7 +2270,7 @@ void main() {
     addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
     final model = _withPhoto();
     await _pump(tester, model);
-    await _ensureVisible(
+    await _scrollAlbumTo(
       tester,
       find.byKey(Key('media-${model.items.single.key}')),
     );

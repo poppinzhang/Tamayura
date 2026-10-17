@@ -324,6 +324,38 @@ struct StorageCoreTests {
       try rejects("source symlink") { _ = try DownloadWriter.save(sources: [sourceLink], expectedSize: 1000, allowedRoots: [staging], destination: destination, directories: [], name: "a.jpg") }
       try expect(!fm.fileExists(atPath: root.appendingPathComponent("a.jpg").path), "outside unchanged")
     }
+    try test("delete removes only a saved ordinary file and tolerates missing descendants") {
+      let folder = try directory("delete-downloads/旅行")
+      let target = folder.appendingPathComponent("saved.jpg")
+      let sibling = folder.appendingPathComponent("keep.mp4")
+      try bytes.write(to: target); try bytes.write(to: sibling)
+      let handle = try SafeFile.directory(folder.deletingLastPathComponent())
+      try handle.deleteFile(["旅行", "saved.jpg"])
+      try expect(!fm.fileExists(atPath: target.path), "download removed")
+      try expect(Data(contentsOf: sibling) == bytes, "other downloads unchanged")
+      try expect(Data(contentsOf: photo) == bytes, "source media unchanged")
+      try handle.deleteFile(["旅行", "saved.jpg"])
+      try handle.deleteFile(["missing-parent", "saved.jpg"])
+      try rejects("directory deletion", code: "INVALID_ARGUMENT") { try handle.deleteFile(["旅行"]) }
+      try rejects("traversal deletion", code: "INVALID_ARGUMENT") { try handle.deleteFile(["..", "saved.jpg"]) }
+      try expect(fm.fileExists(atPath: folder.path), "download directory preserved")
+    }
+    try test("delete rejects symlink escapes and preserves files on permission errors") {
+      let folder = try directory("delete-boundaries")
+      let target = folder.appendingPathComponent("saved.jpg")
+      let linkedFile = folder.appendingPathComponent("linked.jpg")
+      try bytes.write(to: target)
+      try fm.createSymbolicLink(at: linkedFile, withDestinationURL: photo)
+      try fm.createSymbolicLink(at: folder.appendingPathComponent("linked-parent"), withDestinationURL: nested)
+      let handle = try SafeFile.directory(folder)
+      try rejects("linked file", code: "INVALID_ARGUMENT") { try handle.deleteFile(["linked.jpg"]) }
+      try rejects("linked parent") { try handle.deleteFile(["linked-parent", "a.jpg"]) }
+      try expect(Data(contentsOf: photo) == bytes, "link target unchanged")
+      try fm.setAttributes([.posixPermissions: 0o555], ofItemAtPath: folder.path)
+      defer { try? fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: folder.path) }
+      try rejects("unwritable parent", code: "PERMISSION_LOST") { try handle.deleteFile(["saved.jpg"]) }
+      try expect(Data(contentsOf: target) == bytes, "permission failure preserves download")
+    }
     try test("unauthorized bookmarks are rejected") {
       let suite = "dev.tamayura.tests.\(UUID())"
       let defaults = UserDefaults(suiteName: suite)!
@@ -331,6 +363,10 @@ struct StorageCoreTests {
       let bookmarks = DirectoryBookmarks(defaults: defaults)
       try rejects("unknown bookmark", code: "PERMISSION_LOST") { try bookmarks.withDirectory(root.absoluteString) { _ in } }
       try rejects("unknown preview", code: "PERMISSION_LOST") { try bookmarks.withFile(photo.absoluteString) { _, _ in } }
+      try rejects("unknown delete", code: "PERMISSION_LOST") { try bookmarks.deleteFile(photo.absoluteString) }
+      try rejects("unknown missing delete", code: "PERMISSION_LOST") {
+        try bookmarks.deleteFile(root.appendingPathComponent("missing.jpg").absoluteString)
+      }
     }
     try test("persisted bookmarks recover access and follow moved directories") {
       let suite = "dev.tamayura.tests.\(UUID())"
@@ -352,6 +388,11 @@ struct StorageCoreTests {
         try expect(resolved == moved.appendingPathComponent("saved.jpg"), "stable original URI")
         try expect(file.read(offset: 0, length: 1000, expectedSize: 1000) == bytes, "moved file bytes")
       }
+      try restored.deleteFile(savedURI)
+      try expect(!fm.fileExists(atPath: moved.appendingPathComponent("saved.jpg").path), "delete follows moved bookmark")
+      try restored.deleteFile(savedURI)
+      try rejects("bookmarked root deletion", code: "PERMISSION_LOST") { try restored.deleteFile(uri) }
+      try expect(fm.fileExists(atPath: moved.path), "authorized root preserved")
     }
     try test("valid descendant bookmark survives a stale ancestor bookmark") {
       let suite = "dev.tamayura.tests.\(UUID())"

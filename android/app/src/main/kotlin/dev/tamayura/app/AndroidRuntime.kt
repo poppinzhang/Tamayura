@@ -92,6 +92,10 @@ internal class AndroidRuntime private constructor(private val context: Context) 
                         call.requiredString("mimeType"), call.argument<List<String>>("directories")
                             ?: throw IllegalArgumentException("Missing directories"))
                 }
+                "deleteDownload" -> background(result) {
+                    media.deleteDownload(call.requiredString("uri"))
+                    null
+                }
                 "transferSpace" -> background(result) { media.transferSpace(call.requiredString("directoryUri")) }
                 "temporaryDirectory" -> result.success(context.cacheDir.absolutePath)
                 "transferDirectory" -> background(result) { TransferScheduler.directory(context) }

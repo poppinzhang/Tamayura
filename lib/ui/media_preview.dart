@@ -31,6 +31,7 @@ class _MediaPreviewPageState extends State<MediaPreviewPage> {
   String? _previewError;
   bool _loadingPreview = false;
   int _previewGeneration = 0;
+  bool _deletingLocal = false;
 
   @override
   void initState() {
@@ -62,6 +63,13 @@ class _MediaPreviewPageState extends State<MediaPreviewPage> {
   void _onModel() {
     final transfer = widget.model.transfers[widget.item.key];
     final uri = transfer?.savedUri;
+    if (uri == null && _loadedUri != null) {
+      _previewGeneration++;
+      _loadedUri = null;
+      _fullImage = null;
+      _previewError = null;
+      _loadingPreview = false;
+    }
     if (!widget.item.isVideo && uri != null && uri != _loadedUri) {
       _loadedUri = uri;
       unawaited(_loadPreview());
@@ -76,7 +84,10 @@ class _MediaPreviewPageState extends State<MediaPreviewPage> {
       _previewError = null;
     });
     try {
-      final bytes = await widget.model.loadPreview(widget.item);
+      final bytes = await widget.model.loadPreview(
+        widget.item,
+        isCurrent: () => mounted && generation == _previewGeneration,
+      );
       if (!mounted || generation != _previewGeneration) return;
       setState(() {
         // Bound encoded memory as well as decoder dimensions; originals remain
@@ -107,6 +118,28 @@ class _MediaPreviewPageState extends State<MediaPreviewPage> {
         context,
       ).showSnackBar(const SnackBar(content: Text('操作未完成，请检查网络或文件权限后重试。')));
     }
+  }
+
+  Future<void> _deleteLocalFile() async {
+    if (_deletingLocal) return;
+    setState(() => _deletingLocal = true);
+    var deleted = false;
+    try {
+      deleted = await widget.model.deleteLocalFile(widget.item);
+    } catch (_) {
+      // Keep the preview and saved controls available for a retry.
+    }
+    if (!mounted) return;
+    setState(() => _deletingLocal = false);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          deleted
+              ? '已删除本地文件，可重新下载。'
+              : widget.model.error ?? '本地文件未能删除，请检查目录权限后重试。',
+        ),
+      ),
+    );
   }
 
   void _pointerDown(PointerDownEvent event) {
@@ -167,6 +200,99 @@ class _MediaPreviewPageState extends State<MediaPreviewPage> {
     } else {
       _transform.value = Matrix4.diagonal3Values(2, 2, 1);
     }
+  }
+
+  DeviceView? get _sourceDevice {
+    for (final device in widget.model.devices) {
+      if (device.id == widget.item.deviceId) return device;
+    }
+    return null;
+  }
+
+  void _showDetails() {
+    final item = widget.item;
+    final device = _sourceDevice;
+    showModalBottomSheet<void>(
+      context: context,
+      useSafeArea: true,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (context) => FractionallySizedBox(
+        heightFactor: .75,
+        child: SafeArea(
+          top: false,
+          child: Column(
+            key: const Key('media-details-sheet'),
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(24, 0, 12, 8),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        '详细信息',
+                        style: Theme.of(context).textTheme.titleLarge,
+                      ),
+                    ),
+                    IconButton(
+                      key: const Key('close-media-details'),
+                      tooltip: '关闭详细信息',
+                      onPressed: () => Navigator.of(context).pop(),
+                      icon: const Icon(Icons.close_rounded),
+                    ),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: SingleChildScrollView(
+                  key: const Key('media-details-scroll'),
+                  padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      _MediaDetail(label: '文件名', value: item.name),
+                      _MediaDetail(
+                        label: '来源设备',
+                        value: device?.name ?? '已记住的设备',
+                      ),
+                      _MediaDetail(
+                        label: '设备状态',
+                        value: device == null
+                            ? '设备记录不可用'
+                            : device.online
+                            ? '在线'
+                            : '离线',
+                      ),
+                      _MediaDetail(
+                        label: '修改时间（本地）',
+                        value: _formatModified(
+                          item.modified,
+                          includeTime: true,
+                        ),
+                      ),
+                      _MediaDetail(
+                        label: '类型',
+                        value:
+                            '${item.isVideo ? '视频' : '图片'}${item.mimeType.isEmpty ? '' : ' · ${item.mimeType}'}',
+                      ),
+                      _MediaDetail(
+                        label: '大小',
+                        value:
+                            '${formatMediaBytes(item.size)}（${item.size} 字节）',
+                      ),
+                      if (item.sharedFolderName.isNotEmpty)
+                        _MediaDetail(label: '合集', value: item.sharedFolderName),
+                      if (item.relativePath.isNotEmpty)
+                        _MediaDetail(label: '相对路径', value: item.relativePath),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   @override
@@ -234,6 +360,19 @@ class _MediaPreviewPageState extends State<MediaPreviewPage> {
               icon: const Icon(Icons.arrow_back_rounded),
             ),
             actions: [
+              IconButton(
+                key: const Key('preview-details'),
+                tooltip: '详细信息',
+                onPressed: _showDetails,
+                icon: const Icon(Icons.info_outline_rounded),
+              ),
+              if (transfer?.complete == true)
+                IconButton(
+                  key: const Key('preview-delete-local'),
+                  tooltip: '删除本地文件',
+                  onPressed: _deletingLocal ? null : _deleteLocalFile,
+                  icon: const Icon(Icons.delete_outline_rounded),
+                ),
               IconButton(
                 key: const Key('preview-zoom'),
                 tooltip: _zoomed ? '还原缩放' : '放大预览',
@@ -342,6 +481,26 @@ class _MediaPreviewPageState extends State<MediaPreviewPage> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         mainAxisSize: MainAxisSize.min,
                         children: [
+                          Text(
+                            '来自 ${_sourceDevice?.name ?? '已记住的设备'}',
+                            key: const Key('preview-source'),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: colors.onSurfaceVariant,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            '${_formatModified(item.modified)} · ${formatMediaBytes(item.size)} · ${item.isVideo ? '视频' : '图片'}',
+                            key: const Key('preview-metadata'),
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: colors.onSurfaceVariant,
+                            ),
+                          ),
+                          const SizedBox(height: 14),
                           if (_previewError != null) ...[
                             Text(
                               _previewError!,
@@ -356,19 +515,23 @@ class _MediaPreviewPageState extends State<MediaPreviewPage> {
                               child: const Text('重新读取预览'),
                             ),
                           ],
-                          TransferControls(
-                            item: item,
-                            transfer: transfer,
-                            onDownload: () =>
-                                _run(() => widget.model.download(item)),
-                            onCancel: () => _run(
-                              () => widget.model.cancelDownload(item.key),
+                          AbsorbPointer(
+                            absorbing: _deletingLocal,
+                            child: TransferControls(
+                              item: item,
+                              transfer: transfer,
+                              onDownload: () =>
+                                  _run(() => widget.model.download(item)),
+                              onCancel: () => _run(
+                                () => widget.model.cancelDownload(item.key),
+                              ),
+                              onDiscard: () => _run(
+                                () => widget.model.discardDownload(item.key),
+                              ),
+                              onShare: () =>
+                                  _run(() => widget.model.share(item)),
+                              onOpen: () => _run(() => widget.model.open(item)),
                             ),
-                            onDiscard: () => _run(
-                              () => widget.model.discardDownload(item.key),
-                            ),
-                            onShare: () => _run(() => widget.model.share(item)),
-                            onOpen: () => _run(() => widget.model.open(item)),
                           ),
                         ],
                       ),
@@ -379,6 +542,43 @@ class _MediaPreviewPageState extends State<MediaPreviewPage> {
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+String _formatModified(DateTime value, {bool includeTime = false}) {
+  final local = value.toLocal();
+  String twoDigits(int part) => part.toString().padLeft(2, '0');
+  final date =
+      '${local.year}-${twoDigits(local.month)}-${twoDigits(local.day)}';
+  return includeTime
+      ? '$date ${twoDigits(local.hour)}:${twoDigits(local.minute)}:${twoDigits(local.second)}'
+      : date;
+}
+
+class _MediaDetail extends StatelessWidget {
+  const _MediaDetail({required this.label, required this.value});
+
+  final String label, value;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: theme.textTheme.labelLarge?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 4),
+          SelectableText(value, style: theme.textTheme.bodyLarge),
+        ],
       ),
     );
   }

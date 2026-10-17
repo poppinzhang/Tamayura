@@ -361,6 +361,16 @@ class TransferStore {
     );
   }
 
+  /// Remove the completed task after deleting its export. Query by identity,
+  /// since completed tasks older than recent history still prevent enqueueing.
+  Future<void> removeCompleted(String deviceId, String mediaId) async {
+    await _db.delete(
+      'transfers',
+      where: "device_id = ? AND media_id = ? AND state = 'completed'",
+      whereArgs: [deviceId, mediaId],
+    );
+  }
+
   Future<void> reconcile(
     Set<String> scheduledIds, {
     List<TransferTask>? candidates,

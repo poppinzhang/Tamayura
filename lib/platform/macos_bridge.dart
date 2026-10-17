@@ -11,6 +11,9 @@ class MacOSBridge extends PlatformBridge {
   @override
   bool get usesInProcessTransfers => true;
 
+  Future<bool> isMainWindowVisible() async =>
+      await methodChannel.invokeMethod<bool>('isMainWindowVisible') ?? false;
+
   @override
   Future<void> setTransferActivity(String taskId, {required bool active}) =>
       methodChannel.invokeMethod<void>('setTransferActivity', {

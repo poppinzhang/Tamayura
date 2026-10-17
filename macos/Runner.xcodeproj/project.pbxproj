@@ -21,6 +21,7 @@
 /* End PBXAggregateTarget section */
 
 /* Begin PBXBuildFile section */
+		AABBCCDD0000000000000106 /* DesktopStatusItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCCDD0000000000000006 /* DesktopStatusItem.swift */; };
 		AABBCCDD0000000000000105 /* NetworkActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCCDD0000000000000005 /* NetworkActivity.swift */; };
 		AABBCCDD0000000000000104 /* MacOSPlatform.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCCDD0000000000000004 /* MacOSPlatform.swift */; };
 		AABBCCDD0000000000000103 /* LanDiscovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCCDD0000000000000003 /* LanDiscovery.swift */; };
@@ -67,6 +68,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		AABBCCDD0000000000000006 /* DesktopStatusItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesktopStatusItem.swift; sourceTree = "<group>"; };
 		AABBCCDD0000000000000005 /* NetworkActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkActivity.swift; sourceTree = "<group>"; };
 		AABBCCDD0000000000000004 /* MacOSPlatform.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacOSPlatform.swift; sourceTree = "<group>"; };
 		AABBCCDD0000000000000003 /* LanDiscovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LanDiscovery.swift; sourceTree = "<group>"; };
@@ -184,6 +186,7 @@
 				AABBCCDD0000000000000003 /* LanDiscovery.swift */,
 				AABBCCDD0000000000000004 /* MacOSPlatform.swift */,
 				AABBCCDD0000000000000005 /* NetworkActivity.swift */,
+				AABBCCDD0000000000000006 /* DesktopStatusItem.swift */,
 				33CC10F02044A3C60003C045 /* AppDelegate.swift */,
 				33CC11122044BFA00003C045 /* MainFlutterWindow.swift */,
 				33E51913231747F40026EE4D /* DebugProfile.entitlements */,
@@ -379,6 +382,7 @@
 				AABBCCDD0000000000000103 /* LanDiscovery.swift in Sources */,
 				AABBCCDD0000000000000104 /* MacOSPlatform.swift in Sources */,
 				AABBCCDD0000000000000105 /* NetworkActivity.swift in Sources */,
+				AABBCCDD0000000000000106 /* DesktopStatusItem.swift in Sources */,
 				33CC10F12044A3C60003C045 /* AppDelegate.swift in Sources */,
 				335BBD1B22A9A15E00E9071D /* GeneratedPluginRegistrant.swift in Sources */,
 			);

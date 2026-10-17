@@ -65,15 +65,204 @@ void main() {
   test(
     'updating a remembered address preserves thumbnails and last sync',
     () async {
+      final attemptedAt = DateTime(2026, 10, 17, 9);
+      await repository.upsertPeer(firstPeer.copyWith(lastSync: attemptedAt));
       await repository.replacePeerSnapshot(firstPeer, [media('one')]);
       final before = (await repository.listPeers()).single;
       await repository.upsertPeer(firstPeer.copyWith(host: '192.168.1.9'));
       final peer = (await repository.listPeers()).single;
       expect(peer.host, '192.168.1.9');
       expect(peer.lastSync, before.lastSync);
+      expect(peer.lastSync, attemptedAt);
+      expect(peer.lastSuccessfulSync, before.lastSuccessfulSync);
+      expect(peer.lastSuccessfulSync, isNotNull);
+      await repository.upsertPeer(
+        firstPeer.copyWith(
+          name: 'Renamed Phone',
+          lastSuccessfulSync: DateTime(2000),
+        ),
+      );
+      expect(
+        (await repository.listPeers()).single.lastSuccessfulSync,
+        before.lastSuccessfulSync,
+      );
       final cached = (await repository.listMedia()).single;
       expect(cached.id, 'one');
       expect(cached.thumbnail, [1, 2, 3]);
+    },
+  );
+
+  test('catalog writes preserve the latest explicit sync attempt', () async {
+    final previousAttempt = DateTime(2026, 10, 17, 8);
+    final latestAttempt = previousAttempt.add(const Duration(hours: 1));
+    final stalePeer = firstPeer.copyWith(lastSync: previousAttempt);
+    await repository.upsertPeer(stalePeer);
+    await repository.upsertPeer(firstPeer.copyWith(lastSync: latestAttempt));
+
+    Future<void> expectLatestAttempt() async {
+      expect((await repository.listPeers()).single.lastSync, latestAttempt);
+    }
+
+    await repository.markPeerSynced(stalePeer);
+    await expectLatestAttempt();
+    final session = await repository.beginPeerSnapshot(
+      stalePeer,
+      'revision',
+      1,
+    );
+    await expectLatestAttempt();
+    await repository.stageMediaPage(session, [media('one')]);
+    await expectLater(
+      repository.commitPeerSnapshot(session),
+      throwsA(isA<FormatException>()),
+    );
+    await expectLatestAttempt();
+    await repository.saveStagedThumbnail(
+      session,
+      'one',
+      Uint8List.fromList([1, 2, 3]),
+    );
+    await repository.commitPeerSnapshot(session);
+    await expectLatestAttempt();
+    await repository.replacePeerSnapshot(stalePeer, [media('replacement')]);
+    await expectLatestAttempt();
+  });
+
+  test('copying a peer preserves both independent synchronization times', () {
+    final attemptedAt = DateTime(2026, 10, 17, 9);
+    final completedAt = attemptedAt.add(const Duration(minutes: 1));
+    final peer = firstPeer.copyWith(
+      lastSync: attemptedAt,
+      lastSuccessfulSync: completedAt,
+    );
+    final renamed = peer.copyWith(name: 'Renamed Phone');
+    expect(renamed.lastSync, attemptedAt);
+    expect(renamed.lastSuccessfulSync, completedAt);
+    final nextAttempt = completedAt.add(const Duration(hours: 1));
+    final retry = peer.copyWith(lastSync: nextAttempt);
+    expect(retry.lastSync, nextAttempt);
+    expect(retry.lastSuccessfulSync, completedAt);
+  });
+
+  test('discovery and an incomplete first sync never record success', () async {
+    final attemptedAt = DateTime(2026, 10, 17, 9);
+    await repository.upsertPeer(
+      firstPeer.copyWith(
+        lastSync: attemptedAt,
+        lastSuccessfulSync: DateTime(2000),
+      ),
+    );
+    expect((await repository.listPeers()).single.lastSuccessfulSync, isNull);
+    final session = await repository.beginPeerSnapshot(firstPeer, 'first', 2);
+    await repository.stageMediaPage(session, [media('one')]);
+    await repository.saveStagedThumbnail(session, 'one', Uint8List(0));
+    expect((await repository.listPeers()).single.lastSuccessfulSync, isNull);
+    await expectLater(
+      repository.commitPeerSnapshot(session),
+      throwsFormatException,
+    );
+    await repository.abortPeerSnapshot(session);
+    final peer = (await repository.listPeers()).single;
+    expect(peer.lastSuccessfulSync, isNull);
+    expect(peer.lastSync, attemptedAt);
+  });
+
+  for (final count in [1, 0]) {
+    test('committing $count media records the local completion time', () async {
+      final attemptedAt = DateTime(2000);
+      final stalePeer = firstPeer.copyWith(lastSync: attemptedAt);
+      await repository.upsertPeer(stalePeer);
+      final session = await repository.beginPeerSnapshot(
+        stalePeer,
+        'complete',
+        count,
+      );
+      if (count > 0) {
+        await repository.stageMediaPage(session, [media('one')]);
+        await repository.saveStagedThumbnail(session, 'one', Uint8List(0));
+      }
+      expect((await repository.listPeers()).single.lastSuccessfulSync, isNull);
+      final beforeCommit = DateTime.now().millisecondsSinceEpoch;
+      await repository.commitPeerSnapshot(session);
+      final afterCommit = DateTime.now().millisecondsSinceEpoch;
+      final peer = (await repository.listPeers()).single;
+      expect(
+        peer.lastSuccessfulSync?.millisecondsSinceEpoch,
+        inInclusiveRange(beforeCommit, afterCommit),
+      );
+      expect(peer.lastSync, attemptedAt);
+    });
+  }
+
+  test(
+    'an unchanged catalog records completion independently of attempts',
+    () async {
+      final attemptedAt = DateTime(2000);
+      await repository.upsertPeer(firstPeer.copyWith(lastSync: attemptedAt));
+      final beforeCompletion = DateTime.now().millisecondsSinceEpoch;
+      await repository.markPeerSynced(
+        firstPeer.copyWith(lastSuccessfulSync: DateTime(1999)),
+      );
+      final afterCompletion = DateTime.now().millisecondsSinceEpoch;
+      final peer = (await repository.listPeers()).single;
+      expect(
+        peer.lastSuccessfulSync?.millisecondsSinceEpoch,
+        inInclusiveRange(beforeCompletion, afterCompletion),
+      );
+      expect(peer.lastSync, attemptedAt);
+    },
+  );
+
+  test(
+    'failed and interrupted retries preserve the last successful sync',
+    () async {
+      await repository.replacePeerSnapshot(firstPeer, [media('original')]);
+      final completedAt =
+          (await repository.listPeers()).single.lastSuccessfulSync;
+      expect(completedAt, isNotNull);
+      final attemptedAt = completedAt!.add(const Duration(hours: 1));
+      await repository.upsertPeer(firstPeer.copyWith(lastSync: attemptedAt));
+      final session = await repository.beginPeerSnapshot(firstPeer, 'retry', 2);
+      await repository.stageMediaPage(session, [media('partial')]);
+      await repository.saveStagedThumbnail(session, 'partial', Uint8List(0));
+      expect(
+        (await repository.listPeers()).single.lastSuccessfulSync,
+        completedAt,
+      );
+      await expectLater(
+        repository.commitPeerSnapshot(session),
+        throwsFormatException,
+      );
+      expect(
+        (await repository.listPeers()).single.lastSuccessfulSync,
+        completedAt,
+      );
+      await repository.abortPeerSnapshot(session);
+      final peer = (await repository.listPeers()).single;
+      expect(peer.lastSuccessfulSync, completedAt);
+      expect(peer.lastSync, attemptedAt);
+    },
+  );
+
+  test(
+    'a rolled back replacement preserves successful synchronization time',
+    () async {
+      await repository.replacePeerSnapshot(firstPeer, [media('original')]);
+      final completedAt =
+          (await repository.listPeers()).single.lastSuccessfulSync;
+      expect(completedAt, isNotNull);
+      await expectLater(
+        repository.replacePeerSnapshot(firstPeer, [
+          media('one', name: 'same.jpg'),
+          media('two', name: 'same.jpg'),
+        ]),
+        throwsA(isA<DatabaseException>()),
+      );
+      expect(
+        (await repository.listPeers()).single.lastSuccessfulSync,
+        completedAt,
+      );
+      expect((await repository.listMedia()).single.id, 'original');
     },
   );
 
@@ -164,6 +353,8 @@ void main() {
   });
 
   test('peer metadata and thumbnail bytes survive database reopen', () async {
+    final attemptedAt = DateTime(2026, 10, 17, 9);
+    DateTime? completedAt;
     final folder = await Directory.systemTemp.createTemp('tamayura-db-test-');
     final path = '${folder.path}/library.db';
     final persistent = await TamayuraRepository.open(
@@ -171,7 +362,10 @@ void main() {
       factory: databaseFactoryFfi,
     );
     try {
+      await persistent.upsertPeer(firstPeer.copyWith(lastSync: attemptedAt));
       await persistent.replacePeerSnapshot(firstPeer, [media('cached')]);
+      completedAt = (await persistent.listPeers()).single.lastSuccessfulSync;
+      expect(completedAt, isNotNull);
       await persistent.setSetting('device_id', 'persistent-uuid');
     } finally {
       await persistent.close();
@@ -182,6 +376,11 @@ void main() {
     );
     try {
       expect((await reopened.listPeers()).single.id, firstPeer.id);
+      expect((await reopened.listPeers()).single.lastSync, attemptedAt);
+      expect(
+        (await reopened.listPeers()).single.lastSuccessfulSync,
+        completedAt,
+      );
       expect((await reopened.listMedia()).single.thumbnail, [1, 2, 3]);
       final collection = (await reopened.mediaCollections()).single;
       expect(collection.key, '${firstPeer.id}/camera');
@@ -658,12 +857,18 @@ void main() {
       await repository.stageMediaPage(older, [media('kept')]);
       await repository.stageMediaPage(newer, [media('kept')]);
       await repository.commitPeerSnapshot(newer);
+      final completedAt =
+          (await repository.listPeers()).single.lastSuccessfulSync;
       await expectLater(
         repository.commitPeerSnapshot(older),
         throwsA(isA<SnapshotConflictException>()),
       );
       await repository.abortPeerSnapshot(older);
       expect(await repository.peerRevision(firstPeer.id), 'newer');
+      expect(
+        (await repository.listPeers()).single.lastSuccessfulSync,
+        completedAt,
+      );
     },
   );
 

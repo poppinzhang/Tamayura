@@ -254,6 +254,10 @@ void main() {
     'a failed first identity lookup retries the original manual address',
     () async {
       var identityCalls = 0;
+      final progressEvents = <SyncProgress>[];
+      void recordProgress() => progressEvents.addAll(model.syncProgress);
+      model.addListener(recordProgress);
+      addTearDown(() => model.removeListener(recordProgress));
       clientFactory = (candidate) => StubRpcClient(
         candidate,
         onIdentity: () async {
@@ -274,10 +278,31 @@ void main() {
       final failed = model.syncProgress.single;
       expect(failed.phase, SyncPhase.failed);
       expect(failed.peerId, '192.168.1.8:50728');
+      expect(failed.sessionId, isNotNull);
+      expect(progressEvents.first.phase, SyncPhase.connecting);
+      expect(
+        progressEvents.map((progress) => progress.sessionId),
+        everyElement(same(failed.sessionId)),
+      );
+      progressEvents.clear();
       await model.retrySync(failed.peerId);
       expect(model.devices.single.id, 'phone');
       expect(model.syncProgress.single.peerId, 'phone');
       expect(model.syncProgress.single.phase, SyncPhase.completed);
+      final retriedSession = model.syncProgress.single.sessionId;
+      expect(retriedSession, isNotNull);
+      expect(retriedSession, isNot(same(failed.sessionId)));
+      expect(
+        progressEvents.map((progress) => progress.sessionId),
+        everyElement(same(retriedSession)),
+      );
+      expect(
+        progressEvents
+            .where((progress) => progress.phase == SyncPhase.connecting)
+            .map((progress) => progress.peerId)
+            .toSet(),
+        {'192.168.1.8:50728', 'phone'},
+      );
       expect(model.media.single.deviceId, 'phone');
       expect(model.error, isNull);
     },
@@ -286,6 +311,10 @@ void main() {
   test(
     'first sync reveals ready photos and progress before all thumbnails finish',
     () async {
+      final progressEvents = <SyncProgress>[];
+      void recordProgress() => progressEvents.addAll(model.syncProgress);
+      model.addListener(recordProgress);
+      addTearDown(() => model.removeListener(recordProgress));
       final source = _GatedSource('phone', [
         _photo('phone', 'a'),
         _photo('phone', 'b'),
@@ -318,6 +347,18 @@ void main() {
       expect(model.media.map((item) => item.id), containsAll(['a', 'b']));
       expect(_progress(model, 'phone')?.phase, SyncPhase.completed);
       expect(_progress(model, 'phone')?.readyCount, 2);
+      final session = _progress(model, 'phone')!.sessionId;
+      expect(session, isNotNull);
+      expect(
+        progressEvents.map((progress) => progress.sessionId),
+        everyElement(same(session)),
+      );
+      expect(progressEvents.map((progress) => progress.phase).toSet(), {
+        SyncPhase.connecting,
+        SyncPhase.receiving,
+        SyncPhase.committing,
+        SyncPhase.completed,
+      });
       expect(model.error, isNull);
     },
   );
@@ -428,6 +469,7 @@ void main() {
       final gate = source.hold('new-b');
       source.failures.add('new-b');
       await server.refresh();
+      Object? receivingSession;
       final syncing = connect(server);
       try {
         await gate.requested.future.timeout(_timeout);
@@ -437,6 +479,8 @@ void main() {
           reason:
               'The first new thumbnail should be visible before the failing request returns',
         );
+        receivingSession = _progress(model, 'phone')!.sessionId;
+        expect(receivingSession, isNotNull);
         expect(model.media.map((item) => item.id), contains('old'));
         await model.selectCollection('phone/holiday');
       } finally {
@@ -444,6 +488,7 @@ void main() {
         await syncing.timeout(_timeout);
       }
       expect(_progress(model, 'phone')?.phase, SyncPhase.failed);
+      expect(_progress(model, 'phone')?.sessionId, same(receivingSession));
       expect(_progress(model, 'phone')?.error, isNotEmpty);
       expect(model.selectedCollectionKey, 'phone/holiday');
       expect(model.media.single.id, 'new-a');
@@ -455,6 +500,11 @@ void main() {
       source.thumbnailRequests.clear();
       await model.retrySync('phone').timeout(_timeout);
       expect(_progress(model, 'phone')?.phase, SyncPhase.completed);
+      expect(_progress(model, 'phone')?.sessionId, isNotNull);
+      expect(
+        _progress(model, 'phone')?.sessionId,
+        isNot(same(receivingSession)),
+      );
       expect(model.media.map((item) => item.id).toSet(), {'new-a', 'new-b'});
       expect(source.thumbnailRequests, ['new-b']);
       await model.selectCollection(null);

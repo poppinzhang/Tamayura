@@ -4,6 +4,9 @@ import 'package:flutter/material.dart';
 bool get isMacDesktop => defaultTargetPlatform == TargetPlatform.macOS;
 bool get isWindowsDesktop => defaultTargetPlatform == TargetPlatform.windows;
 bool get isDesktop => isMacDesktop || isWindowsDesktop;
+bool get isMobile =>
+    defaultTargetPlatform == TargetPlatform.android ||
+    defaultTargetPlatform == TargetPlatform.iOS;
 
 /// Keep desktop reading surfaces comfortable without changing phone layouts.
 class DesktopContent extends StatelessWidget {

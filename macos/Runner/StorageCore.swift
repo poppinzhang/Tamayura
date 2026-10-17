@@ -117,6 +117,32 @@ final class SafeFile {
     return file
   }
 
+  /// Delete one ordinary file beneath this authorized directory. Keep every
+  /// parent lookup relative to pinned descriptors and never follow a symlink.
+  /// Missing descendants are already deleted; authorization errors still fail.
+  func deleteFile(_ parts: [String]) throws {
+    guard let name = parts.last else { throw PlatformFailure.invalid("文件路径为空") }
+    try parts.forEach(StoragePaths.segment)
+    var parent = try SafeFile(fd: dup(fd))
+    for part in parts.dropLast() {
+      let child = openat(parent.fd, part, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+      if child < 0 && errno == ENOENT { return }
+      parent = try SafeFile(fd: child)
+    }
+    var info = stat()
+    if fstatat(parent.fd, name, &info, AT_SYMLINK_NOFOLLOW) != 0 {
+      if errno == ENOENT { return }
+      throw PlatformFailure.io("无法读取待删除的本地文件")
+    }
+    guard info.st_mode & S_IFMT == S_IFREG else {
+      throw PlatformFailure.invalid("只能删除本地普通文件")
+    }
+    // Without AT_REMOVEDIR, a replacement directory can never be removed.
+    if unlinkat(parent.fd, name, 0) != 0 && errno != ENOENT {
+      throw PlatformFailure.io("无法删除本地文件，请检查目录权限")
+    }
+  }
+
   func info() throws -> stat {
     var value = stat()
     guard fstat(fd, &value) == 0 else { throw PlatformFailure.io("无法读取媒体文件信息") }

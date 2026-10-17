@@ -204,6 +204,33 @@ void _desktopTest(String description, WidgetTesterCallback callback) =>
 
 void main() {
   testWidgets(
+    'desktop settings explain close-to-tray, sharing and explicit quit',
+    (tester) async {
+      final model = _DesktopModel();
+      await _show(tester, model);
+      await tester.tap(find.byKey(const Key('settings-tab')));
+      await tester.pumpAndSettle();
+      final sharing = find.byKey(const Key('background-sharing-switch'));
+      await _settingsItem(tester, sharing);
+      expect(find.textContaining('关闭此项后在窗口隐藏时停止共享'), findsOneWidget);
+      expect(tester.widget<SwitchListTile>(sharing).value, isFalse);
+      await tester.tap(sharing);
+      await tester.pumpAndSettle();
+      expect(model.backgroundSharingEnabled, isTrue);
+
+      final closeTip = find.text('关闭窗口，接收继续');
+      await _settingsItem(tester, closeTip);
+      expect(find.textContaining('退出玉响'), findsOneWidget);
+      expect(find.textContaining('关闭窗口会退出应用'), findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+    variant: TargetPlatformVariant({
+      TargetPlatform.macOS,
+      TargetPlatform.windows,
+    }),
+  );
+
+  testWidgets(
     'Windows uses Ctrl shortcuts, desktop layout, QR display and no camera scanner',
     (tester) async {
       final model = _DesktopModel();
@@ -350,7 +377,7 @@ void main() {
       await tester.tap(sharing);
       await tester.pumpAndSettle();
       expect(model.backgroundSharingEnabled, isTrue);
-      expect(find.textContaining('关闭后在窗口隐藏时停止共享'), findsOneWidget);
+      expect(find.textContaining('关闭此项后在窗口隐藏时停止共享'), findsOneWidget);
       expect(find.textContaining('Mac 睡眠或退出玉响'), findsOneWidget);
       expect(
         find.byKey(const Key('background-sharing-battery-settings')),
@@ -360,7 +387,7 @@ void main() {
       await _settingsItem(tester, supported);
       expect(supported, findsOneWidget);
       expect(find.textContaining('支持 Android 16'), findsNothing);
-      final sleep = find.textContaining('退出应用或系统睡眠会中断传输');
+      final sleep = find.textContaining('Mac 睡眠或断网后');
       await _settingsItem(tester, sleep);
       expect(sleep, findsOneWidget);
       expect(tester.takeException(), isNull);

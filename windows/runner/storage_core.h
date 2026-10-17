@@ -153,6 +153,7 @@ std::wstring SaveDownload(const std::vector<std::string>& sources,
                           const std::string& destination,
                           const std::vector<std::string>& directories,
                           const std::string& name);
+void DeleteDownload(const std::string& uri);
 Bytes JpegPreview(const SafeFile& file, unsigned maximum, bool video);
 
 }  // namespace tamayura

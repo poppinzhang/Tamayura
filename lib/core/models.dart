@@ -60,6 +60,7 @@ class Peer {
     required this.port,
     this.lastSeen,
     this.lastSync,
+    this.lastSuccessfulSync,
   });
 
   final String id;
@@ -67,7 +68,12 @@ class Peer {
   final String host;
   final int port;
   final DateTime? lastSeen;
+
+  /// Start of the latest synchronization attempt, including failed attempts.
   final DateTime? lastSync;
+
+  /// Completion of the latest successful catalog synchronization.
+  final DateTime? lastSuccessfulSync;
 
   Peer copyWith({
     String? name,
@@ -75,6 +81,7 @@ class Peer {
     int? port,
     DateTime? lastSeen,
     DateTime? lastSync,
+    DateTime? lastSuccessfulSync,
   }) => Peer(
     id: id,
     name: name ?? this.name,
@@ -82,6 +89,7 @@ class Peer {
     port: port ?? this.port,
     lastSeen: lastSeen ?? this.lastSeen,
     lastSync: lastSync ?? this.lastSync,
+    lastSuccessfulSync: lastSuccessfulSync ?? this.lastSuccessfulSync,
   );
 }
 
@@ -168,15 +176,40 @@ class MediaCollection {
   String get key => '$deviceId/$sharedFolderId';
 }
 
+enum MediaSortOrder {
+  nameAscending,
+  nameDescending,
+  dateAscending,
+  dateDescending,
+}
+
+/// A complete album position index without thumbnail bytes or file payloads.
+class MediaScrollEntry {
+  const MediaScrollEntry({
+    required this.id,
+    required this.deviceId,
+    required this.name,
+    required this.modified,
+  });
+
+  final String id, deviceId, name;
+  final DateTime modified;
+  String get key => '$deviceId/$id';
+}
+
 class MediaCursor {
   const MediaCursor({
     required this.modifiedMs,
     required this.deviceId,
     required this.mediaId,
+    this.name = '',
+    this.sortOrder = MediaSortOrder.dateDescending,
   });
   final int modifiedMs;
   final String deviceId;
   final String mediaId;
+  final String name;
+  final MediaSortOrder sortOrder;
 }
 
 class MediaPage {
@@ -229,6 +262,7 @@ class SyncProgress {
     this.readyCount = 0,
     this.attempt = 0,
     this.error,
+    this.sessionId,
   });
 
   final String peerId;
@@ -241,6 +275,10 @@ class SyncProgress {
   final int readyCount;
   final int attempt;
   final String? error;
+
+  /// Runtime identity shared across endpoint resolution and catalog retries.
+  /// Restored checkpoints have no active session; this is never persisted.
+  final Object? sessionId;
 }
 
 class SyncResult extends SnapshotCommit {

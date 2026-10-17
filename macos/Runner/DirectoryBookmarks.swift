@@ -80,6 +80,21 @@ final class DirectoryBookmarks: DirectoryAccess {
   }
 
   func fileAccess(_ value: String) throws -> AuthorizedFile {
+    try withFileLocation(value) { lease, parts in
+      let handle = try SafeFile.directory(lease.url).file(parts)
+      let resolved = parts.reduce(lease.url) { $0.appendingPathComponent($1) }
+      return AuthorizedFile(url: resolved, file: handle, lease: lease)
+    }
+  }
+
+  func deleteFile(_ value: String) throws {
+    try withFileLocation(value) { lease, parts in
+      try SafeFile.directory(lease.url).deleteFile(parts)
+    }
+  }
+
+  private func withFileLocation<T>(_ value: String,
+                                  _ operation: (DirectoryLease, [String]) throws -> T) throws -> T {
     let url = try StoragePaths.fileURL(value)
     lock.lock()
     let keys = Array((defaults.dictionary(forKey: key) as? [String: Data] ?? [:]).keys)
@@ -91,9 +106,7 @@ final class DirectoryBookmarks: DirectoryAccess {
       do {
         let lease = try directoryLease(uri)
         let parts = try StoragePaths.relative(url, root: original)
-        let handle = try SafeFile.directory(lease.url).file(parts)
-        let resolved = parts.reduce(lease.url) { $0.appendingPathComponent($1) }
-        return AuthorizedFile(url: resolved, file: handle, lease: lease)
+        return try withExtendedLifetime(lease) { try operation(lease, parts) }
       } catch { failure = error }
     }
     if let failure { throw failure }

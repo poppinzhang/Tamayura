@@ -345,6 +345,41 @@ int main() {
       Reject("INVALID_ARGUMENT", [&] { SaveDownload({Utf8(source)}, static_cast<int64_t>(bytes.size()), {staging}, Utf8(destination), {".."}, "a.jpg"); });
       Reject("INVALID_ARGUMENT", [&] { SaveDownload({Utf8(photo)}, static_cast<int64_t>(bytes.size()), {staging}, Utf8(destination), {}, "a.jpg"); });
     });
+    test("delete removes one saved file, preserves siblings and tolerates absent files", [&] {
+      const auto saved = SaveDownload({Utf8(source)}, static_cast<int64_t>(bytes.size()), {staging},
+                                      Utf8(destination), {"delete", "旅行"}, "saved.jpg");
+      const auto sibling = JoinPath(destination, L"delete\\旅行\\keep.mp4");
+      Write(sibling, bytes);
+      DeleteDownload(Utf8(saved));
+      Expect(!std::filesystem::exists(saved), "Downloaded file removed");
+      Expect(Read(sibling) == bytes && Read(photo) == bytes, "Sibling download and source remain");
+      DeleteDownload(Utf8(saved));
+      DeleteDownload(Utf8(JoinPath(destination, L"missing-parent\\saved.jpg")));
+      Reject("", [&] { DeleteDownload(Utf8(JoinPath(destination, L"delete"))); });
+      Reject("INVALID_ARGUMENT", [&] { DeleteDownload(Utf8(destination) + "\\..\\outside.jpg"); });
+      Expect(std::filesystem::is_directory(JoinPath(destination, L"delete")), "Download directory preserved");
+    });
+    test("delete rejects junctions and preserves locked or read-only downloads", [&] {
+      const auto linked = JoinPath(destination, L"delete-junction");
+      Expect(Junction(linked, nested), "Create deletion junction");
+      Reject("INVALID_ARGUMENT", [&] { DeleteDownload(Utf8(JoinPath(linked, L"a.jpg"))); });
+      Reject("INVALID_ARGUMENT", [&] { DeleteDownload(Utf8(linked)); });
+      Expect(Read(photo) == bytes, "Junction target unchanged");
+      Expect(RemoveDirectoryW(linked.c_str()) != FALSE, "Remove deletion junction");
+      const auto saved = JoinPath(destination, L"delete-locked.jpg");
+      Write(saved, bytes);
+      {
+        auto reader = SafeFile::Open(saved);
+        Reject("PERMISSION_LOST", [&] { DeleteDownload(Utf8(saved)); });
+      }
+      Expect(Read(saved) == bytes, "Locked download is preserved");
+      Expect(SetFileAttributesW(saved.c_str(), FILE_ATTRIBUTE_READONLY) != FALSE, "Make download read-only");
+      Reject("PERMISSION_LOST", [&] { DeleteDownload(Utf8(saved)); });
+      Expect(Read(saved) == bytes, "Read-only download is preserved");
+      Expect(SetFileAttributesW(saved.c_str(), FILE_ATTRIBUTE_NORMAL) != FALSE, "Restore download permissions");
+      DeleteDownload(Utf8(saved));
+      Expect(!std::filesystem::exists(saved), "Unlocked download can be removed");
+    });
     test("ordered download parts stream directly to one destination and remain resumable", [&] {
       std::vector<std::string> parts;
       for (unsigned index = 0; index < 4; ++index) {

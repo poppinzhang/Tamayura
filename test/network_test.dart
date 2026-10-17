@@ -125,6 +125,76 @@ void main() {
       await repository.close();
     });
 
+    test('catalog requests do not invent a sync attempt time', () async {
+      final complete = await client.synchronize(repository);
+      expect(complete.peer.lastSync, isNull);
+      expect((await repository.listPeers()).single.lastSync, isNull);
+
+      final unchanged = await client.synchronize(repository);
+      expect(unchanged.thumbnailRequests, 0);
+      expect(unchanged.peer.lastSync, isNull);
+      expect((await repository.listPeers()).single.lastSync, isNull);
+    });
+
+    test(
+      'complete, unchanged and empty catalogs record a new successful sync time',
+      () async {
+        final startedAt = DateTime.now().millisecondsSinceEpoch;
+        await client.synchronize(repository);
+        final completeAt =
+            (await repository.listPeers()).single.lastSuccessfulSync!;
+        expect(
+          completeAt.millisecondsSinceEpoch,
+          inInclusiveRange(startedAt, DateTime.now().millisecondsSinceEpoch),
+        );
+
+        // Stored times have millisecond precision, so make each completion
+        // distinguishable even when the loopback requests finish immediately.
+        await Future<void>.delayed(const Duration(milliseconds: 2));
+        final unchanged = await client.synchronize(repository);
+        expect(unchanged.thumbnailRequests, 0);
+        final unchangedAt =
+            (await repository.listPeers()).single.lastSuccessfulSync!;
+        expect(unchangedAt.isAfter(completeAt), isTrue);
+
+        source.empty = true;
+        await server.refresh();
+        await Future<void>.delayed(const Duration(milliseconds: 2));
+        final empty = await client.synchronize(repository);
+        expect(empty.totalCount, 0);
+        expect(await repository.countMedia(), 0);
+        expect(
+          (await repository.listPeers()).single.lastSuccessfulSync!.isAfter(
+            unchangedAt,
+          ),
+          isTrue,
+        );
+      },
+    );
+
+    test(
+      'complete and unchanged catalogs retain a newer sync attempt',
+      () async {
+        final previousAttempt = DateTime(2026, 10, 17, 8);
+        final latestAttempt = previousAttempt.add(const Duration(hours: 1));
+        await client.close();
+        client = MediaRpcClient(
+          identity.copyWith(port: server.port, lastSync: previousAttempt),
+        );
+        await repository.upsertPeer(identity.copyWith(lastSync: latestAttempt));
+
+        final complete = await client.synchronize(repository);
+        expect(complete.thumbnailRequests, 1);
+        expect(complete.peer.lastSync, previousAttempt);
+        expect((await repository.listPeers()).single.lastSync, latestAttempt);
+
+        final unchanged = await client.synchronize(repository);
+        expect(unchanged.thumbnailRequests, 0);
+        expect(unchanged.peer.lastSync, previousAttempt);
+        expect((await repository.listPeers()).single.lastSync, latestAttempt);
+      },
+    );
+
     test(
       'metadata pagination supports more than 2000 items without generating thumbnails',
       () async {
@@ -222,6 +292,10 @@ void main() {
       'incremental failure preserves ready previews and the previous library',
       () async {
         await client.synchronize(repository);
+        final lastSuccessfulSync =
+            (await repository.listPeers()).single.lastSuccessfulSync!;
+        final attemptedAt = DateTime(2026, 10, 17, 9);
+        await repository.upsertPeer(identity.copyWith(lastSync: attemptedAt));
         final oldRevision = await repository.peerRevision(identity.id);
         source.ids = ['a', 'z'];
         await server.refresh();
@@ -252,10 +326,19 @@ void main() {
             {'safe-id', 'a'},
           );
           expect(await repository.peerRevision(identity.id), oldRevision);
+          expect(
+            (await repository.listPeers()).single.lastSuccessfulSync,
+            lastSuccessfulSync,
+          );
         } finally {
           waiting.complete();
         }
         await fails;
+        expect((await repository.listPeers()).single.lastSync, attemptedAt);
+        expect(
+          (await repository.listPeers()).single.lastSuccessfulSync,
+          lastSuccessfulSync,
+        );
         expect((await repository.listMedia()).map((item) => item.id).toSet(), {
           'safe-id',
           'a',
@@ -265,6 +348,17 @@ void main() {
           progress.any((event) => event.phase == SyncPhase.completed),
           false,
         );
+
+        source.beforeThumbnail = null;
+        await Future<void>.delayed(const Duration(milliseconds: 2));
+        await client.synchronize(repository);
+        expect(
+          (await repository.listPeers()).single.lastSuccessfulSync!.isAfter(
+            lastSuccessfulSync,
+          ),
+          isTrue,
+        );
+        expect((await repository.listPeers()).single.lastSync, attemptedAt);
       },
     );
 
@@ -285,6 +379,10 @@ void main() {
           client.synchronize(repository, pageSize: 2),
           throwsA(isA<GrpcError>()),
         );
+        expect(
+          (await repository.listPeers()).single.lastSuccessfulSync,
+          isNull,
+        );
         final paused = (await repository.findPeerSnapshot(identity))!;
         expect(paused.receivedCount, 4);
         expect(paused.readyCount, 3);
@@ -294,6 +392,7 @@ void main() {
         source.thumbnailRequests.clear();
         source.beforeThumbnail = null;
         final events = <SyncProgress>[];
+        final resumedAt = DateTime.now().millisecondsSinceEpoch;
         final result = await client.synchronize(
           repository,
           pageSize: 1,
@@ -310,6 +409,13 @@ void main() {
         expect(events.first.receivedCount, 4);
         expect(await repository.countMedia(), 6);
         expect(await repository.findPeerSnapshot(identity), isNull);
+        expect(
+          (await repository.listPeers())
+              .single
+              .lastSuccessfulSync!
+              .millisecondsSinceEpoch,
+          inInclusiveRange(resumedAt, DateTime.now().millisecondsSinceEpoch),
+        );
       },
     );
 
@@ -972,6 +1078,8 @@ void main() {
               thumbnail: Uint8List.fromList([8]),
             ),
           ]);
+          final lastSuccessfulSync =
+              (await repository.listPeers()).single.lastSuccessfulSync!;
           service.breakMetadata = true;
           await expectLater(
             client.synchronize(repository, pageSize: 1),
@@ -991,6 +1099,10 @@ void main() {
           expect(checkpoint.nextPageToken, 'second-page');
           expect(checkpoint.metadataComplete, false);
           expect(await repository.peerRevision(identity.id), isNull);
+          expect(
+            (await repository.listPeers()).single.lastSuccessfulSync,
+            lastSuccessfulSync,
+          );
         } finally {
           await repository.close();
         }

@@ -59,6 +59,7 @@ final class MacOSPlatform: NSObject, NSSharingServicePickerDelegate, NSSharingSe
     }
     do {
       switch call.method {
+      case "isMainWindowVisible": result(viewController?.view.window?.isVisible ?? false)
       case "pickDirectory": try pickDirectory(result)
       case "validateSharedDirectory":
         let uri = try string("uri"), existing = try strings("existingUris")
@@ -122,6 +123,9 @@ final class MacOSPlatform: NSObject, NSSharingServicePickerDelegate, NSSharingSe
             return relative.reduce(original) { $0.appendingPathComponent($1) }.absoluteString
           }
         }
+      case "deleteDownload":
+        let uri = try string("uri")
+        background(result) { try self.bookmarks.deleteFile(uri); return nil }
       case "transferSpace":
         let uri = try string("directoryUri")
         background(result) {

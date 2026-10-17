@@ -92,6 +92,71 @@ void main() {
     expect(refreshes, 1);
   });
 
+  test(
+    'macOS status menu does not resume sharing for a hidden main window',
+    () async {
+      var visible = false;
+      final lifecycle = AppLifecycleCoordinator(
+        isMacOS: true,
+        isWindowVisible: () async => visible,
+        setForeground: (value) async => foregroundChanges.add(value),
+        onResume: () async => refreshes++,
+      );
+      await lifecycle.initialize(AppLifecycleState.resumed);
+      await lifecycle.handleState(AppLifecycleState.inactive);
+      await lifecycle.handleState(AppLifecycleState.resumed);
+      expect(foregroundChanges, everyElement(isFalse));
+      expect(refreshes, 0);
+
+      visible = true;
+      await lifecycle.handleState(AppLifecycleState.inactive);
+      expect(foregroundChanges.last, isTrue);
+      expect(refreshes, 0);
+      await lifecycle.handleState(AppLifecycleState.resumed);
+      expect(refreshes, 1);
+    },
+  );
+
+  test('late native visibility cannot undo a newer close event', () async {
+    final visible = Completer<bool>();
+    final lifecycle = AppLifecycleCoordinator(
+      isMacOS: true,
+      isWindowVisible: () => visible.future,
+      setForeground: (value) async => foregroundChanges.add(value),
+      onResume: () async => refreshes++,
+    );
+    await lifecycle.initialize(AppLifecycleState.hidden);
+    final opening = lifecycle.handleState(AppLifecycleState.resumed);
+    await lifecycle.handleState(AppLifecycleState.hidden);
+    visible.complete(true);
+    await opening;
+    expect(foregroundChanges, [false]);
+    expect(refreshes, 0);
+  });
+
+  test(
+    'failed native visibility stays hidden and retries on activation',
+    () async {
+      var failQuery = true;
+      final lifecycle = AppLifecycleCoordinator(
+        isMacOS: true,
+        isWindowVisible: () async {
+          if (failQuery) throw StateError('window unavailable');
+          return true;
+        },
+        setForeground: (value) async => foregroundChanges.add(value),
+        onResume: () async => refreshes++,
+      );
+      await lifecycle.initialize(null);
+      expect(foregroundChanges, [false]);
+      expect(refreshes, 0);
+      failQuery = false;
+      await lifecycle.handleState(AppLifecycleState.resumed);
+      expect(foregroundChanges, [false, true]);
+      expect(refreshes, 1);
+    },
+  );
+
   test('hidden, paused and detached windows all leave foreground', () async {
     for (final state in [
       AppLifecycleState.hidden,

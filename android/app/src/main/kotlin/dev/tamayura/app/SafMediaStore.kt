@@ -413,6 +413,36 @@ internal class SafMediaStore(private val context: Context) {
         } finally { bitmap.recycle() }
     }
 
+    /** Deletes only the saved document; receiving folders and the shared catalog stay intact. */
+    fun deleteDownload(value: String) {
+        val uri = Uri.parse(value)
+        require(uri.scheme == "content" && DocumentsContract.isTreeUri(uri) && uri.pathSegments.size == 4) {
+            "需要有效的已下载文档 URI"
+        }
+        val documentId = DocumentsContract.getDocumentId(uri)
+        val treeId = DocumentsContract.getTreeDocumentId(uri)
+        require(documentId != treeId) { "不能删除接收目录" }
+        val tree = DocumentsContract.buildTreeDocumentUri(requireNotNull(uri.authority), treeId)
+        authorizedTree(tree.toString(), write = true)
+        // Null cursors and provider exceptions are not reliable proof of absence.
+        // Keep the saved record when access cannot be established.
+        val cursor = resolver.query(uri, arrayOf(Document.COLUMN_MIME_TYPE), null, null, null)
+            ?: throw java.io.IOException("无法确认已下载文件是否存在")
+        val exists = cursor.use {
+            if (!it.moveToFirst()) false else {
+                val mimeType = it.getString(0)
+                    ?: throw java.io.IOException("无法确认已下载文件类型")
+                require(mimeType != Document.MIME_TYPE_DIR) { "不能删除接收目录" }
+                true
+            }
+        }
+        authorizedTree(tree.toString(), write = true)
+        if (exists && !DocumentsContract.deleteDocument(resolver, uri)) {
+            throw java.io.IOException("无法删除已下载文件")
+        }
+        authorizedTree(tree.toString(), write = true)
+    }
+
     private fun decodeImage(uri: Uri, maximum: Int): Bitmap =
         ImageDecoder.decodeBitmap(ImageDecoder.createSource(resolver, uri)) { decoder, info, _ ->
             val (width, height) = TransferPolicy.previewSize(info.size.width, info.size.height, maximum)

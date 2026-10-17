@@ -182,6 +182,8 @@ EncodableValue WindowsStorage::Handle(const std::string& method,
         String(arguments, "directoryUri"), Strings(arguments, "directories"),
         String(arguments, "name"));
     return EncodableValue(Utf8(saved));
+  } else if (method == "deleteDownload") {
+    DeleteDownload(String(arguments, "uri"));
   } else if (method == "transferSpace") {
     const auto space = TransferSpace(PrivateDirectory(L"transfers"), String(arguments, "directoryUri"));
     EncodableMap result;

@@ -3,7 +3,13 @@ import 'package:flutter/material.dart' show ThemeMode;
 
 import '../core/models.dart';
 export '../core/models.dart'
-    show SharedFolder, MediaCollection, SyncPhase, SyncProgress;
+    show
+        SharedFolder,
+        MediaCollection,
+        MediaSortOrder,
+        MediaScrollEntry,
+        SyncPhase,
+        SyncProgress;
 
 class DeviceView {
   const DeviceView({
@@ -12,10 +18,12 @@ class DeviceView {
     required this.address,
     required this.online,
     this.lastSync,
+    this.lastSuccessfulSync,
   });
   final String id, name, address;
   final bool online;
   final DateTime? lastSync;
+  final DateTime? lastSuccessfulSync;
 }
 
 class MediaView {
@@ -83,6 +91,10 @@ class TransferView {
 abstract class TamayuraModel extends ChangeNotifier {
   ThemeMode get themeMode => ThemeMode.system;
   bool get themeModeSaving => false;
+  bool get albumDetailedMode => false;
+  bool get albumDetailedModeSaving => false;
+  int get autoSyncIntervalHours => 12;
+  bool get autoSyncIntervalSaving => false;
   bool get backgroundSharingEnabled => false;
   bool get backgroundSharingRunning => false;
   bool get backgroundSharingStarting => false;
@@ -99,17 +111,28 @@ abstract class TamayuraModel extends ChangeNotifier {
   String? get downloadFolder;
   int get localMediaCount;
   List<DeviceView> get devices;
+  bool get deviceOrderSaving => false;
   List<SyncProgress> get syncProgress => const [];
   String? get selectedDeviceId;
   List<MediaCollection> get collections;
   String? get selectedCollectionKey;
   List<MediaView> get media;
+  List<MediaScrollEntry> get mediaScrollEntries => const [];
+  MediaView? mediaAtScrollIndex(int index) => null;
+
+  /// Load an inclusive visible range in the album index, without loading the
+  /// intervening pages. A newer range supersedes pending obsolete ranges.
+  Future<void> ensureMediaScrollRange(int first, int last) async {}
+  MediaSortOrder get mediaSortOrder => MediaSortOrder.dateDescending;
+  bool get mediaSortOrderChanging => false;
   int get totalMediaCount => media.length;
   Map<String, TransferView> get transfers;
   bool get hasMoreMedia => false;
   bool get loadingMoreMedia => false;
   Future<void> initialize();
   Future<void> setThemeMode(ThemeMode mode);
+  Future<void> setAlbumDetailedMode(bool enabled) async {}
+  Future<void> setAutoSyncIntervalHours(int hours) async {}
   Future<void> setBackgroundSharing(bool enabled) async {}
   Future<void> openBatteryOptimizationSettings() async {}
   Future<void> refresh();
@@ -119,14 +142,27 @@ abstract class TamayuraModel extends ChangeNotifier {
   Future<void> chooseDownloadFolder();
   Future<void> connect(String address);
   Future<void> selectDevice(String? id);
+
+  /// Save the order shared by the device list and album device filters.
+  Future<bool> reorderDevices(List<String> deviceIds) async => false;
   Future<void> selectCollection(String? key);
+  Future<void> setMediaSortOrder(MediaSortOrder order) async {}
   Future<void> download(MediaView item);
+
+  /// Delete only the saved local copy, retaining its offline media metadata.
+  Future<bool> deleteLocalFile(MediaView item) async => false;
   Future<void> share(MediaView item);
   Future<void> loadMoreMedia() async {}
 
   /// Return bounded image bytes from the saved local file, or null when it
-  /// cannot safely be previewed in the app (for example a very large image).
-  Future<Uint8List?> loadPreview(MediaView item) async => null;
+  /// cannot be read or safely previewed. Gallery cards request a smaller bound
+  /// than the full-screen preview to limit native decoding and channel memory.
+  /// [isCurrent] lets disposed or superseded consumers skip queued decoding.
+  Future<Uint8List?> loadPreview(
+    MediaView item, {
+    int maxDimension = 2560,
+    bool Function()? isCurrent,
+  }) async => null;
   Future<void> open(MediaView item) => share(item);
   Future<void> cancelDownload(String key) async {}
   Future<void> discardDownload(String key) async {}

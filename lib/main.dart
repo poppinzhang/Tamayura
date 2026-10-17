@@ -5,6 +5,7 @@ import 'app/app_controller.dart';
 import 'app/app_lifecycle.dart';
 import 'ui/app.dart';
 import 'background/transfer_worker.dart';
+import 'platform/macos_bridge.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -31,6 +32,9 @@ class _TamayuraRootState extends State<_TamayuraRoot>
     isWindows: Platform.isWindows,
     setForeground: controller.setForeground,
     onResume: controller.refreshAfterResume,
+    isWindowVisible: Platform.isMacOS
+        ? const MacOSBridge().isMainWindowVisible
+        : null,
   );
   @override
   void initState() {

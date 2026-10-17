@@ -382,6 +382,127 @@ class SafMediaStoreTest {
         assertThrows(SecurityException::class.java) { store.transferSpace(tree.toString()) }
     }
 
+    @Test fun deleteRemovesOnlyTheSavedDocumentAndKeepsFoldersAndSharedCatalog() {
+        allowSaving()
+        val source = part("source.part", byteArrayOf(1, 2, 3))
+        val uri = store.saveDownload(listOf(source.path), 3, tree.toString(), "saved.jpg", "image/jpeg", emptyList())
+        provider.children["root"] = provider.children.getValue("root").orEmpty() +
+            Row("shared", "shared.jpg", "image/jpeg", 0L)
+        val sharedId = scan().single { it["name"] == "shared.jpg" }["id"] as String
+        val documentId = DocumentsContract.getDocumentId(Uri.parse(uri))
+        val saved = provider.files.getValue(documentId)!!
+
+        store.deleteDownload(uri)
+
+        assertFalse(saved.exists())
+        assertTrue(source.exists())
+        assertEquals(listOf(documentId), provider.deletedDocuments)
+        assertEquals(listOf("shared"), provider.children.getValue("root")!!.map { it.id })
+        assertArrayEquals(byteArrayOf(), store.readRange(sharedId, 0, 0))
+    }
+
+    @Test fun deletingAnAlreadyMissingDocumentSucceedsWithoutCallingDeleteAgain() {
+        allowSaving()
+        val uri = DocumentsContract.buildDocumentUriUsingTree(tree, "gone").toString()
+        provider.absentDocuments += "gone"
+
+        store.deleteDownload(uri)
+        store.deleteDownload(uri)
+
+        assertEquals(listOf("gone", "gone"), provider.queriedDocuments)
+        assertTrue(provider.deletedDocuments.isEmpty())
+    }
+
+    @Test fun deleteRequiresPersistedReadAndWritePermission() {
+        val uri = DocumentsContract.buildDocumentUriUsingTree(tree, "photo").toString()
+        assertThrows(SecurityException::class.java) { store.deleteDownload(uri) }
+        allowSaving()
+        application.contentResolver.releasePersistableUriPermission(tree, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        assertThrows(SecurityException::class.java) { store.deleteDownload(uri) }
+        assertTrue(provider.queriedDocuments.isEmpty())
+        assertTrue(provider.deletedDocuments.isEmpty())
+    }
+
+    @Test fun deleteRejectsMalformedUrisAndTheReceivingTreeRoot() {
+        allowSaving()
+        val invalid = listOf(
+            "file:///download/photo.jpg",
+            "content://$AUTHORITY/photo",
+            DocumentsContract.buildDocumentUri(AUTHORITY, "photo").toString(),
+            DocumentsContract.buildChildDocumentsUriUsingTree(tree, "album").toString(),
+            tree.toString(),
+            DocumentsContract.buildDocumentUriUsingTree(tree, "root").toString(),
+        )
+        for (uri in invalid) {
+            assertThrows(IllegalArgumentException::class.java) { store.deleteDownload(uri) }
+        }
+        assertTrue(provider.queriedDocuments.isEmpty())
+        assertTrue(provider.deletedDocuments.isEmpty())
+    }
+
+    @Test fun deleteRejectsDirectoriesAndUnconfirmedDocumentTypes() {
+        allowSaving()
+        provider.children["root"] = listOf(
+            Row("directory", "album", Document.MIME_TYPE_DIR),
+            Row("unknown", "photo.jpg", null))
+        val directory = DocumentsContract.buildDocumentUriUsingTree(tree, "directory").toString()
+        val unknown = DocumentsContract.buildDocumentUriUsingTree(tree, "unknown").toString()
+
+        assertThrows(IllegalArgumentException::class.java) { store.deleteDownload(directory) }
+        assertThrows(java.io.IOException::class.java) { store.deleteDownload(unknown) }
+        assertTrue(provider.deletedDocuments.isEmpty())
+        assertEquals(2, provider.children.getValue("root")!!.size)
+    }
+
+    @Test fun deleteDoesNotTreatUnavailableProviderAsMissingDocument() {
+        allowSaving()
+        val uri = DocumentsContract.buildDocumentUriUsingTree(tree, "photo").toString()
+        provider.missingDocuments += "photo" // A null cursor is not an empty cursor.
+
+        assertThrows(java.io.IOException::class.java) { store.deleteDownload(uri) }
+        assertTrue(provider.deletedDocuments.isEmpty())
+    }
+
+    @Test fun deletePropagatesProviderQueryErrorsRatherThanDiscardingSavedRecord() {
+        allowSaving()
+        val uri = DocumentsContract.buildDocumentUriUsingTree(tree, "photo").toString()
+        for (error in listOf(SecurityException("Access denied"),
+            FileNotFoundException("Document unavailable"), IllegalStateException("Provider failed"))) {
+            provider.onDocumentQuery = { throw error }
+            assertThrows(error.javaClass) { store.deleteDownload(uri) }
+        }
+        assertTrue(provider.deletedDocuments.isEmpty())
+    }
+
+    @Test fun deleteRechecksGrantAfterLookupIncludingAnEmptyResult() {
+        val uri = DocumentsContract.buildDocumentUriUsingTree(tree, "photo").toString()
+        for (absent in listOf(false, true)) {
+            allowSaving()
+            if (absent) provider.absentDocuments += "photo"
+            provider.onDocumentQuery = {
+                application.contentResolver.releasePersistableUriPermission(tree, Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+            }
+            assertThrows(SecurityException::class.java) { store.deleteDownload(uri) }
+        }
+        assertTrue(provider.deletedDocuments.isEmpty())
+    }
+
+    @Test fun failedDeletePreservesTheDocumentAndReportsTheProviderError() {
+        allowSaving()
+        val source = part("source.part", byteArrayOf(1, 2, 3))
+        val uri = store.saveDownload(listOf(source.path), 3, tree.toString(), "saved.mp4", "video/mp4", emptyList())
+        val documentId = DocumentsContract.getDocumentId(Uri.parse(uri))
+        for (error in listOf(SecurityException("Access denied"),
+            FileNotFoundException("Document unavailable"), IllegalStateException("Provider failed"))) {
+            provider.onDelete = { throw error }
+            // DocumentsContract may turn a provider's checked exception into false.
+            val expected = if (error is FileNotFoundException) java.io.IOException::class.java else error.javaClass
+            assertThrows(expected) { store.deleteDownload(uri) }
+            assertTrue(provider.files.getValue(documentId)!!.exists())
+        }
+        assertTrue(provider.deletedDocuments.isEmpty())
+    }
+
     private fun scan() = store.scanMetadata(shared, store.clear())
 
     private data class Row(
@@ -407,10 +528,14 @@ class SafMediaStoreTest {
         val queriedDirectories = mutableListOf<String>()
         val queriedDocuments = mutableListOf<String>()
         val missingDocuments = mutableSetOf<String>()
+        val absentDocuments = mutableSetOf<String>()
         val failingDirectories = mutableSetOf<String>()
         val openedDocuments = mutableListOf<String>()
+        val deletedDocuments = mutableListOf<String>()
         var onQuery: (() -> Unit)? = null
+        var onDocumentQuery: (() -> Unit)? = null
         var onOpen: ((String) -> Unit)? = null
+        var onDelete: (() -> Unit)? = null
 
         override fun onCreate() = true
 
@@ -420,10 +545,15 @@ class SafMediaStoreTest {
                 // The scanner confirms each shared root still exists before publishing.
                 val document = DocumentsContract.getDocumentId(uri)
                 queriedDocuments.add(document)
+                onDocumentQuery?.invoke()
                 if (document in missingDocuments) return null
                 val columns = requireNotNull(projection)
                 return MatrixCursor(columns).apply {
-                    addRow(columns.map { column -> if (column == Document.COLUMN_DOCUMENT_ID) document else null })
+                    if (document !in absentDocuments) {
+                        val row = children.values.filterNotNull().flatten().firstOrNull { it.id == document }
+                            ?: Row(document, document, if (document in children) Document.MIME_TYPE_DIR else "image/jpeg")
+                        addRow(columns.map(row::value))
+                    }
                 }
             }
             val parent = DocumentsContract.getDocumentId(uri)
@@ -459,8 +589,11 @@ class SafMediaStoreTest {
                     Bundle().apply { putParcelable("uri", DocumentsContract.buildDocumentUriUsingTree(uri, child)) }
                 }
                 "android:deleteDocument" -> {
+                    onDelete?.invoke()
+                    deletedDocuments.add(id)
                     files.remove(id)?.delete()
                     children.keys.toList().forEach { parent -> children[parent] = children[parent]?.filter { it.id != id } }
+                    absentDocuments.add(id)
                     Bundle()
                 }
                 else -> error("Unexpected provider call: $method")

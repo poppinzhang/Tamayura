@@ -106,9 +106,9 @@ class _DownloadsPageState extends State<DownloadsPage> {
                               const SizedBox(height: 8),
                               Text(
                                 isWindowsDesktop
-                                    ? '最小化后可继续接收。请保持玉响运行、电脑唤醒，并与来源设备处于同一局域网；退出或睡眠中断后可重试。'
+                                    ? '关闭窗口后仍可继续接收，从系统托盘可重新打开。请保持电脑唤醒，并与来源设备处于同一局域网；退出或睡眠中断后可重试。'
                                     : isMacDesktop
-                                    ? '切换应用后可继续接收。请保持玉响运行、Mac 唤醒，并与来源设备处于同一局域网；退出或睡眠中断后可重试。'
+                                    ? '关闭窗口后仍可继续接收，从菜单栏或 Dock 可重新打开。请保持 Mac 唤醒，并与来源设备处于同一局域网；退出或睡眠中断后可重试。'
                                     : '接收可在后台继续。来源设备需要保持玉响运行，并与这台设备处于同一局域网。',
                                 style: TextStyle(
                                   color: colors.onSurfaceVariant,

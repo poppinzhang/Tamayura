@@ -4,6 +4,36 @@ import XCTest
 @testable import Tamayura
 
 final class RunnerTests: XCTestCase {
+  @MainActor
+  func testApplicationActivationRestoresTheHiddenFlutterWindow() throws {
+    let appDelegate = try XCTUnwrap(NSApp.delegate as? AppDelegate)
+    let window = try XCTUnwrap(appDelegate.mainFlutterWindow)
+    let flutterViewController = try XCTUnwrap(window.contentViewController as? FlutterViewController)
+    window.performClose(nil)
+    XCTAssertFalse(window.isVisible)
+
+    appDelegate.applicationDidBecomeActive(Notification(name: NSApplication.didBecomeActiveNotification, object: NSApp))
+    XCTAssertTrue(window.isVisible)
+    XCTAssertTrue(window.contentViewController === flutterViewController)
+  }
+
+  @MainActor
+  func testCloseAndDockReopenKeepTheSameFlutterSession() throws {
+    let appDelegate = try XCTUnwrap(NSApp.delegate as? AppDelegate)
+    let window = try XCTUnwrap(appDelegate.mainFlutterWindow)
+    let flutterViewController = try XCTUnwrap(window.contentViewController as? FlutterViewController)
+    XCTAssertTrue(window.delegate is DesktopStatusItem)
+    XCTAssertFalse(appDelegate.applicationShouldTerminateAfterLastWindowClosed(NSApp))
+
+    window.performClose(nil)
+    XCTAssertFalse(window.isVisible)
+    XCTAssertTrue(window.contentViewController === flutterViewController)
+
+    XCTAssertFalse(appDelegate.applicationShouldHandleReopen(NSApp, hasVisibleWindows: false))
+    XCTAssertTrue(window.isVisible)
+    XCTAssertTrue(window.contentViewController === flutterViewController)
+  }
+
   func testHostDeclaresSupportedSystemAndPermissions() {
     let info = Bundle(for: MainFlutterWindow.self).infoDictionary!
     XCTAssertEqual(info["LSMinimumSystemVersion"] as? String, "15.0")

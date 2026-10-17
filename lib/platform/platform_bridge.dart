@@ -212,6 +212,10 @@ abstract class PlatformBridge {
     return uri;
   }
 
+  /// Missing files are already deleted; other storage errors must be surfaced.
+  Future<void> deleteDownload(String uri) =>
+      _methods.invokeMethod<void>('deleteDownload', {'uri': uri});
+
   Future<TransferSpaceInfo> transferSpace({
     required String directoryUri,
   }) async {

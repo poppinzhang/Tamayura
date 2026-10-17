@@ -262,17 +262,33 @@ class GatedRepository implements TamayuraRepository {
   Future<MediaPage> listMediaPage({
     String? deviceId,
     String? sharedFolderId,
+    MediaSortOrder sortOrder = MediaSortOrder.dateDescending,
     MediaCursor? after,
     int limit = 60,
   }) => inner.listMediaPage(
     deviceId: deviceId,
     sharedFolderId: sharedFolderId,
+    sortOrder: sortOrder,
     after: after,
     limit: limit,
   );
   @override
   Future<List<MediaCollection>> mediaCollections({String? deviceId}) =>
       inner.mediaCollections(deviceId: deviceId);
+  @override
+  Future<List<MediaScrollEntry>> listMediaScrollEntries({
+    required String deviceId,
+    required String sharedFolderId,
+    MediaSortOrder sortOrder = MediaSortOrder.dateDescending,
+  }) => inner.listMediaScrollEntries(
+    deviceId: deviceId,
+    sharedFolderId: sharedFolderId,
+    sortOrder: sortOrder,
+  );
+  @override
+  Future<List<MediaItem>> readMediaScrollEntries(
+    List<MediaScrollEntry> entries,
+  ) => inner.readMediaScrollEntries(entries);
   @override
   Future<DownloadRecord?> getDownload(String deviceId, String mediaId) async {
     await beforeDownloadRead?.call(deviceId, mediaId);

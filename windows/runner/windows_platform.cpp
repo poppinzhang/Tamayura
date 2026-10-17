@@ -259,7 +259,7 @@ void WindowsPlatform::Handle(const flutter::MethodCall<Value>& call,
     } else {
       static const std::set<std::string> storage_methods{
           "pickDirectory", "validateSharedDirectory", "scanDirectoriesMetadata",
-          "clearSharedDirectory", "thumbnail", "readPreview", "readRange", "saveDownload",
+          "clearSharedDirectory", "thumbnail", "readPreview", "readRange", "saveDownload", "deleteDownload",
           "temporaryDirectory", "transferDirectory", "transferSpace", "databaseDirectory", "open", "share"};
       if (!storage_methods.count(method)) {
         result->NotImplemented();

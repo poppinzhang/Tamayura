@@ -68,11 +68,23 @@ class AppController extends TamayuraModel {
   Future<TransferStore>? _openingTransfers;
   Future<void> _networkTail = Future.value();
   final Set<String> _scheduling = {};
+  final Set<String> _deletingLocalFiles = {};
+  int _localFileRevision = 0;
+  int _activePreviews = 0;
+  final List<Completer<void>> _previewWaiters = [];
   MediaCursor? _cursor;
   bool _hasMore = false, _loadingMore = false;
   int _pageGeneration = 0;
   Future<void> _reloadTail = Future.value();
   int _loadedMediaLimit = 60;
+  List<MediaScrollEntry> _mediaScrollEntries = const [];
+  final Map<String, MediaItem> _scrollItems = {};
+  _MediaScrollRequest? _pendingScrollRequest;
+  Future<void>? _scrollWorker;
+  int _scrollRequestSerial = 0;
+  String? _scrollError;
+  MediaSortOrder _mediaSortOrder = MediaSortOrder.dateDescending;
+  bool _mediaSortOrderChanging = false;
   final Map<String, SyncProgress> _syncProgress = {};
   final Map<String, Object> _syncProgressOwners = {};
   final Map<String, Peer> _syncCandidates = {};
@@ -83,6 +95,8 @@ class AppController extends TamayuraModel {
   _PlatformMediaSource? _source;
   StreamSubscription<Map<String, dynamic>>? _discovery;
   final Map<String, Peer> _peers = {};
+  List<String> _deviceOrder = [];
+  bool _deviceOrderSaving = false;
   final Set<String> _online = {}, _connecting = {};
   final Map<String, Object> _presenceChecks = {};
   final Set<MediaRpcClient> _rpcClients = {};
@@ -99,10 +113,22 @@ class AppController extends TamayuraModel {
   bool _loading = true, _busy = false, _disposed = false;
   ThemeMode _themeMode = ThemeMode.system;
   bool _themeModeSaving = false;
+  bool _albumDetailedMode = false, _albumDetailedModeSaving = false;
+  int _autoSyncIntervalHours = 12;
+  bool _autoSyncIntervalSaving = false, _autoSyncRunning = false;
+  Timer? _autoSyncTimer;
   int _localCount = 0, _totalMediaCount = 0;
 
   @override
   ThemeMode get themeMode => _themeMode;
+  @override
+  bool get albumDetailedMode => _albumDetailedMode;
+  @override
+  bool get albumDetailedModeSaving => _albumDetailedModeSaving;
+  @override
+  int get autoSyncIntervalHours => _autoSyncIntervalHours;
+  @override
+  bool get autoSyncIntervalSaving => _autoSyncIntervalSaving;
   @override
   bool get backgroundSharingEnabled => _sharingStatus.enabled;
   @override
@@ -161,21 +187,51 @@ class AppController extends TamayuraModel {
   @override
   Map<String, TransferView> get transfers => Map.unmodifiable(_transfers);
   @override
-  List<DeviceView> get devices =>
-      _peers.values
-          .map(
-            (peer) => DeviceView(
-              id: peer.id,
-              name: peer.name,
-              address: '${peer.host}:${peer.port}',
-              online: _online.contains(peer.id),
-              lastSync: peer.lastSync,
-            ),
-          )
-          .toList()
-        ..sort((a, b) => a.name.compareTo(b.name));
+  bool get deviceOrderSaving => _deviceOrderSaving;
+  @override
+  List<DeviceView> get devices {
+    final positions = {
+      for (var index = 0; index < _deviceOrder.length; index++)
+        _deviceOrder[index]: index,
+    };
+    return _peers.values
+        .map(
+          (peer) => DeviceView(
+            id: peer.id,
+            name: peer.name,
+            address: '${peer.host}:${peer.port}',
+            online: _online.contains(peer.id),
+            lastSync: peer.lastSync,
+            lastSuccessfulSync: peer.lastSuccessfulSync,
+          ),
+        )
+        .toList()
+      ..sort((a, b) {
+        final order = (positions[a.id] ?? positions.length).compareTo(
+          positions[b.id] ?? positions.length,
+        );
+        if (order != 0) return order;
+        final name = a.name.compareTo(b.name);
+        return name != 0 ? name : a.id.compareTo(b.id);
+      });
+  }
+
   @override
   List<MediaView> get media => _items.values.map(_view).toList();
+  @override
+  List<MediaScrollEntry> get mediaScrollEntries => _mediaScrollEntries;
+  @override
+  MediaView? mediaAtScrollIndex(int index) {
+    if (index < 0 || index >= _mediaScrollEntries.length) return null;
+    final key = _mediaScrollEntries[index].key;
+    final item = _scrollItems[key] ?? _items[key];
+    return item == null ? null : _view(item);
+  }
+
+  @override
+  MediaSortOrder get mediaSortOrder => _mediaSortOrder;
+  @override
+  bool get mediaSortOrderChanging => _mediaSortOrderChanging;
   static MediaView _view(MediaItem item) => MediaView(
     id: item.id,
     deviceId: item.deviceId,
@@ -452,6 +508,7 @@ class AppController extends TamayuraModel {
     }
     _polling = true;
     try {
+      final localFileRevision = _localFileRevision;
       final candidates = await _taskStore!.recent();
       if (_scheduling.isEmpty) {
         final scheduled = (await _transferScheduler!.scheduledTransferIds())
@@ -462,18 +519,21 @@ class AppController extends TamayuraModel {
       }
       final currentTasks = await _taskStore!.recent();
       final keys = currentTasks.map((task) => task.item.key).toSet();
+      final updates = <String, TransferView>{};
+      final removals = <String>{};
       for (final removed in _transferTaskKeys.difference(keys)) {
+        if (_deletingLocalFiles.contains(removed)) continue;
         final previous = _transfers[removed];
         final item = previous?.item;
         final saved = item == null
             ? null
             : await _repository!.getDownload(item.deviceId, item.id);
         if (saved == null) {
-          _transfers.remove(removed);
+          removals.add(removed);
         } else {
           // A final native write may win a race with discard, or a completed
           // task may age out of recent history. The saved URI stays authoritative.
-          _transfers[removed] = TransferView(
+          updates[removed] = TransferView(
             progress: 1,
             savedUri: saved.uri,
             status: TransferStatus.completed,
@@ -483,9 +543,9 @@ class AppController extends TamayuraModel {
           );
         }
       }
-      _transferTaskKeys = keys;
       for (final task in currentTasks) {
-        _transfers[task.item.key] = TransferView(
+        if (_deletingLocalFiles.contains(task.item.key)) continue;
+        updates[task.item.key] = TransferView(
           progress: task.item.size == 0
               ? (task.state == DownloadState.completed ? 1 : 0)
               : (task.received / task.item.size).clamp(0, 1),
@@ -498,6 +558,16 @@ class AppController extends TamayuraModel {
           status: TransferStatus.values.byName(task.state.name),
         );
       }
+      // A snapshot read before deletion must never restore its completed row.
+      if (localFileRevision != _localFileRevision) {
+        _transferRefreshPending = true;
+        return;
+      }
+      _transferTaskKeys = keys;
+      for (final key in removals) {
+        _transfers.remove(key);
+      }
+      _transfers.addAll(updates);
       _notify();
     } catch (e) {
       if (!_disposed) {
@@ -544,6 +614,52 @@ class AppController extends TamayuraModel {
     _notify();
   }
 
+  static List<String> _readDeviceOrder(String? value) {
+    if (value == null) return [];
+    try {
+      final decoded = jsonDecode(value);
+      if (decoded is! List ||
+          decoded.any((id) => id is! String || id.isEmpty)) {
+        return [];
+      }
+      return decoded.cast<String>().toSet().toList();
+    } on FormatException {
+      return [];
+    }
+  }
+
+  @override
+  Future<bool> reorderDevices(List<String> deviceIds) async {
+    if (_disposed || _deviceOrderSaving) return false;
+    final db = _repository;
+    if (db == null || !_initialized) {
+      _error = '应用尚未完成初始化，请稍后重试';
+      _notify();
+      return false;
+    }
+    // A device may be discovered while the ordering dialog is open. Preserve
+    // all current peers, appending those absent from the submitted snapshot.
+    final order = <String>{
+      ...deviceIds.where(_peers.containsKey),
+      ...devices.map((device) => device.id),
+    }.toList();
+    _deviceOrderSaving = true;
+    _error = null;
+    _notify();
+    try {
+      await db.setSetting('deviceOrder', jsonEncode(order));
+      if (_disposed) return false;
+      _deviceOrder = order;
+      return true;
+    } catch (_) {
+      if (!_disposed) _error = '设备顺序保存失败，请重试';
+      return false;
+    } finally {
+      _deviceOrderSaving = false;
+      _notify();
+    }
+  }
+
   @override
   Future<void> setThemeMode(ThemeMode mode) async {
     if (_disposed || _themeModeSaving || mode == _themeMode) return;
@@ -563,6 +679,65 @@ class AppController extends TamayuraModel {
       if (!_disposed) _error = '主题设置保存失败，请重试';
     } finally {
       _themeModeSaving = false;
+      _notify();
+    }
+  }
+
+  @override
+  Future<void> setAlbumDetailedMode(bool enabled) async {
+    if (_disposed ||
+        _albumDetailedModeSaving ||
+        enabled == _albumDetailedMode) {
+      return;
+    }
+    final db = _repository;
+    if (db == null || !_initialized) {
+      _error = '应用尚未完成初始化，请稍后重试';
+      _notify();
+      return;
+    }
+    _albumDetailedModeSaving = true;
+    _error = null;
+    _notify();
+    try {
+      await db.setSetting('albumDetailedMode', enabled.toString());
+      if (!_disposed) _albumDetailedMode = enabled;
+    } catch (_) {
+      if (!_disposed) _error = '相册详细模式设置保存失败，请重试';
+    } finally {
+      _albumDetailedModeSaving = false;
+      _notify();
+    }
+  }
+
+  @override
+  Future<void> setAutoSyncIntervalHours(int hours) async {
+    if (_disposed || _autoSyncIntervalSaving) return;
+    if (hours < 1 || hours > 8760) {
+      _error = '自动同步间隔请输入 1–8760 的整数小时';
+      _notify();
+      return;
+    }
+    if (hours == _autoSyncIntervalHours) return;
+    final db = _repository;
+    if (db == null || !_initialized) {
+      _error = '应用尚未完成初始化，请稍后重试';
+      _notify();
+      return;
+    }
+    _autoSyncIntervalSaving = true;
+    _error = null;
+    _notify();
+    try {
+      await db.setSetting('autoSyncIntervalHours', '$hours');
+      if (!_disposed) {
+        _autoSyncIntervalHours = hours;
+        _scheduleAutoSync();
+      }
+    } catch (_) {
+      if (!_disposed) _error = '自动同步间隔保存失败，请重试';
+    } finally {
+      _autoSyncIntervalSaving = false;
       _notify();
     }
   }
@@ -647,6 +822,19 @@ class AppController extends TamayuraModel {
         'dark' => ThemeMode.dark,
         _ => ThemeMode.system,
       };
+      _albumDetailedMode =
+          await startup.wait(() => db.getSetting('albumDetailedMode')) ==
+          'true';
+      final syncHours = int.tryParse(
+        await startup.wait(() => db.getSetting('autoSyncIntervalHours')) ?? '',
+      );
+      _autoSyncIntervalHours =
+          syncHours != null && syncHours >= 1 && syncHours <= 8760
+          ? syncHours
+          : 12;
+      _deviceOrder = _readDeviceOrder(
+        await startup.wait(() => db.getSetting('deviceOrder')),
+      );
       final folders = await startup.wait(() => db.getSetting('sharedFolders'));
       _sharedFolders = folders == null
           ? []
@@ -776,6 +964,7 @@ class AppController extends TamayuraModel {
       () => _bridge.startDiscovery(id: _id, name: _deviceName, port: port),
     );
     if (!_shouldShare) await _stopNetwork();
+    _scheduleAutoSync();
     _notify();
   }
 
@@ -784,17 +973,16 @@ class AppController extends TamayuraModel {
     final id = event['id'] as String?;
     switch (event['type']) {
       case 'found':
-        if (id == _id) return;
+        if (id == null || id.isEmpty || id == _id) return;
         final host = event['host'] as String?;
         final remotePort = event['port'] as int?;
         if (host == null || remotePort == null) return;
         try {
           LanEndpoint.parse('$host:$remotePort');
-          _presenceChecks.remove(id);
           unawaited(
-            _syncPeer(
+            _onDiscoveredPeer(
               Peer(
-                id: id ?? '',
+                id: id,
                 name: event['name'] as String? ?? '局域网设备',
                 host: host,
                 port: remotePort,
@@ -813,6 +1001,8 @@ class AppController extends TamayuraModel {
   }
 
   void _invalidatePresenceChecks() {
+    _autoSyncTimer?.cancel();
+    _autoSyncTimer = null;
     ++_presenceGeneration;
     _presenceChecks.clear();
     _connecting.clear();
@@ -838,8 +1028,8 @@ class AppController extends TamayuraModel {
     } catch (_) {}
   }
 
-  Future<void> _checkPeerPresence(String id) async {
-    final peer = _peers[id];
+  Future<void> _checkPeerPresence(String id, {Peer? candidate}) async {
+    final peer = candidate ?? _peers[id];
     if (_disposed ||
         !_shouldShare ||
         peer == null ||
@@ -865,6 +1055,22 @@ class AppController extends TamayuraModel {
       // mDNS disappearance is only a hint. The remembered endpoint must still
       // answer as this device; another phone may now own its previous address.
       if (identity.id == id) {
+        if (candidate != null) {
+          // Presence may update an endpoint but never the synchronization clock.
+          final updated = Peer(
+            id: id,
+            name: identity.name,
+            host: identity.host,
+            port: identity.port,
+            lastSeen: _clock(),
+          );
+          await _repository!.upsertPeer(updated);
+          if (!isCurrent()) return;
+          _peers[id] = updated.copyWith(
+            lastSync: _peers[id]?.lastSync,
+            lastSuccessfulSync: _peers[id]?.lastSuccessfulSync,
+          );
+        }
         _online.add(id);
       } else {
         _online.remove(id);
@@ -911,15 +1117,24 @@ class AppController extends TamayuraModel {
     });
   }
 
-  Future<void> _loadCachedMedia({bool preserveWindow = false}) {
+  Future<void> _loadCachedMedia({
+    bool preserveWindow = false,
+    MediaSortOrder? sortOrder,
+  }) {
     final next = _reloadTail.then(
-      (_) => _readCachedMedia(preserveWindow: preserveWindow),
+      (_) => _readCachedMedia(
+        preserveWindow: preserveWindow,
+        sortOrder: sortOrder,
+      ),
     );
     _reloadTail = next.catchError((Object _) {});
     return next;
   }
 
-  Future<void> _readCachedMedia({required bool preserveWindow}) async {
+  Future<void> _readCachedMedia({
+    required bool preserveWindow,
+    MediaSortOrder? sortOrder,
+  }) async {
     if (_disposed) return;
     // A progress refresh must not invalidate a page the user is still loading.
     // Defer it until that page finishes; explicit filter changes still proceed
@@ -929,18 +1144,33 @@ class AppController extends TamayuraModel {
       return;
     }
     final generation = ++_pageGeneration;
-    _hasMore = false;
+    final order = sortOrder ?? _mediaSortOrder;
+    // A sort keeps the previous page and cursor usable if its read fails.
+    // Loading more is paused until the new order has committed below.
+    if (sortOrder == null) _hasMore = false;
+    // Success belongs to the committed local catalog, including a commit that
+    // finished as sharing was suspended. Never infer it from an RPC identity.
+    final savedPeers = await _repository!.listPeers();
+    if (generation != _pageGeneration || _disposed) return;
+    for (final saved in savedPeers) {
+      final peer = _peers[saved.id];
+      if (peer != null && peer.lastSuccessfulSync != saved.lastSuccessfulSync) {
+        _peers[saved.id] = peer.copyWith(
+          lastSuccessfulSync: saved.lastSuccessfulSync,
+        );
+      }
+    }
     final collections = await _repository!.mediaCollections(
       deviceId: _selectedDeviceId,
     );
     if (generation != _pageGeneration || _disposed) return;
-    _collections = collections;
-    if (_selectedCollection == null && _selectedCollectionKey != null) {
-      _selectedCollectionKey = null;
-      _loadedMediaLimit = 60;
-    }
-    final collection = _selectedCollection;
-    final limit = preserveWindow ? _loadedMediaLimit : 60;
+    final collection = collections
+        .where((item) => item.key == _selectedCollectionKey)
+        .firstOrNull;
+    final collectionKey = collection?.key;
+    final limit = preserveWindow && collectionKey == _selectedCollectionKey
+        ? _loadedMediaLimit
+        : 60;
     final items = <MediaItem>[];
     MediaCursor? cursor;
     late MediaPage page;
@@ -949,12 +1179,21 @@ class AppController extends TamayuraModel {
         deviceId: collection?.deviceId ?? _selectedDeviceId,
         sharedFolderId: collection?.sharedFolderId,
         after: cursor,
+        sortOrder: order,
         limit: (limit - items.length).clamp(1, 200),
       );
       if (generation != _pageGeneration || _disposed) return;
       items.addAll(page.items);
       cursor = page.nextCursor;
     } while (cursor != null && items.length < limit);
+    final scrollEntries = collection == null
+        ? const <MediaScrollEntry>[]
+        : await _repository!.listMediaScrollEntries(
+            deviceId: collection.deviceId,
+            sharedFolderId: collection.sharedFolderId,
+            sortOrder: order,
+          );
+    if (generation != _pageGeneration || _disposed) return;
     await _appendMedia(
       items,
       generation,
@@ -962,9 +1201,29 @@ class AppController extends TamayuraModel {
       reuseDownloads: preserveWindow,
     );
     if (generation != _pageGeneration || _disposed) return;
+    _collections = collections;
+    _selectedCollectionKey = collectionKey;
+    _mediaSortOrder = order;
+    _loadedMediaLimit = limit;
     _cursor = page.nextCursor;
     _hasMore = _cursor != null;
     _totalMediaCount = page.totalCount;
+    _mediaScrollEntries = List.unmodifiable(scrollEntries);
+    ++_scrollRequestSerial;
+    _pendingScrollRequest = null;
+    if (preserveWindow) {
+      final entriesByKey = {
+        for (final entry in scrollEntries) entry.key: entry,
+      };
+      _scrollItems.removeWhere((key, item) {
+        final entry = entriesByKey[key];
+        return entry == null ||
+            entry.name != item.name ||
+            entry.modified.millisecondsSinceEpoch != item.modifiedMs;
+      });
+    } else {
+      _scrollItems.clear();
+    }
     _notify();
   }
 
@@ -973,10 +1232,19 @@ class AppController extends TamayuraModel {
     int generation, {
     bool reset = false,
     bool reuseDownloads = false,
+    Map<String, MediaItem>? destination,
+    bool Function()? isCurrent,
   }) async {
+    bool current() =>
+        generation == _pageGeneration &&
+        !_disposed &&
+        (isCurrent?.call() ?? true);
+    final localFileRevision = _localFileRevision;
     final savedViews = <String, TransferView>{};
     for (final item in items) {
-      if (!_transfers.containsKey(item.key) &&
+      if (!current()) return;
+      if (!_deletingLocalFiles.contains(item.key) &&
+          !_transfers.containsKey(item.key) &&
           !(reuseDownloads && _items.containsKey(item.key))) {
         final saved = await _repository!.getDownload(item.deviceId, item.id);
         if (saved != null) {
@@ -991,20 +1259,138 @@ class AppController extends TamayuraModel {
         }
       }
     }
-    if (generation != _pageGeneration || _disposed) return;
-    if (reset) _items.clear();
+    if (!current()) return;
+    if (localFileRevision != _localFileRevision) {
+      return _appendMedia(
+        items,
+        generation,
+        reset: reset,
+        reuseDownloads: reuseDownloads,
+        destination: destination,
+        isCurrent: isCurrent,
+      );
+    }
+    final target = destination ?? _items;
+    if (reset) target.clear();
     for (final item in items) {
-      _items[item.key] = item;
+      target[item.key] = item;
     }
     for (final entry in savedViews.entries) {
       _transfers.putIfAbsent(entry.key, () => entry.value);
     }
-    _notify();
+  }
+
+  @override
+  Future<void> ensureMediaScrollRange(int first, int last) {
+    if (_disposed ||
+        _repository == null ||
+        _mediaSortOrderChanging ||
+        _mediaScrollEntries.isEmpty ||
+        first > last ||
+        last < 0 ||
+        first >= _mediaScrollEntries.length) {
+      return Future.value();
+    }
+    first = first.clamp(0, _mediaScrollEntries.length - 1);
+    last = last.clamp(first, _mediaScrollEntries.length - 1);
+    final requested = _mediaScrollEntries.sublist(first, last + 1);
+    final serial = ++_scrollRequestSerial;
+    _pendingScrollRequest = null;
+    if (requested.every(
+      (entry) =>
+          _items.containsKey(entry.key) || _scrollItems.containsKey(entry.key),
+    )) {
+      _trimMediaScrollCache(requested);
+      return _scrollWorker ?? Future.value();
+    }
+    if (_scrollError != null && _error == _scrollError) _error = null;
+    _scrollError = null;
+    _pendingScrollRequest = _MediaScrollRequest(
+      generation: _pageGeneration,
+      serial: serial,
+      index: _mediaScrollEntries,
+      entries: requested,
+    );
+    return _startMediaScrollWorker();
+  }
+
+  Future<void> _startMediaScrollWorker() =>
+      _scrollWorker ??= _drainMediaScrollRequests().whenComplete(() {
+        _scrollWorker = null;
+        if (_pendingScrollRequest != null && !_disposed) {
+          unawaited(_startMediaScrollWorker());
+        }
+      });
+
+  Future<void> _drainMediaScrollRequests() async {
+    while (!_disposed && _pendingScrollRequest != null) {
+      final request = _pendingScrollRequest!;
+      _pendingScrollRequest = null;
+      bool current() =>
+          !_disposed &&
+          request.generation == _pageGeneration &&
+          request.serial == _scrollRequestSerial &&
+          identical(request.index, _mediaScrollEntries);
+      try {
+        final missing = request.entries
+            .where(
+              (entry) =>
+                  !_items.containsKey(entry.key) &&
+                  !_scrollItems.containsKey(entry.key),
+            )
+            .toList();
+        if (missing.isEmpty || !current()) continue;
+        // A tall viewport may contain more than one database batch. Read the
+        // full visible range while keeping each query and saved-file pass small.
+        for (
+          var offset = 0;
+          offset < missing.length && current();
+          offset += 200
+        ) {
+          final end = (offset + 200).clamp(0, missing.length);
+          final items = await _repository!.readMediaScrollEntries(
+            missing.sublist(offset, end),
+          );
+          if (!current()) break;
+          await _appendMedia(
+            items,
+            request.generation,
+            destination: _scrollItems,
+            isCurrent: current,
+          );
+          if (current()) _trimMediaScrollCache(request.entries);
+        }
+        if (!current()) continue;
+        _notify();
+      } catch (error) {
+        if (current()) {
+          _error = _scrollError = describeError(error);
+          _notify();
+        }
+      }
+    }
+  }
+
+  void _trimMediaScrollCache(List<MediaScrollEntry> entries) {
+    // Keep every currently requested tile even on very tall displays; returning
+    // to a smaller viewport restores the normal neighboring-window budget.
+    final limit = entries.length > 240 ? entries.length : 240;
+    if (_scrollItems.length <= limit) return;
+    final visible = entries.map((entry) => entry.key).toSet();
+    for (final key in _scrollItems.keys.toList()) {
+      if (_scrollItems.length <= limit) break;
+      if (!visible.contains(key)) _scrollItems.remove(key);
+    }
   }
 
   @override
   Future<void> loadMoreMedia() async {
-    if (!_hasMore || _loadingMore || _repository == null) return;
+    if (!_hasMore ||
+        _loadingMore ||
+        _mediaSortOrderChanging ||
+        _repository == null) {
+      return;
+    }
     final generation = _pageGeneration;
     _loadingMore = true;
     _notify();
@@ -1013,16 +1399,19 @@ class AppController extends TamayuraModel {
         deviceId: _selectedCollection?.deviceId ?? _selectedDeviceId,
         sharedFolderId: _selectedCollection?.sharedFolderId,
         after: _cursor,
+        sortOrder: _mediaSortOrder,
       );
       if (generation != _pageGeneration || _disposed) return;
-      _cursor = page.nextCursor;
-      _hasMore = _cursor != null;
       await _appendMedia(page.items, generation);
       if (generation == _pageGeneration && !_disposed) {
+        _cursor = page.nextCursor;
+        _hasMore = _cursor != null;
         _loadedMediaLimit = _items.length < 60 ? 60 : _items.length;
       }
     } catch (e) {
-      _error = describeError(e);
+      if (generation == _pageGeneration && !_disposed) {
+        _error = describeError(e);
+      }
     } finally {
       _loadingMore = false;
       _notify();
@@ -1030,8 +1419,78 @@ class AppController extends TamayuraModel {
     }
   }
 
-  Future<void> _syncPeer(Peer candidate, {bool reportError = false}) async {
+  bool _autoSyncDue(Peer peer) =>
+      peer.lastSync == null ||
+      !_clock().isBefore(
+        peer.lastSync!.add(Duration(hours: _autoSyncIntervalHours)),
+      );
+
+  // A single deadline covers all remembered peers, including failed attempts.
+  // It exists only while this process is allowed to run its sharing network.
+  void _scheduleAutoSync() {
+    _autoSyncTimer?.cancel();
+    _autoSyncTimer = null;
+    if (!_initialized || !_shouldShare || _autoSyncRunning) return;
+    DateTime? next;
+    for (final peer in _peers.values) {
+      if (_connecting.contains(peer.id)) continue;
+      final due =
+          peer.lastSync?.add(Duration(hours: _autoSyncIntervalHours)) ??
+          _clock();
+      if (next == null || due.isBefore(next)) next = due;
+    }
+    if (next == null) return;
+    final delay = next.difference(_clock());
+    _autoSyncTimer = Timer(delay.isNegative ? Duration.zero : delay, () async {
+      _autoSyncTimer = null;
+      _autoSyncRunning = true;
+      try {
+        await _syncRemembered();
+      } finally {
+        _autoSyncRunning = false;
+        _scheduleAutoSync();
+      }
+    });
+  }
+
+  Future<void> _onDiscoveredPeer(Peer candidate) async {
+    final remembered = _peers[candidate.id];
+    if (_connecting.contains(candidate.id) ||
+        remembered == null ||
+        _autoSyncDue(remembered)) {
+      _presenceChecks.remove(candidate.id);
+      await _syncPeer(candidate);
+      return;
+    }
+    // Repeated announcements of an already reachable endpoint need no RPC.
+    // A lost probe, changed endpoint/name, or offline device needs only identity.
+    if (_presenceChecks.containsKey(candidate.id) ||
+        !_online.contains(candidate.id) ||
+        remembered.host != candidate.host ||
+        remembered.port != candidate.port ||
+        remembered.name != candidate.name) {
+      _presenceChecks.remove(candidate.id);
+      await _checkPeerPresence(candidate.id, candidate: candidate);
+    }
+  }
+
+  Future<void> _syncPeer(
+    Peer candidate, {
+    bool reportError = false,
+    bool automatic = true,
+  }) async {
     if (_disposed || !_shouldShare) return;
+    final remembered =
+        _peers[candidate.id] ??
+        (candidate.id.isEmpty
+            ? _peers.values
+                  .where(
+                    (peer) =>
+                        peer.host == candidate.host &&
+                        peer.port == candidate.port,
+                  )
+                  .firstOrNull
+            : null);
     var key = candidate.id.isEmpty
         ? '${candidate.host}:${candidate.port}'
         : candidate.id;
@@ -1040,6 +1499,10 @@ class AppController extends TamayuraModel {
       if (active?.host != candidate.host || active?.port != candidate.port) {
         _pendingPeers[key] = candidate;
       }
+      return;
+    }
+    if (automatic && remembered != null && !_autoSyncDue(remembered)) {
+      _connecting.remove(key);
       return;
     }
     _activePeers[key] = candidate;
@@ -1069,7 +1532,17 @@ class AppController extends TamayuraModel {
           attempt: progress.attempt,
         );
       }
-      _syncProgress[progressKey] = progress;
+      _syncProgress[progressKey] = SyncProgress(
+        peerId: progress.peerId,
+        peerName: progress.peerName,
+        phase: progress.phase,
+        totalCount: progress.totalCount,
+        receivedCount: progress.receivedCount,
+        readyCount: progress.readyCount,
+        attempt: progress.attempt,
+        error: progress.error,
+        sessionId: progressOwner,
+      );
       if (previous?.phase != progress.phase ||
           previous?.attempt != progress.attempt) {
         _notify();
@@ -1084,11 +1557,24 @@ class AppController extends TamayuraModel {
         phase: SyncPhase.connecting,
       ),
     );
-    final remembered = _peers[candidate.id];
-    var resolvedId = candidate.id;
+    final attemptedAt = _clock();
+    Peer? attemptedPeer;
+    var resolvedId = remembered?.id ?? candidate.id;
     var identified = false;
     MediaRpcClient? client;
     try {
+      // Persist before the first network operation: even an identity timeout or
+      // client-construction failure consumes this automatic interval.
+      if (candidate.id.isNotEmpty || remembered != null) {
+        attemptedPeer = (candidate.id.isEmpty ? remembered! : candidate)
+            .copyWith(
+              lastSync: attemptedAt,
+              lastSuccessfulSync: remembered?.lastSuccessfulSync,
+            );
+        _peers[attemptedPeer.id] = attemptedPeer;
+        await _repository!.upsertPeer(attemptedPeer);
+        if (!ownsProgress()) return;
+      }
       client = _clientFactory(candidate);
       _rpcClients.add(client);
       var peer = await client.identity();
@@ -1107,9 +1593,23 @@ class AppController extends TamayuraModel {
         if (reportError) _error = '这是本机地址，请输入另一台设备的地址';
         return;
       }
+      if (candidate.id.isEmpty &&
+          remembered != null &&
+          remembered.id != peer.id) {
+        // A manually entered address may now belong to a different device.
+        _online.remove(remembered.id);
+      }
       // Manual addresses and mDNS announcements may resolve to the same peer.
       // Only one of them may write that peer's persistent sync checkpoint.
       if (key != peer.id) {
+        final previous = _peers[peer.id];
+        if (automatic && previous != null && !_autoSyncDue(previous)) {
+          if (ownsProgress()) {
+            _syncProgress.remove(progressKey);
+            _syncCandidates.remove(progressKey);
+          }
+          return;
+        }
         if (!_connecting.add(peer.id)) {
           final active = _activePeers[peer.id];
           if (active?.host != peer.host || active?.port != peer.port) {
@@ -1148,15 +1648,20 @@ class AppController extends TamayuraModel {
       resolvedId = peer.id;
       identified = true;
       _presenceChecks.remove(peer.id);
-      final previous = _peers[peer.id];
       peer = peer.copyWith(
-        lastSeen: DateTime.now(),
-        lastSync: previous?.lastSync,
+        lastSeen: _clock(),
+        lastSync: attemptedAt,
+        lastSuccessfulSync: _peers[peer.id]?.lastSuccessfulSync,
       );
       await _repository!.upsertPeer(peer);
       if (_disposed || !_shouldShare || generation != _presenceGeneration) {
         return;
       }
+      // A previous catalog commit may have refreshed the view during the
+      // address write. Keep its completion time while this attempt continues.
+      peer = peer.copyWith(
+        lastSuccessfulSync: _peers[peer.id]?.lastSuccessfulSync,
+      );
       _peers[peer.id] = peer;
       _presenceChecks.remove(peer.id);
       _online.add(peer.id);
@@ -1169,7 +1674,10 @@ class AppController extends TamayuraModel {
         return;
       }
       if (identical(_peers[peer.id], peer)) {
-        _peers[peer.id] = result.peer;
+        _peers[peer.id] = result.peer.copyWith(
+          lastSync: attemptedAt,
+          lastSuccessfulSync: peer.lastSuccessfulSync,
+        );
         _presenceChecks.remove(peer.id);
         _online.add(peer.id);
       }
@@ -1213,7 +1721,7 @@ class AppController extends TamayuraModel {
           // Reachability is independent of retrying the catalog. A slow probe
           // must not leave the visible retry button blocked by this attempt.
           unawaited(_checkPeerPresence(resolvedId));
-        } else if (identical(_peers[resolvedId], remembered)) {
+        } else if (identical(_peers[resolvedId], attemptedPeer)) {
           _online.remove(resolvedId);
         }
         if (reportError &&
@@ -1242,36 +1750,40 @@ class AppController extends TamayuraModel {
         _notify();
         final next = _pendingPeers.remove(key);
         if (next != null && !_disposed && _shouldShare) {
-          await _syncPeer(next, reportError: reportError);
+          await _onDiscoveredPeer(next);
         }
       }
+      _scheduleAutoSync();
     }
   }
 
-  Future<void> _syncRemembered() async {
+  Future<void> _syncRemembered({bool automatic = true}) async {
     final peers = _peers.values.toList();
     // Bound concurrent peers; each catalog uses metadata pages and incremental thumbnails.
     for (var offset = 0; offset < peers.length; offset += 3) {
       await Future.wait(
-        peers.skip(offset).take(3).map((peer) => _syncPeer(peer)),
+        peers
+            .skip(offset)
+            .take(3)
+            .map((peer) => _syncPeer(peer, automatic: automatic)),
       );
     }
   }
 
   @override
   Future<void> retrySync(String peerId) async {
-    final peer = _syncCandidates[peerId] ?? _peers[peerId];
+    final peer = _peers[peerId] ?? _syncCandidates[peerId];
     if (peer == null) return;
     _error = null;
-    await _syncPeer(peer, reportError: true);
+    await _syncPeer(peer, reportError: true, automatic: false);
   }
 
   @override
-  Future<void> refresh() => _refresh(rescan: true);
+  Future<void> refresh() => _refresh(rescan: true, automatic: false);
 
   /// Activation (unlocking, returning from a share sheet, focusing a desktop
-  /// window) refreshes peers but rescans local folders at most once per
-  /// interval while sharing is healthy. Failed scans retry on activation;
+  /// window) checks the automatic sync deadline and rescans local folders at
+  /// most once per interval while sharing is healthy. Failed scans retry on activation;
   /// manual refresh and folder changes always rescan.
   Future<void> refreshAfterResume() async {
     if (_loading || _busy || _disposed) return;
@@ -1284,7 +1796,7 @@ class AppController extends TamayuraModel {
     );
   }
 
-  Future<void> _refresh({required bool rescan}) async {
+  Future<void> _refresh({required bool rescan, bool automatic = true}) async {
     if (!_initialized) {
       await initialize();
       return;
@@ -1307,7 +1819,9 @@ class AppController extends TamayuraModel {
         if (scanError != null) throw scanError;
       });
     });
-    if (_foreground && !_disposed) await _syncRemembered();
+    if (_foreground && !_disposed) {
+      await _syncRemembered(automatic: automatic);
+    }
   }
 
   @override
@@ -1383,6 +1897,7 @@ class AppController extends TamayuraModel {
     await _syncPeer(
       Peer(id: '', name: '局域网设备', host: target.host, port: target.port),
       reportError: true,
+      automatic: false,
     );
   }
 
@@ -1390,6 +1905,8 @@ class AppController extends TamayuraModel {
   Future<void> selectDevice(String? id) async {
     _selectedDeviceId = id;
     _selectedCollectionKey = null;
+    _mediaScrollEntries = const [];
+    _scrollItems.clear();
     _loadedMediaLimit = 60;
     ++_pageGeneration;
     await _loadCachedMedia();
@@ -1402,9 +1919,37 @@ class AppController extends TamayuraModel {
       return;
     }
     _selectedCollectionKey = key;
+    _mediaScrollEntries = const [];
+    _scrollItems.clear();
     _loadedMediaLimit = 60;
     ++_pageGeneration;
     await _loadCachedMedia();
+  }
+
+  @override
+  Future<void> setMediaSortOrder(MediaSortOrder order) async {
+    if (_disposed ||
+        _repository == null ||
+        _mediaSortOrderChanging ||
+        order == _mediaSortOrder) {
+      return;
+    }
+    _mediaSortOrderChanging = true;
+    _error = null;
+    ++_pageGeneration;
+    _notify();
+    try {
+      // A filter change may supersede an in-flight read. Apply the requested
+      // order to the latest filter instead of silently losing the selection.
+      do {
+        await _loadCachedMedia(sortOrder: order);
+      } while (!_disposed && _mediaSortOrder != order);
+    } catch (error) {
+      if (!_disposed) _error = describeError(error);
+    } finally {
+      _mediaSortOrderChanging = false;
+      _notify();
+    }
   }
 
   @override
@@ -1422,6 +1967,7 @@ class AppController extends TamayuraModel {
       }
       final item =
           _items[view.key] ??
+          _scrollItems[view.key] ??
           await _repository!.getMedia(view.deviceId, view.id) ??
           (await _taskStore!.forMedia(view.deviceId, view.id))?.item;
       final peer = _peers[view.deviceId];
@@ -1446,6 +1992,44 @@ class AppController extends TamayuraModel {
       _error = describeError(e);
     } finally {
       _scheduling.remove(view.key);
+      await _refreshTransfers();
+      _notify();
+    }
+  }
+
+  @override
+  Future<bool> deleteLocalFile(MediaView item) async {
+    if (_disposed ||
+        _repository == null ||
+        _taskStore == null ||
+        !_scheduling.add(item.key)) {
+      return false;
+    }
+    _deletingLocalFiles.add(item.key);
+    ++_localFileRevision;
+    _error = null;
+    try {
+      final task = await _taskStore!.forMedia(item.deviceId, item.id);
+      // A stale saved badge must not delete a file while a new export is active.
+      if (task?.active == true) return false;
+      final saved = await _repository!.getDownload(item.deviceId, item.id);
+      final uri = saved?.uri ?? task?.savedUri;
+      if (uri == null) return false;
+      await _bridge.deleteDownload(uri);
+      // Keep the download record until the completed task is gone, so a failed
+      // persistence cleanup remains retryable even after the file is deleted.
+      await _taskStore!.removeCompleted(item.deviceId, item.id);
+      await _repository!.removeDownload(item.deviceId, item.id);
+      _transfers.remove(item.key);
+      _transferTaskKeys.remove(item.key);
+      return true;
+    } catch (error) {
+      _error = describeError(error);
+      return false;
+    } finally {
+      ++_localFileRevision;
+      _deletingLocalFiles.remove(item.key);
+      _scheduling.remove(item.key);
       await _refreshTransfers();
       _notify();
     }
@@ -1494,15 +2078,43 @@ class AppController extends TamayuraModel {
   }
 
   @override
-  Future<Uint8List?> loadPreview(MediaView item) async {
+  Future<Uint8List?> loadPreview(
+    MediaView item, {
+    int maxDimension = 2560,
+    bool Function()? isCurrent,
+  }) async {
     final uri = _transfers[item.key]?.savedUri;
-    if (uri == null || item.isVideo) return null;
+    bool stillSaved() =>
+        !_disposed &&
+        isCurrent?.call() != false &&
+        !_deletingLocalFiles.contains(item.key) &&
+        uri == _transfers[item.key]?.savedUri;
+    if (uri == null || item.isVideo || !stillSaved()) return null;
+    // The gallery may request many images at once. Bound native decoding on
+    // every platform and leave worker capacity for downloads and catalog work.
+    if (_activePreviews < 2) {
+      _activePreviews++;
+    } else {
+      final ready = Completer<void>();
+      _previewWaiters.add(ready);
+      await ready.future;
+    }
     try {
-      return await _bridge.readPreview(uri, maxDimension: 2560);
-    } catch (e) {
-      _error = describeError(e);
-      _notify();
+      if (!stillSaved()) return null;
+      final bytes = await _bridge.readPreview(uri, maxDimension: maxDimension);
+      // A superseded consumer, deletion or replacement must not restore stale
+      // pixels after native decoding finishes.
+      return stillSaved() ? bytes : null;
+    } catch (_) {
+      // Browsing missing, revoked or unsupported files quietly uses cached
+      // thumbnails. A preview failure does not prove the saved record is stale.
       return null;
+    } finally {
+      if (_previewWaiters.isEmpty) {
+        _activePreviews--;
+      } else {
+        _previewWaiters.removeAt(0).complete();
+      }
     }
   }
 
@@ -1553,6 +2165,7 @@ class AppController extends TamayuraModel {
     try {
       await _transferScheduler?.shutdown();
       await _reloadTail;
+      await _scrollWorker;
       await _repository?.close();
       await _taskStore?.close();
     } catch (_) {}
@@ -1563,6 +2176,18 @@ class AppController extends TamayuraModel {
     unawaited(shutdown());
     super.dispose();
   }
+}
+
+class _MediaScrollRequest {
+  const _MediaScrollRequest({
+    required this.generation,
+    required this.serial,
+    required this.index,
+    required this.entries,
+  });
+
+  final int generation, serial;
+  final List<MediaScrollEntry> index, entries;
 }
 
 class _SharingStartupCancelled implements Exception {}

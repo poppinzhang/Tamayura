@@ -8,10 +8,15 @@ import 'package:qr_flutter/qr_flutter.dart';
 import '../app/view_state.dart';
 import '../app/endpoint.dart';
 import 'about_page.dart';
+import 'album_image.dart';
+import 'album_fast_scroll.dart';
+import 'album_scroll_geometry.dart';
 import 'app_theme.dart';
+import 'device_order_dialog.dart';
 import 'downloads_page.dart';
 import 'desktop_layout.dart';
 import 'media_preview.dart';
+import 'sync_notices.dart';
 
 class TamayuraApp extends StatelessWidget {
   const TamayuraApp({super.key, required this.model});
@@ -44,22 +49,40 @@ class _Home extends StatefulWidget {
   State<_Home> createState() => _HomeState();
 }
 
-class _HomeState extends State<_Home> {
+class _HomeState extends State<_Home> with TickerProviderStateMixin {
   int _tab = 0;
   bool _connecting = false;
   final _albumScroll = ScrollController();
+  late SyncNotices _syncNotices;
+  AlbumScrollGeometry? _albumGridGeometry;
   bool _requestingMore = false;
   String? _loadMoreError;
+  int _albumPageGeneration = 0;
+  bool _selectingLocal = false;
+  bool _deletingLocal = false;
+  final Set<String> _selectedLocal = {};
+  final Map<String, MediaView> _selectedLocalItems = {};
   TamayuraModel get model => widget.model;
 
   @override
   void initState() {
     super.initState();
     _albumScroll.addListener(_onAlbumScroll);
+    _syncNotices = SyncNotices(model: model, vsync: this);
+  }
+
+  @override
+  void didUpdateWidget(_Home oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.model != model) {
+      _syncNotices.dispose();
+      _syncNotices = SyncNotices(model: model, vsync: this);
+    }
   }
 
   @override
   void dispose() {
+    _syncNotices.dispose();
     _albumScroll.dispose();
     super.dispose();
   }
@@ -67,9 +90,11 @@ class _HomeState extends State<_Home> {
   void _onAlbumScroll() {
     if (_tab == 0 &&
         model.selectedCollectionKey != null &&
+        !(isMobile && model.mediaScrollEntries.isNotEmpty) &&
         _albumScroll.position.extentAfter < 450 &&
         model.hasMoreMedia &&
         !model.loadingMoreMedia &&
+        !model.mediaSortOrderChanging &&
         !_requestingMore &&
         _loadMoreError == null &&
         model.error == null) {
@@ -78,9 +103,13 @@ class _HomeState extends State<_Home> {
   }
 
   Future<void> _loadMore() async {
-    if (_requestingMore || model.loadingMoreMedia || !model.hasMoreMedia) {
+    if (_requestingMore ||
+        model.loadingMoreMedia ||
+        model.mediaSortOrderChanging ||
+        !model.hasMoreMedia) {
       return;
     }
+    final generation = _albumPageGeneration;
     setState(() {
       _requestingMore = true;
       _loadMoreError = null;
@@ -88,23 +117,117 @@ class _HomeState extends State<_Home> {
     try {
       await model.loadMoreMedia();
     } catch (_) {
-      if (mounted) setState(() => _loadMoreError = '更多照片暂时未能加载，请重试。');
+      if (mounted && generation == _albumPageGeneration) {
+        setState(() => _loadMoreError = '更多照片暂时未能加载，请重试。');
+      }
     } finally {
-      if (mounted) setState(() => _requestingMore = false);
+      if (mounted && generation == _albumPageGeneration) {
+        setState(() => _requestingMore = false);
+      }
     }
   }
 
-  Future<void> _selectDevice(String? id) async {
+  void _resetAlbumPaging() => setState(() {
+    _albumPageGeneration++;
+    _requestingMore = false;
     _loadMoreError = null;
+  });
+
+  Future<void> _selectDevice(String? id) async {
+    if (_deletingLocal) return;
+    _clearLocalSelection();
+    _resetAlbumPaging();
     await _run(() => model.selectDevice(id));
     if (mounted && _albumScroll.hasClients) _albumScroll.jumpTo(0);
   }
 
   Future<void> _selectCollection(String? key) async {
-    _loadMoreError = null;
+    if (_deletingLocal) return;
+    _clearLocalSelection();
+    _resetAlbumPaging();
     await _run(() => model.selectCollection(key));
     if (mounted && _albumScroll.hasClients) _albumScroll.jumpTo(0);
   }
+
+  Future<void> _setMediaSortOrder(MediaSortOrder order) async {
+    if (_deletingLocal ||
+        model.mediaSortOrderChanging ||
+        order == model.mediaSortOrder) {
+      return;
+    }
+    _clearLocalSelection();
+    _resetAlbumPaging();
+    await _run(() => model.setMediaSortOrder(order));
+    if (mounted && _albumScroll.hasClients) _albumScroll.jumpTo(0);
+  }
+
+  Widget _albumSortButton() {
+    final enabled = !_deletingLocal && !model.mediaSortOrderChanging;
+    final colors = Theme.of(context).colorScheme;
+    return PopupMenuButton<MediaSortOrder>(
+      key: const Key('album-sort'),
+      enabled: enabled,
+      tooltip: '按名称或文件修改日期排序',
+      initialValue: model.mediaSortOrder,
+      onSelected: _setMediaSortOrder,
+      itemBuilder: (_) => [
+        for (final order in MediaSortOrder.values)
+          CheckedPopupMenuItem(
+            key: Key('album-sort-${order.name}'),
+            value: order,
+            checked: order == model.mediaSortOrder,
+            child: Text(_mediaSortLabel(order)),
+          ),
+      ],
+      child: Semantics(
+        button: true,
+        enabled: enabled,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            border: Border.all(color: colors.outline),
+            borderRadius: BorderRadius.circular(24),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            child: IconTheme(
+              data: IconThemeData(
+                size: 18,
+                color: enabled ? colors.primary : colors.onSurfaceVariant,
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.sort_rounded),
+                  const SizedBox(width: 8),
+                  Flexible(
+                    child: Text(
+                      model.mediaSortOrderChanging
+                          ? '正在排序…'
+                          : '排序：${_mediaSortLabel(model.mediaSortOrder)}',
+                      style: TextStyle(
+                        color: enabled
+                            ? colors.primary
+                            : colors.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  const Icon(Icons.expand_more_rounded),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  String _mediaSortLabel(MediaSortOrder order) => switch (order) {
+    MediaSortOrder.nameAscending => '名称升序',
+    MediaSortOrder.nameDescending => '名称降序',
+    MediaSortOrder.dateAscending => '日期升序',
+    MediaSortOrder.dateDescending => '日期降序',
+  };
 
   void _preview(MediaView item) {
     final transfer = model.transfers[item.key];
@@ -117,6 +240,111 @@ class _HomeState extends State<_Home> {
       ),
     );
   }
+
+  void _clearLocalSelection() => setState(() {
+    _selectingLocal = false;
+    _selectedLocal.clear();
+    _selectedLocalItems.clear();
+  });
+
+  void _toggleLocalSelection(MediaView item) {
+    if (_deletingLocal ||
+        model.mediaSortOrderChanging ||
+        model.transfers[item.key]?.complete != true) {
+      return;
+    }
+    setState(() {
+      _selectingLocal = true;
+      if (_selectedLocal.add(item.key)) {
+        _selectedLocalItems[item.key] = item;
+      } else {
+        _selectedLocal.remove(item.key);
+        _selectedLocalItems.remove(item.key);
+      }
+    });
+  }
+
+  void _pruneLocalSelection() {
+    if (_deletingLocal) return;
+    final keys = isMobile && model.mediaScrollEntries.isNotEmpty
+        ? model.mediaScrollEntries.map((item) => item.key)
+        : model.media.map((item) => item.key);
+    final savedKeys = keys
+        .where((key) => model.transfers[key]?.complete == true)
+        .toSet();
+    _selectedLocal.retainAll(savedKeys);
+    _selectedLocalItems.removeWhere((key, _) => !_selectedLocal.contains(key));
+  }
+
+  Future<void> _deleteSelectedLocalFiles() async {
+    if (_deletingLocal) return;
+    final selected = _selectedLocalItems.values
+        .where(
+          (item) =>
+              _selectedLocal.contains(item.key) &&
+              model.transfers[item.key]?.complete == true,
+        )
+        .toList();
+    if (selected.isEmpty) return;
+    setState(() => _deletingLocal = true);
+    var deleted = 0;
+    for (final item in selected) {
+      try {
+        if (await model.deleteLocalFile(item)) {
+          deleted++;
+          _selectedLocal.remove(item.key);
+        }
+      } catch (_) {
+        // Keep failed selections so the user can retry the remaining files.
+      }
+    }
+    if (!mounted) return;
+    setState(() {
+      _deletingLocal = false;
+      if (_selectedLocal.isEmpty) _selectingLocal = false;
+    });
+    final failed = selected.length - deleted;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          failed == 0
+              ? '已删除 $deleted 个本地文件，可轻点缩略图重新下载。'
+              : '已删除 $deleted 个本地文件，$failed 个未能删除，请检查目录权限后重试。',
+        ),
+      ),
+    );
+  }
+
+  Widget _localSelectionBar() => Padding(
+    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+    child: Wrap(
+      spacing: 12,
+      runSpacing: 8,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        Text('已选择 ${_selectedLocal.length} 项'),
+        FilledButton.icon(
+          key: const Key('confirm-delete-local'),
+          onPressed: _deletingLocal || _selectedLocal.isEmpty
+              ? null
+              : _deleteSelectedLocalFiles,
+          icon: const Icon(Icons.delete_outline_rounded),
+          label: Text(
+            _deletingLocal
+                ? '正在删除…'
+                : isMobile
+                ? '删除本地文件'
+                : '确认',
+          ),
+        ),
+        TextButton(
+          key: const Key('cancel-delete-local'),
+          onPressed: _deletingLocal ? null : _clearLocalSelection,
+          child: const Text('取消'),
+        ),
+      ],
+    ),
+  );
 
   Future<void> _run(Future<void> Function() action) async {
     try {
@@ -144,6 +372,36 @@ class _HomeState extends State<_Home> {
     if (address != null && mounted) await _connect(address);
   }
 
+  Future<void> _editAutoSyncInterval() async {
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => _AutoSyncIntervalDialog(
+        initialHours: model.autoSyncIntervalHours,
+        onSave: (hours) async {
+          var saved = false;
+          await _run(() async {
+            await model.setAutoSyncIntervalHours(hours);
+            saved = model.autoSyncIntervalHours == hours;
+          });
+          return saved;
+        },
+      ),
+    );
+  }
+
+  Future<void> _editDeviceOrder() async {
+    if (model.deviceOrderSaving || model.devices.length < 2) return;
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => DeviceOrderDialog(
+        devices: model.devices,
+        onSave: model.reorderDevices,
+      ),
+    );
+  }
+
   Future<void> _scan() async {
     final address = await Navigator.of(
       context,
@@ -163,7 +421,11 @@ class _HomeState extends State<_Home> {
     );
   }
 
-  void _changeTab(int tab) => setState(() => _tab = tab);
+  void _changeTab(int tab) {
+    if (_deletingLocal) return;
+    _clearLocalSelection();
+    setState(() => _tab = tab);
+  }
 
   Widget _desktopNavigation(bool extended) => NavigationRail(
     key: const Key('desktop-navigation'),
@@ -195,9 +457,10 @@ class _HomeState extends State<_Home> {
 
   @override
   Widget build(BuildContext context) => ListenableBuilder(
-    listenable: model,
+    listenable: Listenable.merge([model, _syncNotices]),
     builder: (context, _) => LayoutBuilder(
       builder: (context, constraints) {
+        _pruneLocalSelection();
         final desktopNavigation = isDesktop && constraints.maxWidth >= 800;
         return CallbackShortcuts(
           bindings: isDesktop
@@ -238,9 +501,16 @@ class _HomeState extends State<_Home> {
           child: Focus(
             autofocus: isDesktop,
             child: PopScope(
-              canPop: _tab != 0 || model.selectedCollectionKey == null,
+              canPop:
+                  !_selectingLocal &&
+                  (_tab != 0 || model.selectedCollectionKey == null),
               onPopInvokedWithResult: (didPop, _) {
-                if (!didPop) unawaited(_selectCollection(null));
+                if (didPop || _deletingLocal) return;
+                if (_selectingLocal) {
+                  _clearLocalSelection();
+                } else {
+                  unawaited(_selectCollection(null));
+                }
               },
               child: Scaffold(
                 appBar: AppBar(
@@ -318,6 +588,8 @@ class _HomeState extends State<_Home> {
                                     ? null
                                     : () => _run(model.refresh),
                               ),
+                            if (_tab == 0 && _selectingLocal)
+                              _localSelectionBar(),
                             Expanded(
                               child:
                                   model.loading &&
@@ -356,8 +628,7 @@ class _HomeState extends State<_Home> {
                     ? null
                     : NavigationBar(
                         selectedIndex: _tab,
-                        onDestinationSelected: (value) =>
-                            setState(() => _tab = value),
+                        onDestinationSelected: _changeTab,
                         destinations: const [
                           NavigationDestination(
                             key: Key('album-tab'),
@@ -391,6 +662,10 @@ class _HomeState extends State<_Home> {
     final devices = model.devices;
     final collections = model.collections;
     final browsingCollection = model.selectedCollectionKey != null;
+    final scrollEntries = model.mediaScrollEntries;
+    final virtualGrid =
+        isMobile && browsingCollection && scrollEntries.isNotEmpty;
+    final itemCount = virtualGrid ? scrollEntries.length : media.length;
     final collection = collections
         .where((item) => item.key == model.selectedCollectionKey)
         .firstOrNull;
@@ -410,269 +685,385 @@ class _HomeState extends State<_Home> {
     final syncFailed = syncProgress.any(
       (item) => item.phase == SyncPhase.failed,
     );
-    return RefreshIndicator(
-      onRefresh: () => _run(model.refresh),
-      child: CustomScrollView(
-        key: const PageStorageKey('album-scroll'),
-        controller: _albumScroll,
-        physics: const AlwaysScrollableScrollPhysics(),
-        slivers: [
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(22, 20, 22, 0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    '每一刻，都在手边。',
-                    style: TextStyle(fontSize: 26, fontWeight: FontWeight.w700),
+    final scrollView = CustomScrollView(
+      key: const PageStorageKey('album-scroll'),
+      controller: _albumScroll,
+      physics: const AlwaysScrollableScrollPhysics(),
+      slivers: [
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(22, 20, 22, 0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  '每一刻，都在手边。',
+                  style: TextStyle(fontSize: 26, fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  '按共享文件夹浏览合集，轻点照片就存到这里。',
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    height: 1.5,
+                  ),
+                ),
+                const SizedBox(height: 22),
+                if (model.sharedFolders.isEmpty || model.downloadFolder == null)
+                  _setupCard(),
+                if (devices.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: [
+                        _filterChip(null, '全部设备', null),
+                        for (final device in devices)
+                          _filterChip(device.id, device.name, device.online),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                ],
+                for (final notice in _syncNotices.visible.where(
+                  (notice) =>
+                      syncDeviceId == null ||
+                      notice.progress.peerId == syncDeviceId,
+                ))
+                  SizeTransition(
+                    key: ObjectKey(notice),
+                    sizeFactor: notice.animation,
+                    alignment: Alignment.topCenter,
+                    child: FadeTransition(
+                      key: Key('sync-notice-fade-${notice.progress.peerId}'),
+                      opacity: notice.animation,
+                      child: Padding(
+                        padding: const EdgeInsets.only(bottom: 16),
+                        child: _SyncProgressCard(
+                          progress: notice.progress,
+                          onDismiss: notice.dismiss,
+                          onRetry: model.busy
+                              ? null
+                              : () => _run(
+                                  () => model.retrySync(notice.progress.peerId),
+                                ),
+                        ),
+                      ),
+                    ),
+                  ),
+                if (browsingCollection) ...[
+                  TextButton.icon(
+                    key: const Key('back-to-collections'),
+                    onPressed: () => _selectCollection(null),
+                    icon: const Icon(Icons.arrow_back_rounded),
+                    label: const Text('全部合集'),
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    '按共享文件夹浏览合集，轻点照片就存到这里。',
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      height: 1.5,
+                    collection?.sharedFolderName ?? '共享合集',
+                    style: const TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.w700,
                     ),
                   ),
-                  const SizedBox(height: 22),
-                  if (model.sharedFolders.isEmpty ||
-                      model.downloadFolder == null)
-                    _setupCard(),
-                  if (devices.isNotEmpty) ...[
-                    const SizedBox(height: 4),
-                    SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: Row(
-                        children: [
-                          _filterChip(null, '全部设备', null),
-                          for (final device in devices)
-                            _filterChip(device.id, device.name, device.online),
-                        ],
+                  const SizedBox(height: 8),
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Wrap(
+                      spacing: 12,
+                      runSpacing: 8,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        _albumSortButton(),
+                        if (!isMobile && !_selectingLocal)
+                          OutlinedButton.icon(
+                            key: const Key('delete-local-files'),
+                            onPressed:
+                                !model.mediaSortOrderChanging &&
+                                    media.any(
+                                      (item) =>
+                                          model.transfers[item.key]?.complete ==
+                                          true,
+                                    )
+                                ? () => setState(() => _selectingLocal = true)
+                                : null,
+                            icon: const Icon(Icons.delete_outline_rounded),
+                            label: const Text('删除本地文件'),
+                          ),
+                      ],
+                    ),
+                  ),
+                ],
+                if (!browsingCollection && collections.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 14),
+                    child: Text(
+                      '${collections.length} 个合集',
+                      style: const TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                if (browsingCollection && media.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 14),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            '${model.totalMediaCount} 个瞬间',
+                            style: const TextStyle(fontWeight: FontWeight.w600),
+                          ),
+                        ),
+                        Flexible(
+                          child: Text(
+                            _selectingLocal ? '选择已保存的图片或视频' : '轻点下载原文件',
+                            textAlign: TextAlign.right,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+        if (browsingCollection ? itemCount == 0 : collections.isEmpty)
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(28, 36, 28, 40),
+              child: _EmptyState(
+                icon: Icons.photo_library_outlined,
+                title: syncing
+                    ? '正在接收相册'
+                    : syncFailed
+                    ? '同步尚未完成'
+                    : devices.isEmpty
+                    ? '让照片相遇'
+                    : browsingCollection
+                    ? '这个合集还没有照片'
+                    : '这里还没有合集',
+                description: syncing
+                    ? '缩略图会陆续显示，你可以边同步边浏览。'
+                    : syncFailed
+                    ? '请检查两台设备的连接，然后重试同步。'
+                    : devices.isEmpty
+                    ? '在另一台设备上打开玉响，连接同一个局域网。\n发现设备后，共享文件夹会以合集出现在这里。'
+                    : isDesktop
+                    ? '对方需要选择共享目录，并保持玉响运行。\n点击右上角刷新，更新已连接设备的相册。'
+                    : '对方需要选择共享目录，开启后台共享后锁屏也能访问。\n点击右上角刷新，更新已连接设备的相册。',
+                action: syncing || syncFailed
+                    ? null
+                    : TextButton.icon(
+                        onPressed: () => setState(() => _tab = 1),
+                        icon: const Icon(Icons.add_rounded),
+                        label: const Text('连接一台设备'),
                       ),
-                    ),
-                    const SizedBox(height: 16),
-                  ],
-                  for (final progress in syncProgress)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 16),
-                      child: _SyncProgressCard(
-                        progress: progress,
-                        onRetry: model.busy
-                            ? null
-                            : () =>
-                                  _run(() => model.retrySync(progress.peerId)),
-                      ),
-                    ),
-                  if (browsingCollection) ...[
-                    TextButton.icon(
-                      key: const Key('back-to-collections'),
-                      onPressed: () => _selectCollection(null),
-                      icon: const Icon(Icons.arrow_back_rounded),
-                      label: const Text('全部合集'),
-                    ),
-                    const SizedBox(height: 8),
+              ),
+            ),
+          )
+        else if (!browsingCollection)
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(18, 0, 18, 24),
+            sliver: SliverLayoutBuilder(
+              builder: (context, constraints) {
+                final count = (constraints.crossAxisExtent / 190)
+                    .floor()
+                    .clamp(2, 5)
+                    .toInt();
+                final textScale = MediaQuery.textScalerOf(context).scale(1);
+                return SliverGrid(
+                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: count,
+                    mainAxisSpacing: 14,
+                    crossAxisSpacing: 12,
+                    mainAxisExtent:
+                        constraints.crossAxisExtent / count + 96 * textScale,
+                  ),
+                  delegate: SliverChildBuilderDelegate((context, index) {
+                    final item = collections[index];
+                    final device = devices
+                        .where((device) => device.id == item.deviceId)
+                        .firstOrNull;
+                    return _CollectionCard(
+                      collection: item,
+                      deviceName: device?.name ?? '已记住的设备',
+                      onTap: () => _selectCollection(item.key),
+                    );
+                  }, childCount: collections.length),
+                );
+              },
+            ),
+          )
+        else
+          SliverPadding(
+            padding: model.albumDetailedMode
+                ? const EdgeInsets.fromLTRB(18, 0, 18, 24)
+                : const EdgeInsets.fromLTRB(2, 0, 2, 24),
+            sliver: SliverLayoutBuilder(
+              builder: (context, constraints) {
+                final detailed = model.albumDetailedMode;
+                final count = detailed
+                    ? (constraints.crossAxisExtent / 175)
+                          .floor()
+                          .clamp(2, 5)
+                          .toInt()
+                    : (constraints.crossAxisExtent / 96)
+                          .round()
+                          .clamp(3, 12)
+                          .toInt();
+                final textScale = MediaQuery.textScalerOf(context).scale(1);
+                final gridDelegate = SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: count,
+                  mainAxisSpacing: detailed ? 14 : 2,
+                  crossAxisSpacing: detailed ? 12 : 2,
+                  childAspectRatio: 1,
+                  mainAxisExtent: detailed
+                      ? constraints.crossAxisExtent / count + 90 * textScale
+                      : null,
+                );
+                final tileExtent = detailed
+                    ? constraints.crossAxisExtent / count + 90 * textScale
+                    : (constraints.crossAxisExtent - (count - 1) * 2) / count;
+                _albumGridGeometry = AlbumScrollGeometry(
+                  scrollOffset: constraints.precedingScrollExtent,
+                  columns: count,
+                  tileExtent: tileExtent,
+                  rowStride: tileExtent + (detailed ? 14 : 2),
+                  itemCount: itemCount,
+                );
+                return SliverGrid(
+                  key: const Key('album-media-grid'),
+                  gridDelegate: gridDelegate,
+                  delegate: SliverChildBuilderDelegate((context, index) {
+                    final item = virtualGrid
+                        ? model.mediaAtScrollIndex(index)
+                        : media[index];
+                    if (item == null) {
+                      return _albumPlaceholder(index);
+                    }
+                    final device = devices
+                        .where((device) => device.id == item.deviceId)
+                        .firstOrNull;
+                    return _MediaCard(
+                      model: model,
+                      detailed: detailed,
+                      item: item,
+                      deviceName: device?.name ?? '已记住的设备',
+                      online: device?.online ?? false,
+                      transfer: model.transfers[item.key],
+                      selecting: _selectingLocal,
+                      selected: _selectedLocal.contains(item.key),
+                      selectionEnabled: !_deletingLocal,
+                      onSelect: () => _toggleLocalSelection(item),
+                      onLongPress: isMobile && !_selectingLocal
+                          ? () => _toggleLocalSelection(item)
+                          : null,
+                      onPreview: () => _preview(item),
+                      onDownload: () => _run(() => model.download(item)),
+                      onShare: () => _run(() => model.share(item)),
+                    );
+                  }, childCount: itemCount),
+                );
+              },
+            ),
+          ),
+        if (browsingCollection &&
+            !virtualGrid &&
+            (model.hasMoreMedia ||
+                model.loadingMoreMedia ||
+                _requestingMore ||
+                _loadMoreError != null))
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(22, 0, 22, 26),
+              child: Column(
+                children: [
+                  if (_loadMoreError != null)
                     Text(
-                      collection?.sharedFolderName ?? '共享合集',
-                      style: const TextStyle(
-                        fontSize: 22,
-                        fontWeight: FontWeight.w700,
+                      _loadMoreError!,
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
                       ),
                     ),
-                    const SizedBox(height: 8),
-                  ],
-                  if (!browsingCollection && collections.isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 14),
-                      child: Text(
-                        '${collections.length} 个合集',
-                        style: const TextStyle(fontWeight: FontWeight.w600),
-                      ),
-                    ),
-                  if (browsingCollection && media.isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 14),
+                  if (model.loadingMoreMedia || _requestingMore)
+                    const Padding(
+                      padding: EdgeInsets.all(14),
                       child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Expanded(
-                            child: Text(
-                              '${model.totalMediaCount} 个瞬间',
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
+                          SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
                           ),
-                          Flexible(
-                            child: Text(
-                              '轻点下载原文件',
-                              textAlign: TextAlign.right,
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Theme.of(
-                                  context,
-                                ).colorScheme.onSurfaceVariant,
-                              ),
-                            ),
-                          ),
+                          SizedBox(width: 10),
+                          Text('正在加载更多照片…'),
                         ],
                       ),
+                    )
+                  else
+                    TextButton.icon(
+                      key: const Key('load-more-media'),
+                      onPressed: _loadMore,
+                      icon: const Icon(Icons.expand_more_rounded),
+                      label: Text(_loadMoreError == null ? '加载更多照片' : '重试加载'),
                     ),
                 ],
               ),
             ),
           ),
-          if (browsingCollection ? media.isEmpty : collections.isEmpty)
-            SliverToBoxAdapter(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(28, 36, 28, 40),
-                child: _EmptyState(
-                  icon: Icons.photo_library_outlined,
-                  title: syncing
-                      ? '正在接收相册'
-                      : syncFailed
-                      ? '同步尚未完成'
-                      : devices.isEmpty
-                      ? '让照片相遇'
-                      : browsingCollection
-                      ? '这个合集还没有照片'
-                      : '这里还没有合集',
-                  description: syncing
-                      ? '缩略图会陆续显示，你可以边同步边浏览。'
-                      : syncFailed
-                      ? '请检查两台设备的连接，然后重试同步。'
-                      : devices.isEmpty
-                      ? '在另一台设备上打开玉响，连接同一个局域网。\n发现设备后，共享文件夹会以合集出现在这里。'
-                      : isDesktop
-                      ? '对方需要选择共享目录，并保持玉响运行。\n点击右上角刷新，更新已连接设备的相册。'
-                      : '对方需要选择共享目录，开启后台共享后锁屏也能访问。\n你也可以下拉刷新，更新已连接设备的相册。',
-                  action: syncing || syncFailed
-                      ? null
-                      : TextButton.icon(
-                          onPressed: () => setState(() => _tab = 1),
-                          icon: const Icon(Icons.add_rounded),
-                          label: const Text('连接一台设备'),
-                        ),
+      ],
+    );
+    if (!isMobile || !browsingCollection) return scrollView;
+    return AlbumFastScroll(
+      key: const Key('album-fast-scroll'),
+      controller: _albumScroll,
+      geometry: () => _albumGridGeometry,
+      entries: virtualGrid
+          ? scrollEntries
+          : [
+              for (final item in media)
+                MediaScrollEntry(
+                  id: item.id,
+                  deviceId: item.deviceId,
+                  name: item.name,
+                  modified: item.modified,
                 ),
-              ),
-            )
-          else if (!browsingCollection)
-            SliverPadding(
-              padding: const EdgeInsets.fromLTRB(18, 0, 18, 24),
-              sliver: SliverLayoutBuilder(
-                builder: (context, constraints) {
-                  final count = (constraints.crossAxisExtent / 190)
-                      .floor()
-                      .clamp(2, 5)
-                      .toInt();
-                  final textScale = MediaQuery.textScalerOf(context).scale(1);
-                  return SliverGrid(
-                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: count,
-                      mainAxisSpacing: 14,
-                      crossAxisSpacing: 12,
-                      mainAxisExtent:
-                          constraints.crossAxisExtent / count + 96 * textScale,
-                    ),
-                    delegate: SliverChildBuilderDelegate((context, index) {
-                      final item = collections[index];
-                      final device = devices
-                          .where((device) => device.id == item.deviceId)
-                          .firstOrNull;
-                      return _CollectionCard(
-                        collection: item,
-                        deviceName: device?.name ?? '已记住的设备',
-                        onTap: () => _selectCollection(item.key),
-                      );
-                    }, childCount: collections.length),
-                  );
-                },
-              ),
-            )
-          else
-            SliverPadding(
-              padding: const EdgeInsets.fromLTRB(18, 0, 18, 24),
-              sliver: SliverLayoutBuilder(
-                builder: (context, constraints) {
-                  final count = (constraints.crossAxisExtent / 175)
-                      .floor()
-                      .clamp(2, 5)
-                      .toInt();
-                  final textScale = MediaQuery.textScalerOf(context).scale(1);
-                  return SliverGrid(
-                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: count,
-                      mainAxisSpacing: 14,
-                      crossAxisSpacing: 12,
-                      mainAxisExtent:
-                          constraints.crossAxisExtent / count + 90 * textScale,
-                    ),
-                    delegate: SliverChildBuilderDelegate((context, index) {
-                      final item = media[index];
-                      final device = devices
-                          .where((device) => device.id == item.deviceId)
-                          .firstOrNull;
-                      return _MediaCard(
-                        item: item,
-                        deviceName: device?.name ?? '已记住的设备',
-                        online: device?.online ?? false,
-                        transfer: model.transfers[item.key],
-                        onPreview: () => _preview(item),
-                        onDownload: () => _run(() => model.download(item)),
-                        onShare: () => _run(() => model.share(item)),
-                      );
-                    }, childCount: media.length),
-                  );
-                },
-              ),
-            ),
-          if (browsingCollection &&
-              (model.hasMoreMedia ||
-                  model.loadingMoreMedia ||
-                  _requestingMore ||
-                  _loadMoreError != null))
-            SliverToBoxAdapter(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(22, 0, 22, 26),
-                child: Column(
-                  children: [
-                    if (_loadMoreError != null)
-                      Text(
-                        _loadMoreError!,
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                    if (model.loadingMoreMedia || _requestingMore)
-                      const Padding(
-                        padding: EdgeInsets.all(14),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            ),
-                            SizedBox(width: 10),
-                            Text('正在加载更多照片…'),
-                          ],
-                        ),
-                      )
-                    else
-                      TextButton.icon(
-                        key: const Key('load-more-media'),
-                        onPressed: _loadMore,
-                        icon: const Icon(Icons.expand_more_rounded),
-                        label: Text(_loadMoreError == null ? '加载更多照片' : '重试加载'),
-                      ),
-                  ],
-                ),
-              ),
-            ),
-        ],
-      ),
+            ],
+      sortOrder: model.mediaSortOrder,
+      identity: (model.selectedCollectionKey, model.mediaSortOrder),
+      active: _tab == 0 && !model.mediaSortOrderChanging,
+      onVisibleRange: virtualGrid
+          ? (first, last) =>
+                unawaited(_run(() => model.ensureMediaScrollRange(first, last)))
+          : null,
+      child: scrollView,
     );
   }
+
+  Widget _albumPlaceholder(int index) => ColoredBox(
+    key: ValueKey('album-placeholder-$index'),
+    color: Theme.of(context).colorScheme.surfaceContainerHighest,
+    child: Center(
+      child: model.error == null
+          ? Icon(
+              Icons.image_outlined,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+              semanticLabel: '正在加载缩略图',
+            )
+          : IconButton(
+              tooltip: '重试加载缩略图',
+              icon: const Icon(Icons.refresh_rounded),
+              onPressed: () =>
+                  _run(() => model.ensureMediaScrollRange(index, index)),
+            ),
+    ),
+  );
 
   Widget _filterChip(String? id, String name, bool? online) => Padding(
     padding: const EdgeInsets.only(right: 8),
@@ -746,188 +1137,195 @@ class _HomeState extends State<_Home> {
     ),
   );
 
-  Widget _devices() => RefreshIndicator(
-    onRefresh: () => _run(model.refresh),
-    child: ListView(
-      key: const PageStorageKey('devices-scroll'),
-      physics: const AlwaysScrollableScrollPhysics(),
-      padding: const EdgeInsets.fromLTRB(22, 20, 22, 30),
-      children: [
-        const _PageHeading(title: '附近的伙伴', subtitle: '同一个局域网，让每台设备的相册连在一起。'),
-        const SizedBox(height: 22),
-        Container(
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.surfaceContainerLow,
-            borderRadius: BorderRadius.circular(22),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Icon(
-                    Icons.wifi_rounded,
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    size: 22,
-                  ),
-                  SizedBox(width: 8),
-                  Text(
-                    '这台设备',
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 14),
-              Text(
-                model.deviceName,
-                style: TextStyle(
-                  color: Theme.of(context).colorScheme.onSurface,
-                  fontSize: 23,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const SizedBox(height: 7),
-              Text(
-                model.addresses.isEmpty
-                    ? '暂无局域网地址，请连接网络后刷新'
-                    : model.addresses
-                          .map((address) => '$address:${model.port}')
-                          .join('\n'),
-                style: TextStyle(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  height: 1.5,
-                ),
-              ),
-              const SizedBox(height: 12),
-              OutlinedButton.icon(
-                onPressed: model.addresses.isEmpty || model.port <= 0
-                    ? null
-                    : _showQr,
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: Theme.of(context).colorScheme.onSurface,
-                  disabledForegroundColor: Theme.of(
-                    context,
-                  ).colorScheme.onSurface.withValues(alpha: .38),
-                  side: BorderSide(
-                    color: Theme.of(context).colorScheme.outline,
-                  ),
-                ),
-                icon: const Icon(Icons.qr_code_rounded, size: 18),
-                label: const Text('展示连接二维码'),
-              ),
-            ],
-          ),
+  Widget _devices() => ListView(
+    key: const PageStorageKey('devices-scroll'),
+    physics: const AlwaysScrollableScrollPhysics(),
+    padding: const EdgeInsets.fromLTRB(22, 20, 22, 30),
+    children: [
+      const _PageHeading(title: '附近的伙伴', subtitle: '同一个局域网，让每台设备的相册连在一起。'),
+      const SizedBox(height: 22),
+      Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surfaceContainerLow,
+          borderRadius: BorderRadius.circular(22),
         ),
-        const SizedBox(height: 18),
-        Wrap(
-          spacing: 10,
-          runSpacing: 10,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            FilledButton.icon(
-              key: const Key('connect-manual'),
-              onPressed: _connecting || model.busy ? null : _manualConnect,
-              icon: const Icon(Icons.add_link_rounded, size: 20),
-              label: const Text('输入 IP 连接'),
+            Row(
+              children: [
+                Icon(
+                  Icons.wifi_rounded,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  size: 22,
+                ),
+                SizedBox(width: 8),
+                Text(
+                  '这台设备',
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
             ),
-            if (!isWindowsDesktop)
-              OutlinedButton.icon(
-                onPressed: _connecting || model.busy ? null : _scan,
-                icon: const Icon(Icons.qr_code_scanner_rounded, size: 20),
-                label: const Text('扫一扫'),
+            const SizedBox(height: 14),
+            Text(
+              model.deviceName,
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurface,
+                fontSize: 23,
+                fontWeight: FontWeight.w700,
               ),
+            ),
+            const SizedBox(height: 7),
+            Text(
+              model.addresses.isEmpty
+                  ? '暂无局域网地址，请连接网络后刷新'
+                  : model.addresses
+                        .map((address) => '$address:${model.port}')
+                        .join('\n'),
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                height: 1.5,
+              ),
+            ),
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              onPressed: model.addresses.isEmpty || model.port <= 0
+                  ? null
+                  : _showQr,
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Theme.of(context).colorScheme.onSurface,
+                disabledForegroundColor: Theme.of(
+                  context,
+                ).colorScheme.onSurface.withValues(alpha: .38),
+                side: BorderSide(color: Theme.of(context).colorScheme.outline),
+              ),
+              icon: const Icon(Icons.qr_code_rounded, size: 18),
+              label: const Text('展示连接二维码'),
+            ),
           ],
         ),
-        if (_connecting) ...[
-          const SizedBox(height: 16),
-          const LinearProgressIndicator(),
-          const SizedBox(height: 6),
+      ),
+      const SizedBox(height: 18),
+      Wrap(
+        spacing: 10,
+        runSpacing: 10,
+        children: [
+          FilledButton.icon(
+            key: const Key('connect-manual'),
+            onPressed: _connecting || model.busy ? null : _manualConnect,
+            icon: const Icon(Icons.add_link_rounded, size: 20),
+            label: const Text('输入 IP 连接'),
+          ),
+          if (!isWindowsDesktop)
+            OutlinedButton.icon(
+              onPressed: _connecting || model.busy ? null : _scan,
+              icon: const Icon(Icons.qr_code_scanner_rounded, size: 20),
+              label: const Text('扫一扫'),
+            ),
+        ],
+      ),
+      if (_connecting) ...[
+        const SizedBox(height: 16),
+        const LinearProgressIndicator(),
+        const SizedBox(height: 6),
+        Text(
+          '正在连接设备…',
+          style: TextStyle(
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
+        ),
+      ],
+      const SizedBox(height: 30),
+      Row(
+        children: [
+          const Expanded(
+            child: Text(
+              '已记住的设备',
+              style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
+            ),
+          ),
           Text(
-            '正在连接设备…',
+            '${model.devices.where((device) => device.online).length} 台在线',
             style: TextStyle(
               color: Theme.of(context).colorScheme.onSurfaceVariant,
             ),
           ),
         ],
-        const SizedBox(height: 30),
-        Row(
-          children: [
-            const Expanded(
-              child: Text(
-                '已记住的设备',
-                style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
-              ),
-            ),
-            Text(
-              '${model.devices.where((device) => device.online).length} 台在线',
-              style: TextStyle(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 12),
-        if (model.devices.isEmpty)
-          const Padding(
-            padding: EdgeInsets.symmetric(vertical: 22),
-            child: _EmptyState(
-              icon: Icons.radar_rounded,
-              title: '等待另一台玉响',
-              description: '设备会通过局域网自动发现。\n如果暂时没找到，可以输入 IP 或扫描二维码连接。',
-            ),
-          ),
-        for (final device in model.devices)
-          _SurfaceCard(
-            margin: const EdgeInsets.only(bottom: 10),
-            child: ListTile(
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 14,
-                vertical: 8,
-              ),
-              leading: CircleAvatar(
-                backgroundColor: Theme.of(
-                  context,
-                ).colorScheme.surfaceContainerHighest,
-                child: Icon(
-                  Icons.devices_rounded,
-                  color: device.online
-                      ? Theme.of(context).colorScheme.primary
-                      : Theme.of(context).colorScheme.onSurfaceVariant,
-                ),
-              ),
-              title: Text(
-                device.name,
-                style: const TextStyle(fontWeight: FontWeight.w600),
-              ),
-              subtitle: Text(
-                '${device.online ? '在线' : '离线 · 可浏览缓存'}\n${device.address}',
-                style: const TextStyle(height: 1.6, fontSize: 12),
-              ),
-              isThreeLine: true,
-              trailing: const Icon(Icons.chevron_right_rounded),
-              onTap: () {
-                _selectDevice(device.id);
-                setState(() => _tab = 0);
-              },
-            ),
-          ),
-        const SizedBox(height: 12),
-        Text(
-          isWindowsDesktop
-              ? '设备离线后仍会保留相册缩略图。共享与接收需要玉响运行、电脑保持唤醒，并与来源设备处于同一局域网。'
-              : isMacDesktop
-              ? '设备离线后仍会保留相册缩略图。共享与接收需要玉响保持运行、Mac 保持唤醒，并与来源设备处于同一局域网。'
-              : '设备离线后仍会保留相册缩略图。来源设备开启后台共享后，锁屏也能提供原文件；这台设备可以切换到其他应用继续接收。',
-          style: TextStyle(
-            color: Theme.of(context).colorScheme.onSurfaceVariant,
-            height: 1.6,
-            fontSize: 12,
+      ),
+      if (model.devices.length > 1)
+        Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton.icon(
+            key: const Key('edit-device-order'),
+            onPressed: model.deviceOrderSaving ? null : _editDeviceOrder,
+            icon: const Icon(Icons.swap_vert_rounded, size: 20),
+            label: const Text('调整顺序'),
           ),
         ),
-      ],
-    ),
+      const SizedBox(height: 12),
+      if (model.devices.isEmpty)
+        const Padding(
+          padding: EdgeInsets.symmetric(vertical: 22),
+          child: _EmptyState(
+            icon: Icons.radar_rounded,
+            title: '等待另一台玉响',
+            description: '设备会通过局域网自动发现。\n如果暂时没找到，可以输入 IP 或扫描二维码连接。',
+          ),
+        ),
+      for (final device in model.devices)
+        _SurfaceCard(
+          margin: const EdgeInsets.only(bottom: 10),
+          child: ListTile(
+            key: Key('device-${device.id}'),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 14,
+              vertical: 8,
+            ),
+            leading: CircleAvatar(
+              backgroundColor: Theme.of(
+                context,
+              ).colorScheme.surfaceContainerHighest,
+              child: Icon(
+                Icons.devices_rounded,
+                color: device.online
+                    ? Theme.of(context).colorScheme.primary
+                    : Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+            title: Text(
+              device.name,
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
+            subtitle: Text(
+              '${device.online ? '在线' : '离线 · 可浏览缓存'}\n${device.address}\n'
+              '最后成功同步：${_formatSuccessfulSync(device.lastSuccessfulSync)}',
+              style: const TextStyle(height: 1.6, fontSize: 12),
+            ),
+            isThreeLine: true,
+            trailing: const Icon(Icons.chevron_right_rounded),
+            onTap: () {
+              _selectDevice(device.id);
+              setState(() => _tab = 0);
+            },
+          ),
+        ),
+      const SizedBox(height: 12),
+      Text(
+        isWindowsDesktop
+            ? '设备离线后仍会保留相册缩略图。共享与接收需要玉响运行、电脑保持唤醒，并与来源设备处于同一局域网。'
+            : isMacDesktop
+            ? '设备离线后仍会保留相册缩略图。共享与接收需要玉响保持运行、Mac 保持唤醒，并与来源设备处于同一局域网。'
+            : '设备离线后仍会保留相册缩略图。来源设备开启后台共享后，锁屏也能提供原文件；这台设备可以切换到其他应用继续接收。',
+        style: TextStyle(
+          color: Theme.of(context).colorScheme.onSurfaceVariant,
+          height: 1.6,
+          fontSize: 12,
+        ),
+      ),
+    ],
   );
 
   Widget _settings() => ListView(
@@ -1012,6 +1410,59 @@ class _HomeState extends State<_Home> {
         ),
       ),
       const SizedBox(height: 28),
+      const _SectionLabel('相册'),
+      _SurfaceCard(
+        child: SwitchListTile(
+          key: const Key('album-detailed-mode'),
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 18,
+            vertical: 10,
+          ),
+          title: const Text('详细模式'),
+          subtitle: Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Text(
+              model.albumDetailedModeSaving
+                  ? '正在保存显示模式…'
+                  : '默认模式使用紧凑的正方形网格，点击照片查看详细信息。'
+                        '\n开启详细模式后，照片卡片会显示文件名、来源设备、日期和下载状态。',
+              style: const TextStyle(height: 1.6),
+            ),
+          ),
+          value: model.albumDetailedMode,
+          onChanged: model.loading || model.albumDetailedModeSaving
+              ? null
+              : (enabled) => _run(() => model.setAlbumDetailedMode(enabled)),
+        ),
+      ),
+      const SizedBox(height: 28),
+      const _SectionLabel('同步'),
+      _SurfaceCard(
+        child: ListTile(
+          key: const Key('auto-sync-interval'),
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 18,
+            vertical: 10,
+          ),
+          title: const Text('自动同步间隔'),
+          subtitle: Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Text(
+              model.autoSyncIntervalSaving
+                  ? '正在保存同步间隔…'
+                  : '上次同步尝试超过 ${model.autoSyncIntervalHours} 小时后自动同步。'
+                        '\n手动同步和同步失败都会重新计时。点击右上角刷新可立即同步。',
+              style: const TextStyle(height: 1.6),
+            ),
+          ),
+          trailing: const Icon(Icons.edit_outlined),
+          enabled: !model.loading && !model.autoSyncIntervalSaving,
+          onTap: model.loading || model.autoSyncIntervalSaving
+              ? null
+              : _editAutoSyncInterval,
+        ),
+      ),
+      const SizedBox(height: 28),
       const _SectionLabel('文件与存储'),
       _SurfaceCard(
         child: Padding(
@@ -1084,9 +1535,9 @@ class _HomeState extends State<_Home> {
               ),
               subtitle: Text(
                 isWindowsDesktop
-                    ? '开启后，最小化窗口仍可共享；关闭后在窗口隐藏时停止共享。玉响需要保持运行，电脑需要保持唤醒。'
+                    ? '关闭窗口后玉响会留在系统托盘。开启此项后，关闭或最小化窗口仍可共享；关闭此项后在窗口隐藏时停止共享。电脑需要保持唤醒。'
                     : isMacDesktop
-                    ? '开启后，隐藏或最小化窗口仍可共享；关闭后在窗口隐藏时停止共享。玉响需要保持运行，Mac 需要保持唤醒。'
+                    ? '关闭窗口后玉响会留在菜单栏。开启此项后，关闭、隐藏或最小化窗口仍可共享；关闭此项后在窗口隐藏时停止共享。Mac 需要保持唤醒。'
                     : '开启后锁屏仍可共享媒体；关闭后仅在使用应用时共享，更省电。',
                 style: TextStyle(fontSize: 12, height: 1.6),
               ),
@@ -1256,8 +1707,9 @@ class _HomeState extends State<_Home> {
         ),
         const _Tip(
           icon: Icons.downloading_rounded,
-          title: '最小化后，接收继续',
-          description: '保持玉响运行和电脑唤醒即可继续下载。关闭窗口会退出应用；睡眠或断网后可在下载任务中重试。',
+          title: '关闭窗口，接收继续',
+          description:
+              '关闭窗口后，已开始的下载继续。点击系统托盘中的玉响图标可重新打开，右键菜单可选择「退出玉响」。电脑睡眠或断网后可在下载任务中重试。',
         ),
         const _Tip(
           icon: Icons.keyboard_rounded,
@@ -1274,8 +1726,9 @@ class _HomeState extends State<_Home> {
         ),
         const _Tip(
           icon: Icons.downloading_rounded,
-          title: '切换应用，接收继续',
-          description: '保持玉响运行和 Mac 唤醒即可继续下载。退出应用或系统睡眠会中断传输，恢复后可在下载任务中重试。',
+          title: '关闭窗口，接收继续',
+          description:
+              '关闭窗口后，已开始的下载继续。从右上角菜单栏或 Dock 可重新打开；选择「退出玉响」或按 ⌘Q 才会退出。Mac 睡眠或断网后可在下载任务中重试。',
         ),
         const _Tip(
           icon: Icons.keyboard_rounded,
@@ -1337,10 +1790,15 @@ class _HomeState extends State<_Home> {
 }
 
 class _SyncProgressCard extends StatelessWidget {
-  const _SyncProgressCard({required this.progress, required this.onRetry});
+  const _SyncProgressCard({
+    required this.progress,
+    required this.onRetry,
+    required this.onDismiss,
+  });
 
   final SyncProgress progress;
   final VoidCallback? onRetry;
+  final VoidCallback onDismiss;
 
   @override
   Widget build(BuildContext context) {
@@ -1381,7 +1839,7 @@ class _SyncProgressCard extends StatelessWidget {
       child: Container(
         key: Key('sync-progress-${progress.peerId}'),
         width: double.infinity,
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         decoration: BoxDecoration(
           color: failed ? colors.errorContainer : colors.surfaceContainer,
           borderRadius: BorderRadius.circular(18),
@@ -1407,6 +1865,24 @@ class _SyncProgressCard extends StatelessWidget {
                     progress.peerName,
                     style: const TextStyle(fontWeight: FontWeight.w700),
                   ),
+                ),
+                IconButton(
+                  key: Key('dismiss-sync-${progress.peerId}'),
+                  tooltip: '关闭同步提示',
+                  onPressed: onDismiss,
+                  visualDensity: VisualDensity.compact,
+                  style: IconButton.styleFrom(
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  constraints: const BoxConstraints(
+                    minWidth: 32,
+                    minHeight: 32,
+                  ),
+                  padding: EdgeInsets.zero,
+                  icon: const Icon(Icons.close_rounded, size: 20),
+                  color: failed
+                      ? colors.onErrorContainer
+                      : colors.onSurfaceVariant,
                 ),
               ],
             ),
@@ -1525,6 +2001,8 @@ class _CollectionCard extends StatelessWidget {
 
 class _MediaCard extends StatelessWidget {
   const _MediaCard({
+    required this.model,
+    required this.detailed,
     required this.item,
     required this.deviceName,
     required this.online,
@@ -1532,106 +2010,185 @@ class _MediaCard extends StatelessWidget {
     required this.onDownload,
     required this.onPreview,
     required this.onShare,
+    required this.selecting,
+    required this.selected,
+    required this.selectionEnabled,
+    required this.onSelect,
+    this.onLongPress,
   });
+  final TamayuraModel model;
+  final bool detailed;
   final MediaView item;
   final String deviceName;
   final bool online;
   final TransferView? transfer;
   final VoidCallback onDownload, onShare, onPreview;
+  final bool selecting, selected, selectionEnabled;
+  final VoidCallback onSelect;
+  final VoidCallback? onLongPress;
 
   @override
   Widget build(BuildContext context) {
     final running = transfer?.running ?? false;
     final complete = transfer?.complete ?? false;
+    final image = Semantics(
+      label:
+          '${item.name}，来自$deviceName，${complete
+              ? '已保存'
+              : running
+              ? '正在下载'
+              : transfer?.error != null
+              ? '下载失败，点击重试'
+              : online
+              ? '点击下载原文件'
+              : '设备离线，点击查看详情'}',
+      button: true,
+      selected: selecting ? selected : null,
+      enabled: !selecting || (complete && selectionEnabled),
+      child: InkWell(
+        key: Key('media-${item.key}'),
+        onTap: selecting
+            ? complete && selectionEnabled
+                  ? onSelect
+                  : null
+            : onPreview,
+        onLongPress: onLongPress,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            Hero(
+              tag: 'media-${item.key}',
+              transitionOnUserGestures: true,
+              child: AlbumImage(
+                model: model,
+                item: item,
+                placeholder: const _MissingThumbnail(),
+              ),
+            ),
+            if (item.isVideo)
+              Positioned(
+                top: detailed ? 8 : 4,
+                left: detailed ? 8 : 4,
+                child: detailed
+                    ? const _ImageBadge(
+                        icon: Icons.videocam_rounded,
+                        label: '视频',
+                      )
+                    : const _CompactImageBadge(
+                        icon: Icons.videocam_rounded,
+                        label: '视频',
+                      ),
+              ),
+            if (detailed)
+              Positioned(
+                bottom: 8,
+                left: 8,
+                child: _ImageBadge(
+                  icon: complete
+                      ? Icons.check_circle_rounded
+                      : online
+                      ? Icons.download_rounded
+                      : Icons.cloud_off_rounded,
+                  label: complete
+                      ? '已保存'
+                      : online
+                      ? _formatBytes(item.size)
+                      : '设备离线',
+                ),
+              ),
+            if (!detailed &&
+                !running &&
+                (complete || transfer?.error != null || !online))
+              Positioned(
+                bottom: 4,
+                right: 4,
+                child: _CompactImageBadge(
+                  icon: complete
+                      ? Icons.check_circle_rounded
+                      : transfer?.error != null
+                      ? Icons.error_outline_rounded
+                      : Icons.cloud_off_rounded,
+                  label: complete
+                      ? '已保存'
+                      : transfer?.error != null
+                      ? '下载失败，点击重试'
+                      : '设备离线',
+                ),
+              ),
+            if (running)
+              ColoredBox(
+                color: Colors.black45,
+                child: Center(
+                  child: !detailed
+                      ? SizedBox.square(
+                          dimension: 24,
+                          child: CircularProgressIndicator(
+                            value: transfer!.progress.clamp(0, 1).toDouble(),
+                            strokeWidth: 2,
+                            color: Colors.white,
+                            backgroundColor: Colors.white30,
+                            semanticsLabel: '正在下载 ${item.name}',
+                            semanticsValue:
+                                '${(transfer!.progress * 100).round()}%',
+                          ),
+                        )
+                      : Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            CircularProgressIndicator(
+                              value: transfer!.progress.clamp(0, 1).toDouble(),
+                              color: Colors.white,
+                              backgroundColor: Colors.white30,
+                            ),
+                            const SizedBox(height: 10),
+                            Text(
+                              '${(transfer!.progress * 100).round()}%',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                ),
+              ),
+            if (selecting)
+              Positioned(
+                top: 4,
+                right: 4,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.surface,
+                    shape: BoxShape.circle,
+                  ),
+                  child: Checkbox(
+                    key: Key('select-local-${item.key}'),
+                    value: selected,
+                    onChanged: complete && selectionEnabled
+                        ? (_) => onSelect()
+                        : null,
+                    semanticLabel: complete
+                        ? '选择 ${item.name}'
+                        : '${item.name} 尚未保存',
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (!detailed) {
+      return Material(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        clipBehavior: Clip.hardEdge,
+        child: image,
+      );
+    }
     return _SurfaceCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(
-            child: Semantics(
-              label:
-                  '${item.name}，来自$deviceName，${complete
-                      ? '已保存'
-                      : running
-                      ? '正在下载'
-                      : '点击下载原文件'}',
-              button: true,
-              child: InkWell(
-                key: Key('media-${item.key}'),
-                onTap: onPreview,
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    Hero(
-                      tag: 'media-${item.key}',
-                      transitionOnUserGestures: true,
-                      child: item.thumbnail.isNotEmpty
-                          ? Image.memory(
-                              item.thumbnail,
-                              fit: BoxFit.cover,
-                              cacheWidth: 640,
-                              gaplessPlayback: true,
-                              errorBuilder: (_, _, _) =>
-                                  const _MissingThumbnail(),
-                            )
-                          : const _MissingThumbnail(),
-                    ),
-                    if (item.isVideo)
-                      const Positioned(
-                        top: 8,
-                        left: 8,
-                        child: _ImageBadge(
-                          icon: Icons.videocam_rounded,
-                          label: '视频',
-                        ),
-                      ),
-                    Positioned(
-                      bottom: 8,
-                      left: 8,
-                      child: _ImageBadge(
-                        icon: complete
-                            ? Icons.check_circle_rounded
-                            : online
-                            ? Icons.download_rounded
-                            : Icons.cloud_off_rounded,
-                        label: complete
-                            ? '已保存'
-                            : online
-                            ? _formatBytes(item.size)
-                            : '设备离线',
-                      ),
-                    ),
-                    if (running)
-                      ColoredBox(
-                        color: Colors.black45,
-                        child: Center(
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              CircularProgressIndicator(
-                                value: transfer!.progress
-                                    .clamp(0, 1)
-                                    .toDouble(),
-                                color: Colors.white,
-                                backgroundColor: Colors.white30,
-                              ),
-                              const SizedBox(height: 10),
-                              Text(
-                                '${(transfer!.progress * 100).round()}%',
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-            ),
-          ),
+          Expanded(child: image),
           Padding(
             padding: const EdgeInsets.fromLTRB(10, 10, 10, 0),
             child: Text(
@@ -1655,7 +2212,14 @@ class _MediaCard extends StatelessWidget {
           ),
           SizedBox(
             height: 40 * MediaQuery.textScalerOf(context).scale(1),
-            child: complete
+            child: selecting
+                ? Center(
+                    child: Text(
+                      complete ? '仅删除本地文件' : '尚未保存',
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                  )
+                : complete
                 ? TextButton.icon(
                     key: Key('share-${item.key}'),
                     onPressed: onShare,
@@ -1694,6 +2258,16 @@ class _MediaCard extends StatelessWidget {
   }
 }
 
+String _formatSuccessfulSync(DateTime? timestamp) {
+  if (timestamp == null) return '尚未成功同步';
+  final local = timestamp.toLocal();
+  String twoDigits(int value) => value.toString().padLeft(2, '0');
+  return '${local.year.toString().padLeft(4, '0')}-'
+      '${twoDigits(local.month)}-${twoDigits(local.day)} '
+      '${twoDigits(local.hour)}:${twoDigits(local.minute)}:'
+      '${twoDigits(local.second)}';
+}
+
 String _formatBytes(int bytes) => bytes >= 1024 * 1024
     ? '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB'
     : '${(bytes / 1024).ceil()} KB';
@@ -1708,6 +2282,27 @@ class _MissingThumbnail extends StatelessWidget {
         Icons.image_outlined,
         size: 32,
         color: Theme.of(context).colorScheme.onSurfaceVariant,
+      ),
+    ),
+  );
+}
+
+class _CompactImageBadge extends StatelessWidget {
+  const _CompactImageBadge({required this.icon, required this.label});
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) => Tooltip(
+    message: label,
+    child: DecoratedBox(
+      decoration: const BoxDecoration(
+        color: Colors.black54,
+        shape: BoxShape.circle,
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(3),
+        child: Icon(icon, size: 14, color: Colors.white),
       ),
     ),
   );
@@ -1961,6 +2556,109 @@ class _ErrorNotice extends StatelessWidget {
           ),
         ],
       ),
+    ),
+  );
+}
+
+class _AutoSyncIntervalDialog extends StatefulWidget {
+  const _AutoSyncIntervalDialog({
+    required this.initialHours,
+    required this.onSave,
+  });
+
+  final int initialHours;
+  final Future<bool> Function(int hours) onSave;
+
+  @override
+  State<_AutoSyncIntervalDialog> createState() =>
+      _AutoSyncIntervalDialogState();
+}
+
+class _AutoSyncIntervalDialogState extends State<_AutoSyncIntervalDialog> {
+  late final _controller = TextEditingController(
+    text: '${widget.initialHours}',
+  );
+  bool _saving = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    if (_saving) return;
+    final text = _controller.text.trim();
+    final hours = RegExp(r'^[0-9]+$').hasMatch(text)
+        ? int.tryParse(text)
+        : null;
+    if (hours == null || hours < 1 || hours > 8760) {
+      setState(() => _error = '请输入 1–8760 之间的整数小时');
+      return;
+    }
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+    try {
+      final saved = await widget.onSave(hours);
+      if (!mounted) return;
+      if (saved) {
+        Navigator.of(context).pop();
+      } else {
+        setState(() => _error = '同步间隔未能保存，请重试。');
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => PopScope(
+    canPop: !_saving,
+    child: AlertDialog(
+      title: const Text('自动同步间隔'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              '从最近一次同步尝试开始计时，超过设定小时数后尝试自动同步。'
+              '手动同步和同步失败都会重新计时。',
+              style: TextStyle(height: 1.5),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              key: const Key('auto-sync-interval-input'),
+              controller: _controller,
+              enabled: !_saving,
+              autofocus: true,
+              keyboardType: TextInputType.number,
+              textInputAction: TextInputAction.done,
+              decoration: InputDecoration(
+                labelText: '间隔小时数',
+                helperText: '1–8760 小时，默认 12 小时',
+                errorText: _error,
+              ),
+              onSubmitted: (_) => _save(),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          key: const Key('auto-sync-interval-cancel'),
+          onPressed: _saving ? null : () => Navigator.of(context).pop(),
+          child: const Text('取消'),
+        ),
+        FilledButton(
+          key: const Key('auto-sync-interval-save'),
+          onPressed: _saving ? null : _save,
+          child: Text(_saving ? '正在保存…' : '保存'),
+        ),
+      ],
     ),
   );
 }

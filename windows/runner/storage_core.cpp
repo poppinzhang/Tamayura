@@ -785,6 +785,37 @@ std::wstring SaveDownload(const std::vector<std::string>& sources,
   return path;
 }
 
+void DeleteDownload(const std::string& uri) {
+  const auto path = LocalPath(uri);
+  if (path.size() == 3) throw StorageError("INVALID_ARGUMENT", "A media file is required");
+  const auto slash = path.find_last_of(L'\\');
+  PinnedDirectory parent;
+  try {
+    parent = PinDirectory(path.substr(0, slash == 2 ? 3 : slash));
+  } catch (const StorageError& error) {
+    // An absent parent means the saved file is already gone. Reparse points,
+    // permission failures and sharing violations must keep the saved record.
+    if (error.code == "FILE_NOT_FOUND") return;
+    throw;
+  }
+  const auto canonical = JoinPath(parent.path, path.substr(slash + 1));
+  Handle file(CreateFileW(NativePath(canonical).c_str(), DELETE | FILE_READ_ATTRIBUTES,
+                          FILE_SHARE_READ, nullptr, OPEN_EXISTING,
+                          FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS, nullptr));
+  if (file.get() == INVALID_HANDLE_VALUE) {
+    const auto error = GetLastError();
+    if (error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND) return;
+    IoError("Cannot access downloaded media for deletion", error);
+  }
+  RequireOrdinary(file.get(), false);
+  // Delete the exact opened file while its parent handles remain pinned.
+  FILE_DISPOSITION_INFO disposition{TRUE};
+  if (!SetFileInformationByHandle(file.get(), FileDispositionInfo, &disposition,
+                                  static_cast<DWORD>(sizeof(disposition)))) {
+    IoError("Cannot delete downloaded media");
+  }
+}
+
 Bytes JpegPreview(const SafeFile& file, unsigned maximum, bool video) {
   if (maximum < 1 || maximum > 2560) throw StorageError("INVALID_ARGUMENT", "Preview size must be 1..2560");
   ComScope com;

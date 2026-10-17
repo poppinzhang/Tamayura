@@ -18,6 +18,23 @@ void main() {
 
   tearDown(() => messenger.setMockMethodCallHandler(methods, null));
 
+  test('main-window visibility uses native window state', () async {
+    for (final visible in [true, false, null]) {
+      messenger.setMockMethodCallHandler(methods, (call) async {
+        expect(call.method, 'isMainWindowVisible');
+        return visible;
+      });
+      expect(await bridge.isMainWindowVisible(), visible ?? false);
+    }
+    messenger.setMockMethodCallHandler(methods, (_) async {
+      throw PlatformException(code: 'WINDOW_UNAVAILABLE');
+    });
+    await expectLater(
+      bridge.isMainWindowVisible(),
+      throwsA(isA<PlatformException>()),
+    );
+  });
+
   test('macOS selects the desktop bridge and process-owned transfers', () {
     expect(bridge.usesInProcessTransfers, isTrue);
     expect(const AndroidBridge().usesInProcessTransfers, isFalse);
