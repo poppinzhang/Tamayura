@@ -12,6 +12,8 @@ bool IsPeerId(const std::string& value) {
       });
 }
 
+bool IsCompatibleVersion(const std::string& value) { return value == kProtocolVersion; }
+
 bool IsWindowsId(const std::string& value) {
   if (value.size() != 44 || value.compare(0, 8, "windows-") != 0) return false;
   for (size_t i = 8; i < value.size(); ++i) {

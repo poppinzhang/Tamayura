@@ -18,7 +18,7 @@ A 手机需要 B 手机上的照片：双方在同一局域网打开 Tamayura，
 | `lib/core/catalog_repository.dart` | 不依赖 Flutter 的目录同步存储接口，供独立 Dart gRPC 对端使用 |
 | `lib/data/repository.dart` | SQLite 媒体缓存、分页查询、暂存快照事务和当前结构重建 |
 | `lib/data/transfer_store.dart` | 独立引擎共享的持久下载任务、进度和任务归属令牌 |
-| `lib/network/media_rpc.dart` | v3 gRPC 元数据分页、按需缩略图、范围读取和增量同步 |
+| `lib/network/media_rpc.dart` | v4 gRPC 元数据分页、按需缩略图、分窗范围读取和增量同步 |
 | `lib/network/downloader.dart` | 并发范围下载、持久分片和恢复校验 |
 | `lib/background/transfer_worker.dart` | 独立 Flutter 引擎中的下载、重试、导出与状态落库 |
 | `lib/platform/android_bridge.dart` | 方法/事件通道、目录授权、预览与系统任务调度 |
@@ -55,7 +55,7 @@ A 手机需要 B 手机上的照片：双方在同一局域网打开 Tamayura，
 
 ## 目录授权与原文件边界
 
-目录选择使用 `ACTION_OPEN_DOCUMENT_TREE` 和持久 URI 授权。支持多个互不重叠的共享目录，只扫描图片/视频，递归子目录；同目录和任意添加顺序的父子重叠都会拒绝。详见 [多目录共享与合集](多目录共享与合集.md)。本地 URI 不进入网络协议，远端只得到稳定的不透明媒体 ID。重新扫描期间保留旧文件映射继续服务，扫描成功后整体替换；移除目录、扫描失败或授权失效会撤销映射；共享目录不可用时目录 RPC 返回失败，不用“空目录”误删对端缓存。
+目录选择使用 `ACTION_OPEN_DOCUMENT_TREE` 和持久 URI 授权。支持多个互不重叠的共享目录，只扫描图片/视频，递归子目录；同目录和任意添加顺序的父子重叠都会拒绝。详见 [多目录共享与合集](多目录共享与合集.md)。本地 URI 不进入网络协议，远端只得到稳定的不透明媒体 ID。重新扫描期间保留旧文件映射继续服务，扫描成功后整体替换；移除目录、扫描失败或授权失效会撤销映射，单个无法读取的文件或子目录只被跳过；共享目录不可用时目录 RPC 返回失败，不用“空目录”误删对端缓存。
 
 `ReadFile` 仅接受当前共享快照中的媒体 ID、offset 和 length。每块最多 256 KiB，验证请求范围与实际读取长度。文件内容修改不在同步范围内；大小改变、提前结束或不连续的字节范围会拒绝传输。
 

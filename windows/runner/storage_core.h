@@ -95,6 +95,8 @@ struct MediaEntry {
   std::string shared_folder_name;
   std::string relative_path;
   std::wstring path;
+  // The pinned shared folder; its access failures are never per-file.
+  std::wstring root;
 };
 
 class MediaCatalog {
@@ -108,12 +110,20 @@ class MediaCatalog {
   void Validate(const std::string& uri,
                 const std::vector<std::string>& existing) const;
   // A failed current scan leaves nothing servable, as a revoked folder would.
+  // Files and subfolders that cannot be named or opened are skipped; only an
+  // unreadable shared folder fails the scan.
   std::vector<MediaEntry> Scan(const std::vector<SharedDirectory>& directories,
                              uint64_t ticket);
   Bytes Read(const std::string& id, int64_t offset, int64_t length);
   Bytes WithMedia(const std::string& id,
                   const std::function<Bytes(const MediaEntry&, const SafeFile&)>&
                       operation);
+  // Like macOS: a missing or changed file, or a preview that cannot be
+  // decoded, yields empty bytes so one file cannot block a peer's catalog.
+  // Shared-folder, permission, sharing, I/O and catalog errors still throw.
+  Bytes Thumbnail(const std::string& id,
+                  const std::function<Bytes(const MediaEntry&, const SafeFile&)>&
+                      generate);
 
  private:
   void RevokeLocked();

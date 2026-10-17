@@ -134,12 +134,20 @@ struct FindHandle {
   ~FindHandle() { if (value != INVALID_HANDLE_VALUE) FindClose(value); }
 };
 
+// A file or subfolder that is locked, vanished or cannot be named on Windows
+// is skipped. Cancellation and process-level failures still end the scan.
+bool SkippableScanError(const StorageError& error) {
+  return error.code == "INVALID_ARGUMENT" || error.code == "FILE_NOT_FOUND" ||
+         error.code == "PERMISSION_LOST" || error.code == "IO_ERROR";
+}
+
 void Enumerate(MediaCatalog& catalog, const SharedDirectory& shared,
-               const std::wstring& directory,
+               const std::wstring& root, const std::wstring& directory,
                const std::string& relative, uint64_t generation,
                std::vector<MediaEntry>& output) {
   catalog.AssertScan(generation);
   // Pin ancestors while FindFirstFile and child opens use absolute Win32 paths.
+  // The caller decides whether this directory failing is fatal.
   auto pinned = PinDirectory(directory);
   WIN32_FIND_DATAW data{};
   const auto pattern = JoinPath(pinned.path, L"*");
@@ -156,22 +164,27 @@ void Enumerate(MediaCatalog& catalog, const SharedDirectory& shared,
     if (name == L"." || name == L".." ||
         (data.dwFileAttributes & (FILE_ATTRIBUTE_REPARSE_POINT | FILE_ATTRIBUTE_HIDDEN |
                                  FILE_ATTRIBUTE_SYSTEM)) != 0) continue;
-    const std::string utf8_name = Utf8(name);
-    ValidateSegment(utf8_name);
     const auto path = JoinPath(pinned.path, name);
-    const auto child_relative = relative.empty() ? utf8_name : relative + "/" + utf8_name;
-    if (data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
-      Enumerate(catalog, shared, path, child_relative, generation, output);
-      continue;
+    const bool is_directory = (data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+    // Only media files and folders need a valid name; ignore anything else.
+    if (!is_directory && MediaMime(path).empty()) continue;
+    try {
+      const std::string utf8_name = Utf8(name);
+      ValidateSegment(utf8_name);
+      const auto child_relative = relative.empty() ? utf8_name : relative + "/" + utf8_name;
+      if (is_directory) {
+        Enumerate(catalog, shared, root, path, child_relative, generation, output);
+        continue;
+      }
+      RelativeComponents(child_relative);
+      auto file = SafeFile::Open(path);
+      const auto info = file.info();
+      output.push_back({StableMediaId(shared.id, child_relative), utf8_name, MediaMime(path),
+                        info.size, info.modified_ms, shared.id, shared.name,
+                        child_relative, path, root});
+    } catch (const StorageError& error) {
+      if (!SkippableScanError(error)) throw;
     }
-    const auto mime = MediaMime(path);
-    if (mime.empty()) continue;
-    RelativeComponents(child_relative);
-    auto file = SafeFile::Open(path);
-    const auto info = file.info();
-    output.push_back({StableMediaId(shared.id, child_relative), utf8_name, mime,
-                      info.size, info.modified_ms, shared.id, shared.name,
-                      child_relative, path});
   } while (FindNextFileW(search.value, &data));
   if (GetLastError() != ERROR_NO_MORE_FILES) IoError("Cannot finish directory scan");
 }
@@ -575,8 +588,10 @@ std::vector<MediaEntry> MediaCatalog::Scan(const std::vector<SharedDirectory>& d
   }
   std::vector<MediaEntry> metadata;
   for (const auto& directory : directories) {
+    // The shared folder itself must be readable. Its pinned handles also keep
+    // it from being renamed or removed while the scan skips unreadable children.
     auto root = PinDirectory(LocalPath(directory.uri));
-    Enumerate(*this, directory, root.path, "", expected, metadata);
+    Enumerate(*this, directory, root.path, root.path, "", expected, metadata);
   }
   std::map<std::string, MediaEntry> next;
   for (const auto& entry : metadata) next.emplace(entry.id, entry);
@@ -609,6 +624,38 @@ Bytes MediaCatalog::WithMedia(const std::string& id,
     throw StorageError("FILE_CHANGED", "Media changed; refresh the album");
   }
   auto result = operation(entry, file);
+  AssertCurrent(id, entry, expected);
+  return result;
+}
+
+Bytes MediaCatalog::Thumbnail(const std::string& id,
+    const std::function<Bytes(const MediaEntry&, const SafeFile&)>& generate) {
+  MediaEntry entry;
+  uint64_t expected = 0;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    const auto found = files_.find(id);
+    if (found == files_.end()) throw StorageError("FILE_NOT_FOUND", "This file is no longer shared; refresh the album");
+    entry = found->second;
+    expected = generation_;
+  }
+  // Shared-folder access errors affect every file, not one preview.
+  [[maybe_unused]] const auto root = PinDirectory(entry.root);
+  AssertCurrent(id, entry, expected);
+  Bytes result;
+  try {
+    auto file = SafeFile::Open(entry.path);
+    const auto info = file.info();
+    if (info.size == entry.size && info.modified_ms == entry.modified_ms) {
+      result = generate(entry, file);
+    }
+  } catch (const StorageError& error) {
+    // Permission, sharing and other I/O failures may recover; they must not be
+    // cached by peers as an empty preview.
+    if (error.code != "FILE_NOT_FOUND" && error.code != "FILE_CHANGED" &&
+        error.code != "PREVIEW_FAILED") throw;
+    result.clear();
+  }
   AssertCurrent(id, entry, expected);
   return result;
 }

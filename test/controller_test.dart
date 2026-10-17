@@ -734,67 +734,90 @@ void main() {
     expect(model.localMediaCount, 1);
   });
 
-  for (final invalidMetadata in [false, true]) {
-    test(
-      'activation immediately retries a recent ${invalidMetadata ? 'invalid metadata' : 'provider'} scan failure',
-      () async {
-        var now = DateTime(2026, 10, 17, 9);
-        model = AppController(
-          bridge: bridge,
-          preferredPort: 0,
-          openRepository: () async => db,
-          openTransfers: () async => tasks,
-          clock: () => now,
-        );
-        await model.initialize();
-        bridge.selection = {'uri': 'content://album', 'name': 'Album'};
-        await model.chooseSharedFolder();
-        final scans = bridge.scans.length;
-        final client = MediaRpcClient(
-          Peer(id: '', name: '', host: '127.0.0.1', port: model.port),
-        );
-        addTearDown(client.close);
-        expect((await client.listMediaPage()).items, hasLength(1));
+  test(
+    'activation immediately retries a recent provider scan failure',
+    () async {
+      var now = DateTime(2026, 10, 17, 9);
+      model = AppController(
+        bridge: bridge,
+        preferredPort: 0,
+        openRepository: () async => db,
+        openTransfers: () async => tasks,
+        clock: () => now,
+      );
+      await model.initialize();
+      bridge.selection = {'uri': 'content://album', 'name': 'Album'};
+      await model.chooseSharedFolder();
+      final scans = bridge.scans.length;
+      final client = MediaRpcClient(
+        Peer(id: '', name: '', host: '127.0.0.1', port: model.port),
+      );
+      addTearDown(client.close);
+      expect((await client.listMediaPage()).items, hasLength(1));
 
-        now = now.add(const Duration(seconds: 5));
-        bridge.scanFails = !invalidMetadata;
-        bridge.invalidMetadata = invalidMetadata;
-        await model.refresh();
-        expect(bridge.scans, hasLength(scans + 1));
-        expect(model.error, isNotNull);
-        expect(model.localMediaCount, 0);
-        await expectLater(
-          client.listMediaPage(),
-          throwsA(
-            isA<GrpcError>().having(
-              (error) => error.code,
-              'code',
-              StatusCode.failedPrecondition,
-            ),
+      now = now.add(const Duration(seconds: 5));
+      bridge.scanFails = true;
+      await model.refresh();
+      expect(bridge.scans, hasLength(scans + 1));
+      expect(model.error, isNotNull);
+      expect(model.localMediaCount, 0);
+      await expectLater(
+        client.listMediaPage(),
+        throwsA(
+          isA<GrpcError>().having(
+            (error) => error.code,
+            'code',
+            StatusCode.failedPrecondition,
           ),
-        );
+        ),
+      );
 
-        bridge.scanFails = false;
-        bridge.invalidMetadata = false;
-        now = now.add(const Duration(seconds: 1));
-        await model.refreshAfterResume();
-        expect(bridge.scans, hasLength(scans + 2));
-        expect(model.error, isNull);
-        expect(model.localMediaCount, 1);
-        expect((await client.listMediaPage()).items, hasLength(1));
+      bridge.scanFails = false;
+      now = now.add(const Duration(seconds: 1));
+      await model.refreshAfterResume();
+      expect(bridge.scans, hasLength(scans + 2));
+      expect(model.error, isNull);
+      expect(model.localMediaCount, 1);
+      expect((await client.listMediaPage()).items, hasLength(1));
 
-        now = now.add(const Duration(seconds: 1));
-        await model.refreshAfterResume();
-        expect(
-          bridge.scans,
-          hasLength(scans + 2),
-          reason: 'A recovered catalog uses the healthy scan interval again',
-        );
-        expect(model.error, isNull);
-        expect(model.localMediaCount, 1);
-      },
+      now = now.add(const Duration(seconds: 1));
+      await model.refreshAfterResume();
+      expect(
+        bridge.scans,
+        hasLength(scans + 2),
+        reason: 'A recovered catalog uses the healthy scan interval again',
+      );
+      expect(model.error, isNull);
+      expect(model.localMediaCount, 1);
+    },
+  );
+
+  test('invalid native metadata is skipped, not a scan failure', () async {
+    model = AppController(
+      bridge: bridge,
+      preferredPort: 0,
+      openRepository: () async => db,
+      openTransfers: () async => tasks,
     );
-  }
+    await model.initialize();
+    bridge.selection = {'uri': 'content://album', 'name': 'Album'};
+    await model.chooseSharedFolder();
+    final client = MediaRpcClient(
+      Peer(id: '', name: '', host: '127.0.0.1', port: model.port),
+    );
+    addTearDown(client.close);
+
+    bridge.invalidMetadata = true;
+    await model.refresh();
+    expect(model.error, isNull);
+    expect(model.localMediaCount, 0);
+    expect((await client.listMediaPage()).items, isEmpty);
+
+    bridge.invalidMetadata = false;
+    await model.refresh();
+    expect(model.localMediaCount, 1);
+    expect((await client.listMediaPage()).items, hasLength(1));
+  });
 
   test(
     'saved shared roots retain identity and all appear after initialization',

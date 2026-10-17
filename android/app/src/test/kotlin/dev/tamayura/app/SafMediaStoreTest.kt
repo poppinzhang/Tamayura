@@ -14,7 +14,6 @@ import android.provider.DocumentsContract
 import android.provider.DocumentsContract.Document
 import java.io.File
 import java.io.FileNotFoundException
-import java.io.IOException
 import java.util.concurrent.CancellationException
 import org.junit.Assert.*
 import org.junit.Before
@@ -131,19 +130,20 @@ class SafMediaStoreTest {
         assertTrue(provider.openedDocuments.isEmpty())
     }
 
-    @Test fun missingNamesStillFailForMediaAndDirectories() {
+    @Test fun unnamedMediaAndDirectoriesAreSkippedWithoutWithholdingOtherFiles() {
         for (mime in listOf("image/jpeg", "video/mp4", Document.MIME_TYPE_DIR)) {
-            provider.children["root"] = listOf(Row("unnamed", null, mime, 10L))
-            assertThrows(IOException::class.java) { scan() }
+            provider.children["root"] = listOf(Row("unnamed", null, mime, 10L), Row("photo", "photo.jpg", "image/jpeg", 12L))
+            assertEquals(listOf("photo.jpg"), scan().map { it["relativePath"] })
         }
         assertTrue(provider.openedDocuments.isEmpty())
     }
 
-    @Test fun unsafeMediaAndDirectoryPathsStillFail() {
+    @Test fun unsafeMediaAndDirectoryNamesAreSkippedWithoutWithholdingOtherFiles() {
         for (mime in listOf("image/jpeg", "video/mp4", Document.MIME_TYPE_DIR)) {
             for (name in listOf("", " ", ".", "..", "a/b.jpg", "a\\b.jpg", "a\nb.jpg")) {
-                provider.children["root"] = listOf(Row("invalid", name, mime, 10L))
-                assertThrows(IllegalArgumentException::class.java) { scan() }
+                provider.children["root"] = listOf(Row("invalid", name, mime, 10L), Row("photo", "photo.jpg", "image/jpeg", 12L))
+                provider.children["invalid"] = listOf(Row("inside", "inside.jpg", "image/jpeg", 1L))
+                assertEquals(listOf("photo.jpg"), scan().map { it["relativePath"] })
             }
         }
         assertTrue(provider.openedDocuments.isEmpty())
@@ -158,15 +158,28 @@ class SafMediaStoreTest {
         assertEquals(listOf("photo"), provider.openedDocuments)
     }
 
-    @Test fun mediaWithUnknownSizeStillFails() {
-        provider.children["root"] = listOf(Row("photo", "photo.jpg", "image/jpeg"))
+    @Test fun mediaWithUnknownSizeOrUnopenableDescriptorIsSkipped() {
+        val kept = Row("kept", "kept.jpg", "image/jpeg", 4L)
+        provider.children["root"] = listOf(Row("photo", "photo.jpg", "image/jpeg"), kept)
         provider.files["photo"] = null
 
-        assertThrows(IllegalStateException::class.java) { scan() }
+        assertEquals(listOf("kept.jpg"), scan().map { it["relativePath"] })
         assertEquals(listOf("photo"), provider.openedDocuments)
 
-        provider.children["root"] = listOf(Row("video", "video.mp4", "video/mp4", -1L))
-        assertThrows(IllegalStateException::class.java) { scan() }
+        provider.children["root"] = listOf(Row("video", "video.mp4", "video/mp4", -1L), kept)
+        assertEquals(listOf("kept.jpg"), scan().map { it["relativePath"] })
+
+        provider.children["root"] = listOf(Row("gone", "gone.jpg", "image/jpeg"), kept)
+        provider.onOpen = { throw FileNotFoundException("Deleted during the scan") }
+        assertEquals(listOf("kept.jpg"), scan().map { it["relativePath"] })
+    }
+
+    @Test fun permissionLossWhileSizingAFileStillFailsTheScan() {
+        provider.children["root"] = listOf(Row("photo", "photo.jpg", "image/jpeg"))
+        provider.onOpen = { throw SecurityException("Grant revoked") }
+
+        assertThrows(SecurityException::class.java) { scan() }
+        assertThrows(SecurityException::class.java) { store.readRange("any-id", 0, 0) }
     }
 
     @Test fun revokedDirectoryPermissionStillFailsBeforeQuerying() {
@@ -186,20 +199,40 @@ class SafMediaStoreTest {
         assertThrows(SecurityException::class.java) { store.readRange("any-id", 0, 0) }
     }
 
-    @Test fun unreadableRootOrNestedDirectoryStillFailsTheScan() {
+    @Test fun unreadableRootFailsButUnreadableNestedDirectoryIsSkipped() {
         provider.children["root"] = null
         assertThrows(FileNotFoundException::class.java) { scan() }
+        assertThrows(SecurityException::class.java) { store.readRange("any-id", 0, 0) }
 
         provider.children["root"] = listOf(
             Row("photo", "photo.jpg", "image/jpeg", 10L),
             Row("nested", "旅行", Document.MIME_TYPE_DIR),
+            Row("broken", "损坏", Document.MIME_TYPE_DIR),
         )
         provider.children["nested"] = null
-        assertThrows(FileNotFoundException::class.java) { scan() }
-        assertThrows(SecurityException::class.java) { store.readRange("any-id", 0, 0) }
+        provider.children["broken"] = listOf()
+        provider.failingDirectories += "broken"
+        assertEquals(listOf("photo.jpg"), scan().map { it["relativePath"] })
 
         provider.onQuery = { throw SecurityException("Provider denied directory access") }
         assertThrows(SecurityException::class.java) { scan() }
+    }
+
+    @Test fun rootDisappearingDuringTheScanPublishesNothing() {
+        val media = temporaryFolder.newFile("photo.jpg").apply { writeBytes(byteArrayOf(1, 2, 3, 4)) }
+        provider.children["root"] = listOf(Row("photo", "photo.jpg", "image/jpeg", 4L))
+        provider.files["photo"] = media
+        val id = scan().single()["id"] as String
+        assertEquals(listOf("root"), provider.queriedDocuments)
+
+        provider.children["root"] = listOf(
+            Row("photo", "photo.jpg", "image/jpeg", 4L),
+            Row("nested", "旅行", Document.MIME_TYPE_DIR),
+        )
+        provider.children["nested"] = null
+        provider.missingDocuments += "root"
+        assertThrows(FileNotFoundException::class.java) { store.scanMetadata(shared, store.beginScan(shared)) }
+        assertThrows(SecurityException::class.java) { store.readRange(id, 0, 4) }
     }
 
     @Test fun rescanKeepsServingPreviousFilesUntilItPublishes() {
@@ -372,6 +405,9 @@ class SafMediaStoreTest {
         val children = mutableMapOf<String, List<Row>?>()
         val files = mutableMapOf<String, File?>()
         val queriedDirectories = mutableListOf<String>()
+        val queriedDocuments = mutableListOf<String>()
+        val missingDocuments = mutableSetOf<String>()
+        val failingDirectories = mutableSetOf<String>()
         val openedDocuments = mutableListOf<String>()
         var onQuery: (() -> Unit)? = null
         var onOpen: ((String) -> Unit)? = null
@@ -380,10 +416,20 @@ class SafMediaStoreTest {
 
         override fun query(uri: Uri, projection: Array<out String>?, selection: String?,
                            selectionArgs: Array<out String>?, sortOrder: String?): Cursor? {
-            check(uri.lastPathSegment == "children") { "Unexpected query: $uri" }
+            if (uri.lastPathSegment != "children") {
+                // The scanner confirms each shared root still exists before publishing.
+                val document = DocumentsContract.getDocumentId(uri)
+                queriedDocuments.add(document)
+                if (document in missingDocuments) return null
+                val columns = requireNotNull(projection)
+                return MatrixCursor(columns).apply {
+                    addRow(columns.map { column -> if (column == Document.COLUMN_DOCUMENT_ID) document else null })
+                }
+            }
             val parent = DocumentsContract.getDocumentId(uri)
             queriedDirectories.add(parent)
             onQuery?.invoke()
+            if (parent in failingDirectories) throw IllegalStateException("Provider failed to list $parent")
             check(children.containsKey(parent)) { "Unexpected directory: $parent" }
             val rows = children[parent] ?: return null
             val columns = requireNotNull(projection)
