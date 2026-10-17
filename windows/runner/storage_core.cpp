@@ -1,4 +1,5 @@
 #include "storage_core.h"
+#include "image_preview.h"
 
 #include <bcrypt.h>
 #include <shlobj.h>
@@ -29,7 +30,47 @@ using Microsoft::WRL::ComPtr;
                                std::to_string(error) + ")");
 }
 
+void CheckRetryableCodecError(HRESULT value, const char* message) {
+  if (SUCCEEDED(value)) return;
+  const char* code = nullptr;
+  if (value == E_OUTOFMEMORY || value == STG_E_INSUFFICIENTMEMORY ||
+      value == HRESULT_FROM_WIN32(ERROR_NOT_ENOUGH_MEMORY) ||
+      value == HRESULT_FROM_WIN32(ERROR_NO_SYSTEM_RESOURCES) ||
+      value == HRESULT_FROM_WIN32(ERROR_NOT_ENOUGH_QUOTA) ||
+      value == HRESULT_FROM_WIN32(ERROR_COMMITMENT_LIMIT)) {
+    code = "RESOURCE_EXHAUSTED";
+  } else if (value == E_ACCESSDENIED || value == STG_E_ACCESSDENIED ||
+             value == STG_E_SHAREVIOLATION || value == STG_E_LOCKVIOLATION ||
+             value == HRESULT_FROM_WIN32(ERROR_SHARING_VIOLATION) ||
+             value == HRESULT_FROM_WIN32(ERROR_LOCK_VIOLATION)) {
+    code = "PERMISSION_LOST";
+  } else if (value == STG_E_FILENOTFOUND || value == STG_E_PATHNOTFOUND ||
+             value == HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND) ||
+             value == HRESULT_FROM_WIN32(ERROR_PATH_NOT_FOUND)) {
+    code = "FILE_NOT_FOUND";
+  } else if (value == STG_E_READFAULT || value == STG_E_WRITEFAULT ||
+             value == STG_E_MEDIUMFULL || value == E_ABORT || value == E_PENDING ||
+             value == WINCODEC_ERR_STREAMREAD || value == WINCODEC_ERR_STREAMWRITE ||
+             value == WINCODEC_ERR_STREAMNOTAVAILABLE || value == WINCODEC_ERR_WIN32ERROR ||
+             value == WINCODEC_ERR_ALREADYLOCKED ||
+             (HRESULT_FACILITY(value) == FACILITY_WIN32 &&
+              value != E_INVALIDARG &&
+              value != HRESULT_FROM_WIN32(ERROR_INVALID_DATA) &&
+              value != HRESULT_FROM_WIN32(ERROR_BAD_FORMAT) &&
+              value != HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED) &&
+              value != HRESULT_FROM_WIN32(ERROR_CALL_NOT_IMPLEMENTED) &&
+              value != HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER))) {
+    code = "IO_ERROR";
+  }
+  // Codec-level bad/unsupported image and buffer errors remain ordinary
+  // preview failures. Resource and filesystem errors must never become a
+  // cached empty thumbnail for an otherwise unchanged source file.
+  if (code) throw StorageError(code, std::string(message) + " (HRESULT " +
+                                      std::to_string(value) + ")");
+}
+
 void Check(HRESULT value, const char* message) {
+  CheckRetryableCodecError(value, message);
   if (FAILED(value)) {
     throw StorageError("PREVIEW_FAILED", std::string(message) + " (HRESULT " +
                                             std::to_string(value) + ")");
@@ -189,8 +230,9 @@ void Enumerate(MediaCatalog& catalog, const SharedDirectory& shared,
   if (GetLastError() != ERROR_NO_MORE_FILES) IoError("Cannot finish directory scan");
 }
 
-Bytes EncodeJpeg(IWICImagingFactory* factory, IWICBitmapSource* source,
-                 unsigned maximum) {
+ComPtr<IWICBitmapSource> ScaledImage(IWICImagingFactory* factory,
+                                    IWICBitmapSource* source,
+                                    unsigned maximum) {
   UINT width = 0, height = 0;
   Check(source->GetSize(&width, &height), "Cannot read image size");
   if (!width || !height) throw StorageError("PREVIEW_FAILED", "The image dimensions are empty");
@@ -205,6 +247,14 @@ Bytes EncodeJpeg(IWICImagingFactory* factory, IWICBitmapSource* source,
           "Cannot resize image");
     Check(scaler.As(&scaled), "Cannot prepare resized image");
   }
+  return scaled;
+}
+
+Bytes EncodeJpeg(IWICImagingFactory* factory, IWICBitmapSource* source,
+                 unsigned maximum) {
+  auto scaled = ScaledImage(factory, source, maximum);
+  UINT width = 0, height = 0;
+  Check(scaled->GetSize(&width, &height), "Cannot read resized image size");
   ComPtr<IWICFormatConverter> converter;
   Check(factory->CreateFormatConverter(&converter), "Cannot create pixel converter");
   Check(converter->Initialize(scaled.Get(), GUID_WICPixelFormat24bppBGR,
@@ -242,22 +292,41 @@ Bytes EncodeJpeg(IWICImagingFactory* factory, IWICBitmapSource* source,
   return bytes;
 }
 
-ComPtr<IWICBitmapSource> OrientedFrame(IWICImagingFactory* factory,
-                                      IWICBitmapFrameDecode* frame) {
-  ComPtr<IWICBitmapSource> source(frame);
-  ComPtr<IWICMetadataQueryReader> metadata;
-  if (FAILED(frame->GetMetadataQueryReader(&metadata))) return source;
-  unsigned orientation = 1;
-  for (const auto query : {L"/app1/ifd/{ushort=274}", L"/ifd/{ushort=274}"}) {
+std::optional<unsigned> ImageOrientation(IWICMetadataQueryReader* metadata) {
+  if (!metadata) return std::nullopt;
+  for (const auto query : {L"System.Photo.Orientation",
+                           L"/app1/ifd/{ushort=274}", L"/ifd/{ushort=274}"}) {
     PROPVARIANT value{};
     const auto status = metadata->GetMetadataByName(query, &value);
+    unsigned orientation = 0;
     if (SUCCEEDED(status)) {
       if (value.vt == VT_UI2) orientation = value.uiVal;
       else if (value.vt == VT_UI4) orientation = value.ulVal;
     }
     PropVariantClear(&value);
-    if (SUCCEEDED(status)) break;
+    CheckRetryableCodecError(status, "Cannot read photo orientation");
+    if (orientation >= 1 && orientation <= 8) return orientation;
   }
+  return std::nullopt;
+}
+
+std::optional<unsigned> FrameOrientation(IWICBitmapSource* source) {
+  if (!source) return std::nullopt;
+  ComPtr<IWICBitmapFrameDecode> frame;
+  ComPtr<IWICMetadataQueryReader> metadata;
+  const auto frame_status = source->QueryInterface(IID_PPV_ARGS(&frame));
+  CheckRetryableCodecError(frame_status, "Cannot inspect image frame metadata");
+  if (FAILED(frame_status)) return std::nullopt;
+  const auto metadata_status = frame->GetMetadataQueryReader(&metadata);
+  CheckRetryableCodecError(metadata_status, "Cannot read image metadata");
+  if (FAILED(metadata_status)) return std::nullopt;
+  return ImageOrientation(metadata.Get());
+}
+
+ComPtr<IWICBitmapSource> OrientedSource(IWICImagingFactory* factory,
+                                       IWICBitmapSource* bitmap,
+                                       unsigned orientation) {
+  ComPtr<IWICBitmapSource> source(bitmap);
   // Apply rotation and reflection separately so EXIF transpose/transverse do
   // not depend on an individual codec's ordering of combined transforms.
   WICBitmapTransformOptions rotation = WICBitmapTransformRotate0;
@@ -530,6 +599,68 @@ uint64_t MediaCatalog::Clear() {
   return ticket_;
 }
 
+bool MediaCatalog::SameSource(const MediaEntry& left, const MediaEntry& right) {
+  return left.id == right.id && left.path == right.path && left.root == right.root &&
+         left.size == right.size && left.modified_ms == right.modified_ms;
+}
+
+void MediaCatalog::EraseThumbnailLocked(const std::string& id) {
+  const auto found = thumbnails_.find(id);
+  if (found == thumbnails_.end()) return;
+  thumbnail_bytes_ -= found->second.bytes.size();
+  thumbnail_recent_.erase(found->second.recent);
+  thumbnails_.erase(found);
+}
+
+void MediaCatalog::PruneThumbnailsLocked() {
+  for (auto cached = thumbnails_.begin(); cached != thumbnails_.end();) {
+    const auto published = files_.find(cached->first);
+    if (published != files_.end() && SameSource(published->second, cached->second.source)) {
+      ++cached;
+    } else {
+      const auto id = cached->first;
+      ++cached;
+      EraseThumbnailLocked(id);
+    }
+  }
+  for (auto pending = thumbnail_flights_.begin(); pending != thumbnail_flights_.end();) {
+    const auto& flight = pending->second;
+    const auto published = files_.find(pending->first);
+    if (flight->generation == generation_ && published != files_.end() &&
+        SameSource(published->second, flight->source)) {
+      ++pending;
+    } else {
+      flight->error = std::make_exception_ptr(
+          StorageError("SCAN_CANCELLED", "Shared directories changed; scan again"));
+      flight->done = true;
+      flight->ready.notify_all();
+      pending = thumbnail_flights_.erase(pending);
+    }
+  }
+}
+
+void MediaCatalog::CacheThumbnailLocked(const MediaEntry& source, const Bytes& bytes) {
+  // A peer rejects previews above 512 KiB; retaining those would only repeat
+  // an unusable response and consume the source's memory budget.
+  constexpr size_t kMaxThumbnailBytes = 512 * 1024;
+  if (!thumbnail_max_bytes_ || !thumbnail_max_entries_ ||
+      bytes.size() > thumbnail_max_bytes_ || bytes.size() > kMaxThumbnailBytes) return;
+  EraseThumbnailLocked(source.id);
+  while (!thumbnail_recent_.empty() &&
+         (thumbnails_.size() >= thumbnail_max_entries_ ||
+          bytes.size() > thumbnail_max_bytes_ - thumbnail_bytes_)) {
+    EraseThumbnailLocked(thumbnail_recent_.back());
+  }
+  thumbnail_recent_.push_front(source.id);
+  try {
+    thumbnails_.emplace(source.id, ThumbnailEntry{source, bytes, thumbnail_recent_.begin()});
+  } catch (...) {
+    thumbnail_recent_.pop_front();
+    throw;
+  }
+  thumbnail_bytes_ += bytes.size();
+}
+
 uint64_t MediaCatalog::BeginScan(const std::set<std::string>& shared_folder_ids) {
   std::lock_guard<std::mutex> lock(mutex_);
   for (auto entry = files_.begin(); entry != files_.end();) {
@@ -539,6 +670,7 @@ uint64_t MediaCatalog::BeginScan(const std::set<std::string>& shared_folder_ids)
       entry = files_.erase(entry);
     }
   }
+  PruneThumbnailsLocked();
   return ++ticket_;
 }
 
@@ -546,6 +678,7 @@ void MediaCatalog::RevokeLocked() {
   files_.clear();
   ++generation_;
   ++ticket_;
+  PruneThumbnailsLocked();
 }
 
 void MediaCatalog::AssertScan(uint64_t ticket) const {
@@ -556,9 +689,13 @@ void MediaCatalog::AssertScan(uint64_t ticket) const {
 void MediaCatalog::AssertCurrent(const std::string& id, const MediaEntry& entry,
                                  uint64_t generation) const {
   std::lock_guard<std::mutex> lock(mutex_);
+  AssertCurrentLocked(id, entry, generation);
+}
+
+void MediaCatalog::AssertCurrentLocked(const std::string& id, const MediaEntry& entry,
+                                       uint64_t generation) const {
   const auto found = files_.find(id);
-  if (generation != generation_ || found == files_.end() || found->second.path != entry.path ||
-      found->second.size != entry.size || found->second.modified_ms != entry.modified_ms) {
+  if (generation != generation_ || found == files_.end() || !SameSource(found->second, entry)) {
     throw StorageError("SCAN_CANCELLED", "Shared directories changed; scan again");
   }
 }
@@ -598,6 +735,7 @@ std::vector<MediaEntry> MediaCatalog::Scan(const std::vector<SharedDirectory>& d
   std::lock_guard<std::mutex> lock(mutex_);
   if (expected != ticket_) throw StorageError("SCAN_CANCELLED", "Shared directories changed; scan again");
   files_ = std::move(next);
+  PruneThumbnailsLocked();
   return metadata;
 } catch (...) {
   // The publishing lock is released during unwinding, before this handler.
@@ -642,22 +780,81 @@ Bytes MediaCatalog::Thumbnail(const std::string& id,
   // Shared-folder access errors affect every file, not one preview.
   [[maybe_unused]] const auto root = PinDirectory(entry.root);
   AssertCurrent(id, entry, expected);
-  Bytes result;
   try {
+    // Even cache hits pin and check the source. A cached image cannot hide a
+    // deleted/changed file or a permission/sharing failure.
     auto file = SafeFile::Open(entry.path);
     const auto info = file.info();
-    if (info.size == entry.size && info.modified_ms == entry.modified_ms) {
-      result = generate(entry, file);
+    if (info.size != entry.size || info.modified_ms != entry.modified_ms) {
+      throw StorageError("FILE_CHANGED", "Media changed; refresh the album");
+    }
+    std::shared_ptr<ThumbnailFlight> flight;
+    {
+      std::unique_lock<std::mutex> lock(mutex_);
+      AssertCurrentLocked(id, entry, expected);
+      const auto cached = thumbnails_.find(id);
+      if (cached != thumbnails_.end()) {
+        thumbnail_recent_.splice(thumbnail_recent_.begin(), thumbnail_recent_, cached->second.recent);
+        return cached->second.bytes;
+      }
+      const auto pending = thumbnail_flights_.find(id);
+      if (pending != thumbnail_flights_.end()) {
+        flight = pending->second;
+        flight->ready.wait(lock, [&] { return flight->done; });
+        AssertCurrentLocked(id, entry, expected);
+        if (flight->error) std::rethrow_exception(flight->error);
+        return flight->bytes;
+      }
+      flight = std::make_shared<ThumbnailFlight>();
+      flight->source = entry;
+      flight->generation = expected;
+      thumbnail_flights_.emplace(id, flight);
+    }
+    try {
+      Bytes result;
+      try {
+        result = generate(entry, file);
+      } catch (const StorageError& error) {
+        // An ordinary decoder failure is a valid empty preview for this
+        // unchanged file. Access/I/O failures remain retryable and uncached.
+        if (error.code != "PREVIEW_FAILED") throw;
+      }
+      std::lock_guard<std::mutex> lock(mutex_);
+      AssertCurrentLocked(id, entry, expected);
+      // Removal followed by republication can have identical file metadata;
+      // a cancelled generation must still never repopulate the cache.
+      if (flight->done) std::rethrow_exception(flight->error);
+      CacheThumbnailLocked(entry, result);
+      flight->bytes = std::move(result);
+      flight->done = true;
+      thumbnail_flights_.erase(id);
+      flight->ready.notify_all();
+      return flight->bytes;
+    } catch (...) {
+      const auto error = std::current_exception();
+      std::lock_guard<std::mutex> lock(mutex_);
+      if (!flight->done) {
+        flight->error = error;
+        flight->done = true;
+        const auto pending = thumbnail_flights_.find(id);
+        if (pending != thumbnail_flights_.end() && pending->second == flight) {
+          thumbnail_flights_.erase(pending);
+        }
+        flight->ready.notify_all();
+      }
+      // Revocation wins over a late decoder failure as well as late bytes.
+      std::rethrow_exception(flight->error ? flight->error : error);
     }
   } catch (const StorageError& error) {
     // Permission, sharing and other I/O failures may recover; they must not be
     // cached by peers as an empty preview.
     if (error.code != "FILE_NOT_FOUND" && error.code != "FILE_CHANGED" &&
         error.code != "PREVIEW_FAILED") throw;
-    result.clear();
+    std::lock_guard<std::mutex> lock(mutex_);
+    AssertCurrentLocked(id, entry, expected);
+    EraseThumbnailLocked(id);
+    return {};
   }
-  AssertCurrent(id, entry, expected);
-  return result;
 }
 
 Bytes MediaCatalog::Read(const std::string& id, int64_t offset, int64_t length) {
@@ -816,6 +1013,75 @@ void DeleteDownload(const std::string& uri) {
   }
 }
 
+Bytes WicJpegPreview(IWICImagingFactory* factory, IWICBitmapDecoder* decoder,
+                     unsigned maximum, bool prefer_embedded) {
+  if (maximum < 1 || maximum > 2560) throw StorageError("INVALID_ARGUMENT", "Preview size must be 1..2560");
+  ComPtr<IWICBitmapFrameDecode> frame;
+  const auto frame_status = decoder->GetFrame(0, &frame);
+  CheckRetryableCodecError(frame_status, "Cannot access image frame");
+  auto orientation = FrameOrientation(frame.Get());
+  if (!orientation) {
+    ComPtr<IWICMetadataQueryReader> metadata;
+    const auto metadata_status = decoder->GetMetadataQueryReader(&metadata);
+    CheckRetryableCodecError(metadata_status, "Cannot read image container metadata");
+    if (SUCCEEDED(metadata_status)) {
+      orientation = ImageOrientation(metadata.Get());
+    }
+  }
+  if (prefer_embedded) {
+    // These APIs retrieve precalculated images. Reading the full frame's size
+    // or metadata does not read its pixels; never CopyPixels on it unless all
+    // usable embedded candidates have failed.
+    for (unsigned candidate = 0; candidate < 3; ++candidate) {
+      ComPtr<IWICBitmapSource> source;
+      const auto status = candidate == 0 ? decoder->GetThumbnail(&source)
+          : candidate == 1 ? (frame ? frame->GetThumbnail(&source) : E_FAIL)
+                           : decoder->GetPreview(&source);
+      CheckRetryableCodecError(status, "Cannot access embedded image");
+      if (FAILED(status) || !source) continue;
+      UINT width = 0, height = 0;
+      const auto size_status = source->GetSize(&width, &height);
+      CheckRetryableCodecError(size_status, "Cannot read embedded image size");
+      if (FAILED(size_status) || !width || !height ||
+          std::max(width, height) < maximum) continue;
+      try {
+        // RAW previews use the parent's pixel coordinates. Some RAW codecs
+        // expose their embedded JPEG with EXIF=1 even for a portrait RAW; that
+        // tag describes the JPEG container and must not override the RAW tag.
+        // Use embedded metadata only when the RAW has no orientation, and
+        // apply exactly one transform rather than composing both tags.
+        const auto embedded_orientation = orientation ? std::nullopt
+                                                      : FrameOrientation(source.Get());
+        // Rotating a lazy RAW thumbnail can request a source scanline for
+        // every output column, repeatedly decoding the embedded image. First
+        // scale in its stored orientation, then materialize once. Converting
+        // to 24bpp bounds this bitmap to 2560*2560*3 bytes, even when the camera
+        // embeds a full-resolution or high-bit-depth preview.
+        auto scaled = ScaledImage(factory, source.Get(), maximum);
+        ComPtr<IWICFormatConverter> pixels;
+        Check(factory->CreateFormatConverter(&pixels), "Cannot create embedded pixel converter");
+        Check(pixels->Initialize(scaled.Get(), GUID_WICPixelFormat24bppBGR,
+                                 WICBitmapDitherTypeNone, nullptr, 0,
+                                 WICBitmapPaletteTypeCustom), "Cannot convert embedded image pixels");
+        ComPtr<IWICBitmap> materialized;
+        Check(factory->CreateBitmapFromSource(pixels.Get(), WICBitmapCacheOnLoad,
+                                              &materialized), "Cannot load embedded image pixels");
+        auto oriented = OrientedSource(factory, materialized.Get(),
+            orientation.value_or(embedded_orientation.value_or(1)));
+        // GetThumbnail/GetPreview can succeed while CopyPixels fails later.
+        // Only accept a complete JPEG; a broken optional preview falls back.
+        return EncodeJpeg(factory, oriented.Get(), maximum);
+      } catch (const StorageError& error) {
+        if (error.code != "PREVIEW_FAILED") throw;
+      }
+    }
+  }
+  Check(frame_status, "Cannot decode image frame");
+  if (!frame) throw StorageError("PREVIEW_FAILED", "The image codec returned no frame");
+  auto oriented = OrientedSource(factory, frame.Get(), orientation.value_or(1));
+  return EncodeJpeg(factory, oriented.Get(), maximum);
+}
+
 Bytes JpegPreview(const SafeFile& file, unsigned maximum, bool video) {
   if (maximum < 1 || maximum > 2560) throw StorageError("INVALID_ARGUMENT", "Preview size must be 1..2560");
   ComScope com;
@@ -827,11 +1093,12 @@ Bytes JpegPreview(const SafeFile& file, unsigned maximum, bool video) {
     const auto decoded = factory->CreateDecoderFromFileHandle(
         reinterpret_cast<ULONG_PTR>(file.handle()), nullptr,
         WICDecodeMetadataCacheOnDemand, &decoder);
+    CheckRetryableCodecError(decoded, "Cannot access image codec");
     if (SUCCEEDED(decoded)) {
-      ComPtr<IWICBitmapFrameDecode> frame;
-      Check(decoder->GetFrame(0, &frame), "Cannot decode image frame");
-      auto oriented = OrientedFrame(factory.Get(), frame.Get());
-      return EncodeJpeg(factory.Get(), oriented.Get(), maximum);
+      const auto mime = MediaMime(file.path());
+      const bool raw = mime == "image/x-adobe-dng" || mime == "image/x-canon-cr2" ||
+                       mime == "image/x-nikon-nef" || mime == "image/x-sony-arw";
+      return WicJpegPreview(factory.Get(), decoder.Get(), maximum, raw);
     }
     // Installed Shell providers can support extra image/RAW formats.
   }

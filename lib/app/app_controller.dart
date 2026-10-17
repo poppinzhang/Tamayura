@@ -127,7 +127,7 @@ class AppController extends TamayuraModel {
   ThemeMode _themeMode = ThemeMode.system;
   bool _themeModeSaving = false;
   bool _albumDetailedMode = false, _albumDetailedModeSaving = false;
-  int _autoSyncIntervalHours = 12;
+  int _autoSyncIntervalMinutes = 10;
   bool _autoSyncIntervalSaving = false, _autoSyncRunning = false;
   Timer? _autoSyncTimer;
   int _localCount = 0, _totalMediaCount = 0;
@@ -139,7 +139,7 @@ class AppController extends TamayuraModel {
   @override
   bool get albumDetailedModeSaving => _albumDetailedModeSaving;
   @override
-  int get autoSyncIntervalHours => _autoSyncIntervalHours;
+  int get autoSyncIntervalMinutes => _autoSyncIntervalMinutes;
   @override
   bool get autoSyncIntervalSaving => _autoSyncIntervalSaving;
   @override
@@ -752,14 +752,14 @@ class AppController extends TamayuraModel {
   }
 
   @override
-  Future<void> setAutoSyncIntervalHours(int hours) async {
+  Future<void> setAutoSyncIntervalMinutes(int minutes) async {
     if (_disposed || _autoSyncIntervalSaving) return;
-    if (hours < 1 || hours > 8760) {
-      _error = '自动同步间隔请输入 1–8760 的整数小时';
+    if (minutes < 1 || minutes > 525600) {
+      _error = '自动同步间隔请输入 1–525600 的整数分钟';
       _notify();
       return;
     }
-    if (hours == _autoSyncIntervalHours) return;
+    if (minutes == _autoSyncIntervalMinutes) return;
     final db = _repository;
     if (db == null || !_initialized) {
       _error = '应用尚未完成初始化，请稍后重试';
@@ -770,9 +770,9 @@ class AppController extends TamayuraModel {
     _error = null;
     _notify();
     try {
-      await db.setSetting('autoSyncIntervalHours', '$hours');
+      await db.setSetting('autoSyncIntervalMinutes', '$minutes');
       if (!_disposed) {
-        _autoSyncIntervalHours = hours;
+        _autoSyncIntervalMinutes = minutes;
         _scheduleAutoSync();
       }
     } catch (_) {
@@ -866,13 +866,14 @@ class AppController extends TamayuraModel {
       _albumDetailedMode =
           await startup.wait(() => db.getSetting('albumDetailedMode')) ==
           'true';
-      final syncHours = int.tryParse(
-        await startup.wait(() => db.getSetting('autoSyncIntervalHours')) ?? '',
+      final syncMinutes = int.tryParse(
+        await startup.wait(() => db.getSetting('autoSyncIntervalMinutes')) ??
+            '',
       );
-      _autoSyncIntervalHours =
-          syncHours != null && syncHours >= 1 && syncHours <= 8760
-          ? syncHours
-          : 12;
+      _autoSyncIntervalMinutes =
+          syncMinutes != null && syncMinutes >= 1 && syncMinutes <= 525600
+          ? syncMinutes
+          : 10;
       _deviceOrder = _readDeviceOrder(
         await startup.wait(() => db.getSetting('deviceOrder')),
       );
@@ -1510,7 +1511,7 @@ class AppController extends TamayuraModel {
   bool _autoSyncDue(Peer peer) =>
       peer.lastSync == null ||
       !_clock().isBefore(
-        peer.lastSync!.add(Duration(hours: _autoSyncIntervalHours)),
+        peer.lastSync!.add(Duration(minutes: _autoSyncIntervalMinutes)),
       );
 
   // A single deadline covers all remembered peers, including failed attempts.
@@ -1523,7 +1524,7 @@ class AppController extends TamayuraModel {
     for (final peer in _peers.values) {
       if (_connecting.contains(peer.id) || !_syncApproved(peer.id)) continue;
       final due =
-          peer.lastSync?.add(Duration(hours: _autoSyncIntervalHours)) ??
+          peer.lastSync?.add(Duration(minutes: _autoSyncIntervalMinutes)) ??
           _clock();
       if (next == null || due.isBefore(next)) next = due;
     }

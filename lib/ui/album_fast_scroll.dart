@@ -105,6 +105,26 @@ class _AlbumFastScrollState extends State<AlbumFastScroll> {
     super.dispose();
   }
 
+  void _updateScrollMetrics(
+    ScrollPosition position,
+    AlbumScrollGeometry geometry,
+  ) {
+    final center = geometry
+        .centerIndex(position.pixels, position.viewportDimension)
+        .clamp(0, widget.entries.length - 1);
+    if (_pixels != position.pixels ||
+        _viewport != position.viewportDimension ||
+        _maxScroll != position.maxScrollExtent ||
+        _center != center) {
+      setState(() {
+        _pixels = position.pixels;
+        _viewport = position.viewportDimension;
+        _maxScroll = position.maxScrollExtent;
+        _center = center;
+      });
+    }
+  }
+
   void _scheduleUpdate() {
     if (_scheduled) return;
     _scheduled = true;
@@ -115,20 +135,7 @@ class _AlbumFastScrollState extends State<AlbumFastScroll> {
       if (!position.hasContentDimensions) return;
       final geometry = widget.geometry();
       if (geometry == null || widget.entries.isEmpty) return;
-      final center = geometry
-          .centerIndex(position.pixels, position.viewportDimension)
-          .clamp(0, widget.entries.length - 1);
-      if (_pixels != position.pixels ||
-          _viewport != position.viewportDimension ||
-          _maxScroll != position.maxScrollExtent ||
-          _center != center) {
-        setState(() {
-          _pixels = position.pixels;
-          _viewport = position.viewportDimension;
-          _maxScroll = position.maxScrollExtent;
-          _center = center;
-        });
-      }
+      _updateScrollMetrics(position, geometry);
       if (widget.active && widget.onVisibleRange != null) {
         final first = geometry.centerIndex(
           position.pixels - position.viewportDimension,
@@ -166,7 +173,7 @@ class _AlbumFastScrollState extends State<AlbumFastScroll> {
         final budget = math.max(200, visibleLast - visibleFirst + 1);
         final rangeFirst = paddedLast - paddedFirst < budget
             ? paddedFirst
-            : (center - budget ~/ 2)
+            : (_center - budget ~/ 2)
                   .clamp(
                     math.max(paddedFirst, visibleLast - budget + 1),
                     math.min(visibleFirst, paddedLast - budget + 1),
@@ -229,6 +236,13 @@ class _AlbumFastScrollState extends State<AlbumFastScroll> {
         );
     final position = widget.controller.position;
     widget.controller.jumpTo(fraction * position.maxScrollExtent);
+    // Input callbacks run before layout: paint the thumb with the grid in the
+    // next frame, rather than waiting an extra frame for the metrics callback.
+    // Layout corrections and thumbnail window requests still run post-frame.
+    final geometry = widget.geometry();
+    if (geometry != null && widget.entries.isNotEmpty) {
+      _updateScrollMetrics(position, geometry);
+    }
     _scheduleUpdate();
   }
 
@@ -373,6 +387,7 @@ class _AlbumFastScrollState extends State<AlbumFastScroll> {
                               previousTop = top;
                               markers.add(
                                 Positioned(
+                                  key: ValueKey(('section', section.$1)),
                                   top: top + 14,
                                   right: 48,
                                   child: IgnorePointer(
@@ -403,6 +418,9 @@ class _AlbumFastScrollState extends State<AlbumFastScroll> {
                                 ),
                                 ...markers,
                                 Positioned(
+                                  key: const Key(
+                                    'album-fast-scroll-label-slot',
+                                  ),
                                   top: thumbTop,
                                   right: 52,
                                   height: _thumbHeight,
@@ -423,6 +441,12 @@ class _AlbumFastScrollState extends State<AlbumFastScroll> {
                                   ),
                                 ),
                                 Positioned(
+                                  // Markers appear/disappear as the thumb moves.
+                                  // Keep the entire gesture subtree alive when
+                                  // its index among these siblings changes.
+                                  key: const Key(
+                                    'album-fast-scroll-thumb-slot',
+                                  ),
                                   top: thumbTop,
                                   right: 0,
                                   width: 48,

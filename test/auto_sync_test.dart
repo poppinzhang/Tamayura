@@ -7,8 +7,10 @@ import 'package:tamayura/app/app_controller.dart';
 import 'package:tamayura/core/models.dart';
 import 'package:tamayura/data/repository.dart';
 import 'package:tamayura/data/transfer_store.dart';
+import 'package:tamayura/network/media_rpc.dart';
 
 import 'controller_test.dart' show FakeBridge, GatedRepository, StubRpcClient;
+import 'network_test.dart' show MemorySource, identity;
 
 Future<void> waitForAutoSync(bool Function() condition) async {
   final deadline = DateTime.now().add(const Duration(seconds: 5));
@@ -169,19 +171,19 @@ void main() {
     await temporary.delete(recursive: true);
   });
 
-  test('automatic synchronization defaults to twelve hours', () async {
-    expect(model.autoSyncIntervalHours, 12);
+  test('automatic synchronization defaults to ten minutes', () async {
+    expect(model.autoSyncIntervalMinutes, 10);
     await model.initialize();
-    expect(model.autoSyncIntervalHours, 12);
+    expect(model.autoSyncIntervalMinutes, 10);
     expect(model.autoSyncIntervalSaving, isFalse);
     expect(model.error, isNull);
   });
 
-  for (final invalid in ['', 'unknown', '0', '-1', '8761']) {
-    test('invalid saved interval "$invalid" uses twelve hours', () async {
-      await db.setSetting('autoSyncIntervalHours', invalid);
+  for (final invalid in ['', 'unknown', '0', '-1', '1.5', '525601']) {
+    test('invalid saved interval "$invalid" uses ten minutes', () async {
+      await db.setSetting('autoSyncIntervalMinutes', invalid);
       await model.initialize();
-      expect(model.autoSyncIntervalHours, 12);
+      expect(model.autoSyncIntervalMinutes, 10);
       expect(model.error, isNull);
     });
   }
@@ -190,10 +192,10 @@ void main() {
     'configured interval persists across reopening the application',
     () async {
       await model.initialize();
-      for (final hours in [1, 24, 8760]) {
-        await model.setAutoSyncIntervalHours(hours);
-        expect(model.autoSyncIntervalHours, hours);
-        expect(await db.getSetting('autoSyncIntervalHours'), '$hours');
+      for (final minutes in [1, 24, 525600]) {
+        await model.setAutoSyncIntervalMinutes(minutes);
+        expect(model.autoSyncIntervalMinutes, minutes);
+        expect(await db.getSetting('autoSyncIntervalMinutes'), '$minutes');
       }
       await model.shutdown();
       db = await TamayuraRepository.open(
@@ -206,18 +208,18 @@ void main() {
       );
       model = controller();
       await model.initialize();
-      expect(model.autoSyncIntervalHours, 8760);
+      expect(model.autoSyncIntervalMinutes, 525600);
       expect(model.error, isNull);
     },
   );
 
   test('invalid configuration keeps the previous saved interval', () async {
     await model.initialize();
-    await model.setAutoSyncIntervalHours(24);
-    for (final invalid in [0, -1, 8761]) {
-      await model.setAutoSyncIntervalHours(invalid);
-      expect(model.autoSyncIntervalHours, 24);
-      expect(await db.getSetting('autoSyncIntervalHours'), '24');
+    await model.setAutoSyncIntervalMinutes(24);
+    for (final invalid in [0, -1, 525601]) {
+      await model.setAutoSyncIntervalMinutes(invalid);
+      expect(model.autoSyncIntervalMinutes, 24);
+      expect(await db.getSetting('autoSyncIntervalMinutes'), '24');
       expect(model.autoSyncIntervalSaving, isFalse);
       expect(model.error, isNotNull);
     }
@@ -228,20 +230,20 @@ void main() {
     () async {
       final gated = GatedRepository(db);
       model = controller(repository: gated);
-      await db.setSetting('autoSyncIntervalHours', '24');
+      await db.setSetting('autoSyncIntervalMinutes', '24');
       await model.initialize();
       gated.beforeSettingWrite = (key, value) async {
-        if (key == 'autoSyncIntervalHours') throw StateError('write failed');
+        if (key == 'autoSyncIntervalMinutes') throw StateError('write failed');
       };
-      await model.setAutoSyncIntervalHours(6);
-      expect(model.autoSyncIntervalHours, 24);
-      expect(await db.getSetting('autoSyncIntervalHours'), '24');
+      await model.setAutoSyncIntervalMinutes(6);
+      expect(model.autoSyncIntervalMinutes, 24);
+      expect(await db.getSetting('autoSyncIntervalMinutes'), '24');
       expect(model.autoSyncIntervalSaving, isFalse);
       expect(model.error, isNotNull);
       gated.beforeSettingWrite = null;
-      await model.setAutoSyncIntervalHours(6);
-      expect(model.autoSyncIntervalHours, 6);
-      expect(await db.getSetting('autoSyncIntervalHours'), '6');
+      await model.setAutoSyncIntervalMinutes(6);
+      expect(model.autoSyncIntervalMinutes, 6);
+      expect(await db.getSetting('autoSyncIntervalMinutes'), '6');
       expect(model.error, isNull);
     },
   );
@@ -256,41 +258,41 @@ void main() {
       final release = Completer<void>();
       var writes = 0;
       gated.beforeSettingWrite = (key, value) async {
-        if (key != 'autoSyncIntervalHours') return;
+        if (key != 'autoSyncIntervalMinutes') return;
         writes++;
         entered.complete();
         await release.future;
       };
-      final saving = model.setAutoSyncIntervalHours(6);
+      final saving = model.setAutoSyncIntervalMinutes(6);
       try {
         await entered.future;
-        expect(model.autoSyncIntervalHours, 12);
+        expect(model.autoSyncIntervalMinutes, 10);
         expect(model.autoSyncIntervalSaving, isTrue);
-        await model.setAutoSyncIntervalHours(24);
+        await model.setAutoSyncIntervalMinutes(24);
         expect(writes, 1);
       } finally {
         release.complete();
         await saving;
       }
-      expect(model.autoSyncIntervalHours, 6);
+      expect(model.autoSyncIntervalMinutes, 6);
       expect(model.autoSyncIntervalSaving, isFalse);
     },
   );
 
   test(
-    'startup and resume wait until the last attempt plus twelve hours',
+    'startup and resume wait until the last attempt plus ten minutes',
     () async {
       final previous = now;
       await db.upsertPeer(remote.copyWith(lastSync: previous));
       await model.initialize();
       expect(syncCount(), 0);
       now = previous.add(
-        const Duration(hours: 12) - const Duration(milliseconds: 1),
+        const Duration(minutes: 10) - const Duration(milliseconds: 1),
       );
       await model.refreshAfterResume();
       expect(syncCount(), 0);
       expect(await savedAttempt(), previous);
-      now = previous.add(const Duration(hours: 12));
+      now = previous.add(const Duration(minutes: 10));
       await model.refreshAfterResume();
       expect(syncCount(), 1);
       expect(await savedAttempt(), now);
@@ -301,17 +303,70 @@ void main() {
     },
   );
 
-  test('the saved interval controls the automatic deadline', () async {
-    await db.setSetting('autoSyncIntervalHours', '24');
-    final previous = now.subtract(const Duration(hours: 12));
-    await db.upsertPeer(remote.copyWith(lastSync: previous));
-    await model.initialize();
-    expect(syncCount(), 0);
-    now = previous.add(const Duration(hours: 24));
-    await model.refreshAfterResume();
-    expect(syncCount(), 1);
-    expect(await savedAttempt(), now);
-  });
+  for (final minutes in [1, 24, 525600]) {
+    test('a saved $minutes minute interval controls the deadline', () async {
+      await db.setSetting('autoSyncIntervalMinutes', '$minutes');
+      final previous = now;
+      final interval = Duration(minutes: minutes);
+      await db.upsertPeer(remote.copyWith(lastSync: previous));
+      await model.initialize();
+      expect(syncCount(), 0);
+      now = previous.add(interval - const Duration(milliseconds: 1));
+      await model.refreshAfterResume();
+      expect(syncCount(), 0);
+      expect(await savedAttempt(), previous);
+      now = previous.add(interval);
+      await model.refreshAfterResume();
+      expect(syncCount(), 1);
+      expect(await savedAttempt(), now);
+    });
+  }
+
+  test(
+    'the ten minute default refreshes a real gRPC catalog when due',
+    () async {
+      final source = MemorySource();
+      final server = MediaRpcServer(identity: identity, source: source);
+      await server.start();
+      addTearDown(server.stop);
+      final previous = now;
+      await db.upsertPeer(
+        identity.copyWith(port: server.port, lastSync: previous),
+      );
+      model = AppController(
+        bridge: bridge,
+        preferredPort: 0,
+        openRepository: () async => db,
+        openTransfers: () async => tasks,
+        clock: () => now,
+      );
+      await model.initialize();
+      expect(await db.listMedia(), isEmpty);
+      now = previous.add(
+        const Duration(minutes: 10) - const Duration(milliseconds: 1),
+      );
+      await model.refreshAfterResume();
+      expect(await db.listMedia(), isEmpty);
+      expect(await savedAttempt(identity.id), previous);
+
+      now = previous.add(const Duration(minutes: 10));
+      await model.refreshAfterResume();
+      expect((await db.listMedia()).map((item) => item.id), ['safe-id']);
+      expect(await savedAttempt(identity.id), now);
+      expect(model.error, isNull);
+
+      source.ids = ['next-id'];
+      await server.refresh();
+      now = previous.add(const Duration(minutes: 19, seconds: 59));
+      await model.refreshAfterResume();
+      expect((await db.listMedia()).map((item) => item.id), ['safe-id']);
+      now = previous.add(const Duration(minutes: 20));
+      await model.refreshAfterResume();
+      expect((await db.listMedia()).map((item) => item.id), ['next-id']);
+      expect(await savedAttempt(identity.id), now);
+      expect(model.error, isNull);
+    },
+  );
 
   test(
     'a newly discovered device waits for approval, then syncs and waits',
@@ -333,7 +388,7 @@ void main() {
       await discover(remote, expectConnection: false);
       expect(model.syncApprovalRequests, isEmpty);
       await model.refresh();
-      now = now.add(const Duration(hours: 13));
+      now = now.add(const Duration(minutes: 11));
       await model.refreshAfterResume();
       expect(syncCount(), 0);
       expect(await savedAttempt(), isNull);
@@ -401,7 +456,7 @@ void main() {
   });
 
   test('each device has its own last synchronization deadline', () async {
-    final recent = now.subtract(const Duration(hours: 2));
+    final recent = now.subtract(const Duration(minutes: 2));
     await db.upsertPeer(remote.copyWith(lastSync: recent));
     await db.upsertPeer(
       const Peer(
@@ -417,7 +472,7 @@ void main() {
         name: 'Due device',
         host: '10.0.0.12',
         port: 50728,
-        lastSync: now.subtract(const Duration(hours: 13)),
+        lastSync: now.subtract(const Duration(minutes: 11)),
       ),
     );
     await model.initialize();
@@ -441,7 +496,7 @@ void main() {
     expect(syncCount(), 2);
     expect(await savedAttempt(), now);
     final lastManualAttempt = now;
-    now = now.add(const Duration(hours: 12) - const Duration(seconds: 1));
+    now = now.add(const Duration(minutes: 10) - const Duration(seconds: 1));
     await model.refreshAfterResume();
     expect(syncCount(), 2);
     expect(await savedAttempt(), lastManualAttempt);
@@ -471,11 +526,11 @@ void main() {
   test(
     'a shorter configured interval schedules an already due device',
     () async {
-      final previous = now.subtract(const Duration(hours: 6));
+      final previous = now.subtract(const Duration(minutes: 6));
       await db.upsertPeer(remote.copyWith(lastSync: previous));
       await model.initialize();
       expect(syncCount(), 0);
-      await model.setAutoSyncIntervalHours(6);
+      await model.setAutoSyncIntervalMinutes(6);
       await waitForAutoSync(() => syncCount() == 1);
       await clients.single.closed.future;
       expect(await savedAttempt(), now);
@@ -519,17 +574,17 @@ void main() {
     'a longer configured interval cancels the earlier automatic deadline',
     () async {
       final previous = now
-          .subtract(const Duration(hours: 12))
+          .subtract(const Duration(minutes: 10))
           .add(const Duration(milliseconds: 100));
       await db.upsertPeer(remote.copyWith(lastSync: previous));
       await model.initialize();
-      await model.setAutoSyncIntervalHours(24);
-      now = previous.add(const Duration(hours: 12));
+      await model.setAutoSyncIntervalMinutes(24);
+      now = previous.add(const Duration(minutes: 10));
       await Future<void>.delayed(const Duration(milliseconds: 150));
       await model.refreshAfterResume();
       expect(syncCount(), 0);
       expect(await savedAttempt(), previous);
-      now = previous.add(const Duration(hours: 24));
+      now = previous.add(const Duration(minutes: 24));
       await model.refreshAfterResume();
       expect(syncCount(), 1);
       expect(await savedAttempt(), now);
@@ -558,13 +613,13 @@ void main() {
         expect(model.devices.single.lastSuccessfulSync, isNull);
         expect(model.syncProgress.single.phase, SyncPhase.failed);
         final attempts = connections.length;
-        now = now.add(const Duration(hours: 11));
+        now = now.add(const Duration(minutes: 9));
         await model.refreshAfterResume();
         await model.refreshAfterResume();
         expect(connections.length, attempts);
         expect(await savedAttempt(), attemptedAt);
         identityFailure = catalogFailure = factoryFailure = null;
-        now = attemptedAt.add(const Duration(hours: 12));
+        now = attemptedAt.add(const Duration(minutes: 10));
         await model.refreshAfterResume();
         expect(model.syncProgress.single.phase, SyncPhase.completed);
         expect(await savedAttempt(), now);
@@ -580,7 +635,7 @@ void main() {
     final successfulAt = await savedSuccess();
     expect(successfulAt, isNotNull);
     expect(model.devices.single.lastSuccessfulSync, successfulAt);
-    now = now.add(const Duration(hours: 11));
+    now = now.add(const Duration(minutes: 9));
     identityFailure = const SocketException('offline');
     await model.refresh();
     final failedAt = now;
@@ -590,7 +645,7 @@ void main() {
     expect(model.devices.single.lastSuccessfulSync, successfulAt);
     final attempts = connections.length;
     identityFailure = null;
-    now = now.add(const Duration(hours: 2));
+    now = now.add(const Duration(minutes: 2));
     await model.refreshAfterResume();
     expect(connections.length, attempts);
     expect(await savedAttempt(), failedAt);
@@ -612,7 +667,7 @@ void main() {
         if (!entered.isCompleted) entered.complete();
         await release.future;
       };
-      now = now.add(const Duration(hours: 1));
+      now = now.add(const Duration(minutes: 1));
       // Discovery/manual identity objects need not carry the saved success time.
       endpointIdentity = remote;
       final syncing = model.connect('${remote.host}:${remote.port}');
@@ -683,7 +738,7 @@ void main() {
       await db.upsertPeer(remote);
       await model.initialize();
       final successfulAt = await savedSuccess();
-      now = now.add(const Duration(hours: 1));
+      now = now.add(const Duration(minutes: 1));
       catalogFailure = StateError('catalog unavailable');
       await model.refresh();
       expect(model.devices.single.lastSuccessfulSync, successfulAt);
@@ -698,7 +753,7 @@ void main() {
         factory: databaseFactoryFfi,
       );
       connections.clear();
-      now = now.add(const Duration(hours: 1));
+      now = now.add(const Duration(minutes: 1));
       model = controller();
       await model.initialize();
       expect(connections, isEmpty);
@@ -748,7 +803,7 @@ void main() {
       );
       connections.clear();
       identityFailure = null;
-      now = now.add(const Duration(hours: 1));
+      now = now.add(const Duration(minutes: 1));
       model = controller();
       await model.initialize();
       expect(connections, isEmpty);
@@ -760,7 +815,7 @@ void main() {
   test(
     'rediscovery updates reachability and address without resetting the deadline',
     () async {
-      final previous = now.subtract(const Duration(hours: 1));
+      final previous = now.subtract(const Duration(minutes: 1));
       await db.upsertPeer(remote.copyWith(lastSync: previous));
       await db.markPeerSynced(remote);
       final successfulAt = await savedSuccess();
@@ -845,7 +900,7 @@ void main() {
         factory: databaseFactoryFfi,
       );
       identityFailure = null;
-      now = now.add(const Duration(hours: 1));
+      now = now.add(const Duration(minutes: 1));
       model = controller();
       await model.initialize();
       expect(syncCount(), 0, reason: 'Startup still waits for the interval');
@@ -891,12 +946,12 @@ void main() {
     'an active application automatically synchronizes when the deadline arrives',
     () async {
       final previous = now
-          .subtract(const Duration(hours: 12))
+          .subtract(const Duration(minutes: 10))
           .add(const Duration(milliseconds: 100));
       await db.upsertPeer(remote.copyWith(lastSync: previous));
       await model.initialize();
       expect(syncCount(), 0);
-      now = previous.add(const Duration(hours: 12));
+      now = previous.add(const Duration(minutes: 10));
       await waitForAutoSync(() => syncCount() == 1);
       await clients.single.closed.future;
       expect(await savedAttempt(), now);
@@ -909,12 +964,12 @@ void main() {
     'automatic deadlines stop without sharing and resume when active',
     () async {
       final previous = now
-          .subtract(const Duration(hours: 12))
+          .subtract(const Duration(minutes: 10))
           .add(const Duration(milliseconds: 100));
       await db.upsertPeer(remote.copyWith(lastSync: previous));
       await model.initialize();
       await model.setForeground(false);
-      now = previous.add(const Duration(hours: 12));
+      now = previous.add(const Duration(minutes: 10));
       await Future<void>.delayed(const Duration(milliseconds: 150));
       expect(syncCount(), 0);
       expect(await savedAttempt(), previous);

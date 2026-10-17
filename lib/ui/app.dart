@@ -384,12 +384,12 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
       context: context,
       barrierDismissible: false,
       builder: (_) => _AutoSyncIntervalDialog(
-        initialHours: model.autoSyncIntervalHours,
-        onSave: (hours) async {
+        initialMinutes: model.autoSyncIntervalMinutes,
+        onSave: (minutes) async {
           var saved = false;
           await _run(() async {
-            await model.setAutoSyncIntervalHours(hours);
-            saved = model.autoSyncIntervalHours == hours;
+            await model.setAutoSyncIntervalMinutes(minutes);
+            saved = model.autoSyncIntervalMinutes == minutes;
           });
           return saved;
         },
@@ -1556,7 +1556,7 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
             child: Text(
               model.autoSyncIntervalSaving
                   ? '正在保存同步间隔…'
-                  : '上次同步尝试超过 ${model.autoSyncIntervalHours} 小时后自动同步。'
+                  : '上次同步尝试超过 ${model.autoSyncIntervalMinutes} 分钟后自动同步。'
                         '\n手动同步和同步失败都会重新计时。点击右上角刷新可立即同步。',
               style: const TextStyle(height: 1.6),
             ),
@@ -2668,12 +2668,12 @@ class _ErrorNotice extends StatelessWidget {
 
 class _AutoSyncIntervalDialog extends StatefulWidget {
   const _AutoSyncIntervalDialog({
-    required this.initialHours,
+    required this.initialMinutes,
     required this.onSave,
   });
 
-  final int initialHours;
-  final Future<bool> Function(int hours) onSave;
+  final int initialMinutes;
+  final Future<bool> Function(int minutes) onSave;
 
   @override
   State<_AutoSyncIntervalDialog> createState() =>
@@ -2682,7 +2682,7 @@ class _AutoSyncIntervalDialog extends StatefulWidget {
 
 class _AutoSyncIntervalDialogState extends State<_AutoSyncIntervalDialog> {
   late final _controller = TextEditingController(
-    text: '${widget.initialHours}',
+    text: '${widget.initialMinutes}',
   );
   bool _saving = false;
   String? _error;
@@ -2696,11 +2696,11 @@ class _AutoSyncIntervalDialogState extends State<_AutoSyncIntervalDialog> {
   Future<void> _save() async {
     if (_saving) return;
     final text = _controller.text.trim();
-    final hours = RegExp(r'^[0-9]+$').hasMatch(text)
+    final minutes = RegExp(r'^[0-9]+$').hasMatch(text)
         ? int.tryParse(text)
         : null;
-    if (hours == null || hours < 1 || hours > 8760) {
-      setState(() => _error = '请输入 1–8760 之间的整数小时');
+    if (minutes == null || minutes < 1 || minutes > 525600) {
+      setState(() => _error = '请输入 1–525600 之间的整数分钟');
       return;
     }
     setState(() {
@@ -2708,7 +2708,7 @@ class _AutoSyncIntervalDialogState extends State<_AutoSyncIntervalDialog> {
       _error = null;
     });
     try {
-      final saved = await widget.onSave(hours);
+      final saved = await widget.onSave(minutes);
       if (!mounted) return;
       if (saved) {
         Navigator.of(context).pop();
@@ -2731,7 +2731,7 @@ class _AutoSyncIntervalDialogState extends State<_AutoSyncIntervalDialog> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              '从最近一次同步尝试开始计时，超过设定小时数后尝试自动同步。'
+              '从最近一次同步尝试开始计时，超过设定分钟数后尝试自动同步。'
               '手动同步和同步失败都会重新计时。',
               style: TextStyle(height: 1.5),
             ),
@@ -2744,8 +2744,8 @@ class _AutoSyncIntervalDialogState extends State<_AutoSyncIntervalDialog> {
               keyboardType: TextInputType.number,
               textInputAction: TextInputAction.done,
               decoration: InputDecoration(
-                labelText: '间隔小时数',
-                helperText: '1–8760 小时，默认 12 小时',
+                labelText: '间隔分钟数',
+                helperText: '1–525600 分钟，默认 10 分钟',
                 errorText: _error,
               ),
               onSubmitted: (_) => _save(),

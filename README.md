@@ -37,7 +37,7 @@ It is for browsing and transferring media between your own devices on the same l
 
 ## Quick start
 
-Tamayura is in early development. This README describes **0.6.1**, available as a [Pre-release](https://github.com/poppinzhang/Tamayura/releases/tag/v0.6.1) for Android, macOS, and Windows. See the [0.6.1 release record](docs/releases/0.6.1.md) for verification scope. Existing 0.5.0 trial packages have an earlier feature set. Use the **same build** on all devices; 0.6.1 cannot connect to 0.5.0.
+Tamayura is in early development. The available Android, macOS, and Windows packages are **0.6.1**, published as a [Pre-release](https://github.com/poppinzhang/Tamayura/releases/tag/v0.6.1). This README describes those packages except where a change is marked **0.7.0 source (release pending)**; see the [0.7.0 release record](docs/releases/0.7.0.md) for its status and the [0.6.1 release record](docs/releases/0.6.1.md) for the available packages' validation scope. Existing 0.5.0 trial packages have an earlier feature set. Use the **same build** on all devices; protocol v4 does not connect to 0.5.0.
 
 **1 · Install and connect.** Choose the package for your platform from the [0.6.1 Pre-release](https://github.com/poppinzhang/Tamayura/releases/tag/v0.6.1), and read the [installation notes](docs/releases/0.6.1.md#安装与数据). To run from source, see the [source build instructions](AGENTS.md#本地开发). Android 0.6.1 uses a new signing certificate: uninstall a 0.5.0 or earlier trial app before installing it; this clears app data and folder permissions. Connect both devices to the same local network and open Tamayura. Allow local network access when prompted; on Windows, allow the app through the firewall on your trusted private network.
 
@@ -73,7 +73,9 @@ Each shared folder becomes a collection, including media in its subfolders. Brow
 
 ### Previews that stay with you
 
-Synced thumbnails remain available offline. During a sync, photos appear as they arrive; interrupted syncs keep their progress so you can continue later. Automatic sync defaults to a 12-hour interval, which you can change in Settings. If the last sync with a device failed, Tamayura retries as soon as that device appears on the network again. Refresh manually whenever you need an update, and check each device's last successful sync time.
+Synced thumbnails remain available offline. During a sync, photos appear as they arrive; interrupted syncs keep their progress so you can continue later. In the published 0.6.1 packages, automatic sync defaults to a 12-hour interval, which you can change in Settings. If the last sync with a device failed, Tamayura retries as soon as that device appears on the network again. Refresh manually whenever you need an update, and check each device's last successful sync time.
+
+**0.7.0 source (release pending):** automatic sync now defaults to **10 minutes**. Settings accepts a whole number from **1 to 525600 minutes** (up to one year). The previous hour-based setting is not carried over; without a saved minute-based setting, the default is 10 minutes. This version also fixes interrupted mobile fast-scroll drags and the thumb staying visible after release. Windows uses available embedded RAW previews and keeps recently generated thumbnails in memory to reduce repeated decoding; format support still depends on installed system codecs.
 
 ### Originals on demand
 
@@ -108,6 +110,7 @@ Most detailed documentation is currently in Chinese.
 | [Changelog](CHANGELOG.md) | Released and unreleased changes |
 | [GitHub Releases](https://github.com/poppinzhang/Tamayura/releases) | Published packages and checksums |
 | [0.6.1 release record](docs/releases/0.6.1.md) | Release progress, installation, and known limits |
+| [0.7.0 release record](docs/releases/0.7.0.md) | Pending release, setting changes, and validation scope |
 | [Sync behavior](docs/自动与手动同步.md) | Automatic intervals, manual refresh, and sync status |
 | [New and forgotten devices](docs/新设备确认与忘记设备.md) | Confirming newly discovered devices, retrying when a device comes back, and forgetting devices |
 | [Downloads and storage](docs/下载存储与清理.md) | Resuming downloads, temporary files, and cleanup |

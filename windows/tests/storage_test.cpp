@@ -234,6 +234,8 @@ int main() {
         throw std::runtime_error("A missing or changed file reached the decoder");
       };
       Expect(catalog.Thumbnail(id, usable) == Bytes({3, 4}), "Usable previews are returned");
+      // Exercise decoding independently of the source-side thumbnail cache.
+      catalog.Scan({shared}, catalog.Clear());
       Expect(catalog.Thumbnail(id, [](const MediaEntry&, const SafeFile& file) {
         return JpegPreview(file, 256, false);
       }).empty(), "An undecodable image has an empty preview");

@@ -18,7 +18,7 @@ class _FakeModel extends TamayuraModel {
   final List<ThemeMode> themeModeRequests = [];
   Completer<void>? themeSave;
   @override
-  int autoSyncIntervalHours = 12;
+  int autoSyncIntervalMinutes = 10;
   @override
   bool autoSyncIntervalSaving = false;
   final List<int> autoSyncIntervalRequests = [];
@@ -146,8 +146,8 @@ class _FakeModel extends TamayuraModel {
   }
 
   @override
-  Future<void> setAutoSyncIntervalHours(int hours) async {
-    autoSyncIntervalRequests.add(hours);
+  Future<void> setAutoSyncIntervalMinutes(int minutes) async {
+    autoSyncIntervalRequests.add(minutes);
     autoSyncIntervalSaving = true;
     notifyListeners();
     try {
@@ -157,7 +157,7 @@ class _FakeModel extends TamayuraModel {
         error = '同步间隔未能保存，请重试。';
         return;
       }
-      autoSyncIntervalHours = hours;
+      autoSyncIntervalMinutes = minutes;
     } finally {
       autoSyncIntervalSaving = false;
       notifyListeners();
@@ -466,21 +466,23 @@ void main() {
       await tester.pumpAndSettle();
       final setting = find.byKey(const Key('auto-sync-interval'));
       await _scrollSettingsTo(tester, setting);
-      expect(find.textContaining('超过 12 小时'), findsOneWidget);
-      for (final hours in [1, 8760, 24]) {
+      expect(find.textContaining('超过 10 分钟'), findsOneWidget);
+      for (final minutes in [1, 525600, 24]) {
         await tester.tap(setting);
         await tester.pumpAndSettle();
         final input = find.byKey(const Key('auto-sync-interval-input'));
+        expect(find.text('间隔分钟数'), findsOneWidget);
+        expect(find.text('1–525600 分钟，默认 10 分钟'), findsOneWidget);
         expect(
           tester.widget<TextField>(input).controller!.text,
-          '${model.autoSyncIntervalHours}',
+          '${model.autoSyncIntervalMinutes}',
         );
-        await tester.enterText(input, '$hours');
+        await tester.enterText(input, '$minutes');
         await tester.tap(find.byKey(const Key('auto-sync-interval-save')));
         await tester.pumpAndSettle();
         expect(find.byType(AlertDialog), findsNothing);
-        expect(model.autoSyncIntervalHours, hours);
-        expect(find.textContaining('超过 $hours 小时'), findsOneWidget);
+        expect(model.autoSyncIntervalMinutes, minutes);
+        expect(find.textContaining('超过 $minutes 分钟'), findsOneWidget);
       }
       await tester.tap(setting);
       await tester.pumpAndSettle();
@@ -491,15 +493,15 @@ void main() {
       await tester.tap(find.byKey(const Key('auto-sync-interval-cancel')));
       await tester.pumpAndSettle();
       expect(find.byType(AlertDialog), findsNothing);
-      expect(model.autoSyncIntervalRequests, [1, 8760, 24]);
-      expect(model.autoSyncIntervalHours, 24);
+      expect(model.autoSyncIntervalRequests, [1, 525600, 24]);
+      expect(model.autoSyncIntervalMinutes, 24);
       expect(model.refreshCalls, 0);
       expect(tester.takeException(), isNull);
     },
     variant: TargetPlatformVariant.all(),
   );
 
-  testWidgets('auto sync interval validates whole hours before saving', (
+  testWidgets('auto sync interval validates whole minutes before saving', (
     tester,
   ) async {
     final model = _FakeModel();
@@ -510,18 +512,27 @@ void main() {
     await _scrollSettingsTo(tester, setting);
     await tester.tap(setting);
     await tester.pumpAndSettle();
-    for (final invalid in ['', '0', '-1', '1.5', '8761', 'abc', '1e3', '+1']) {
+    for (final invalid in [
+      '',
+      '0',
+      '-1',
+      '1.5',
+      '525601',
+      'abc',
+      '1e3',
+      '+1',
+    ]) {
       await tester.enterText(
         find.byKey(const Key('auto-sync-interval-input')),
         invalid,
       );
       await tester.tap(find.byKey(const Key('auto-sync-interval-save')));
       await tester.pumpAndSettle();
-      expect(find.text('请输入 1–8760 之间的整数小时'), findsOneWidget);
+      expect(find.text('请输入 1–525600 之间的整数分钟'), findsOneWidget);
       expect(model.autoSyncIntervalRequests, isEmpty);
       expect(find.byType(AlertDialog), findsOneWidget);
     }
-    expect(model.autoSyncIntervalHours, 12);
+    expect(model.autoSyncIntervalMinutes, 10);
   });
 
   testWidgets('auto sync interval disables edits and dismissal while saving', (
@@ -559,7 +570,7 @@ void main() {
     model.autoSyncIntervalSave!.complete();
     await tester.pumpAndSettle();
     expect(find.byType(AlertDialog), findsNothing);
-    expect(model.autoSyncIntervalHours, 24);
+    expect(model.autoSyncIntervalMinutes, 24);
     expect(tester.widget<ListTile>(setting).onTap, isNotNull);
   });
 
@@ -585,7 +596,7 @@ void main() {
       expect(find.text('同步间隔未能保存，请重试。'), findsWidgets);
       expect(tester.widget<TextField>(input).controller!.text, '24');
       expect(tester.widget<TextField>(input).enabled, isTrue);
-      expect(model.autoSyncIntervalHours, 12);
+      expect(model.autoSyncIntervalMinutes, 10);
       if (throwFailure) {
         expect(find.text('操作未能完成，请检查网络与目录权限后重试。'), findsOneWidget);
       }
@@ -594,7 +605,7 @@ void main() {
       await tester.tap(find.byKey(const Key('auto-sync-interval-save')));
       await tester.pumpAndSettle();
       expect(find.byType(AlertDialog), findsNothing);
-      expect(model.autoSyncIntervalHours, 24);
+      expect(model.autoSyncIntervalMinutes, 24);
       expect(tester.takeException(), isNull);
     });
   }
@@ -623,7 +634,7 @@ void main() {
     await tester.enterText(input, '36');
     await tester.tap(find.byKey(const Key('auto-sync-interval-save')));
     await tester.pumpAndSettle();
-    expect(model.autoSyncIntervalHours, 36);
+    expect(model.autoSyncIntervalMinutes, 36);
     expect(tester.takeException(), isNull);
   });
 

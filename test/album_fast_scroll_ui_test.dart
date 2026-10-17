@@ -371,6 +371,68 @@ void main() {
     variant: _mobilePlatforms,
   );
 
+  for (final order in [
+    MediaSortOrder.dateDescending,
+    MediaSortOrder.nameAscending,
+  ]) {
+    testWidgets(
+      '$order keeps one continuous thumb drag through changing section markers',
+      (tester) async {
+        final model = _Model();
+        await model.setMediaSortOrder(order);
+        await _show(tester, model);
+        await _scrollDown(tester);
+        final track = tester.getRect(
+          find.byKey(const Key('album-fast-scroll-track')),
+        );
+        final thumb = tester.getRect(_thumb);
+        final travel = track.height - thumb.height;
+        final gesture = await tester.startGesture(thumb.center);
+        await gesture.moveBy(const Offset(0, 20));
+        await tester.pump();
+        for (final fraction in [.15, .3, .5, .7, .9, .65, .35, .1]) {
+          final target = Offset(
+            thumb.center.dx,
+            track.top + travel * fraction + thumb.height / 2,
+          );
+          await gesture.moveTo(target);
+          await tester.pump();
+          final position = _controller(tester).position;
+          expect(
+            position.pixels,
+            closeTo(position.maxScrollExtent * fraction, 1),
+            reason: 'the same gesture must follow the finger at $fraction',
+          );
+          expect(tester.getCenter(_thumb).dy, closeTo(target.dy, 1));
+        }
+        await gesture.up();
+        await tester.pumpAndSettle();
+        expect(model.downloads, isEmpty);
+        expect(find.byKey(const Key('media-preview-page')), findsNothing);
+        expect(tester.takeException(), isNull);
+      },
+      variant: _mobilePlatforms,
+    );
+
+    testWidgets(
+      '$order hides after releasing a thumb drag that changes section markers',
+      (tester) async {
+        final model = _Model();
+        await model.setMediaSortOrder(order);
+        await _show(tester, model);
+        await _scrollDown(tester);
+        await _dragThumbTo(tester, .5);
+        expect(_opacity(tester), 1);
+        await tester.pump(const Duration(seconds: 4));
+        await tester.pumpAndSettle();
+        expect(_opacity(tester), 0);
+        expect(_thumb.hitTestable(), findsNothing);
+        expect(tester.takeException(), isNull);
+      },
+      variant: _mobilePlatforms,
+    );
+  }
+
   for (final detailed in [false, true]) {
     testWidgets(
       '${detailed ? 'detailed' : 'compact'} dates follow the actual center image with large text',

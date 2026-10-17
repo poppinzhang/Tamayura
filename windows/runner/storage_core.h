@@ -4,8 +4,12 @@
 #include <windows.h>
 
 #include <cstdint>
+#include <condition_variable>
+#include <exception>
 #include <functional>
+#include <list>
 #include <map>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <set>
@@ -104,6 +108,11 @@ struct MediaEntry {
 
 class MediaCatalog {
  public:
+  // Source previews are process-local; zero limits disable retained entries.
+  explicit MediaCatalog(size_t thumbnail_max_bytes = 32 * 1024 * 1024,
+                        size_t thumbnail_max_entries = 4096)
+      : thumbnail_max_bytes_(thumbnail_max_bytes),
+        thumbnail_max_entries_(thumbnail_max_entries) {}
   // Stops serving every file and cancels running scans.
   uint64_t Clear();
   // Starts a rescan while the previous catalog keeps serving, so peers'
@@ -124,15 +133,36 @@ class MediaCatalog {
   // Like macOS: a missing or changed file, or a preview that cannot be
   // decoded, yields empty bytes so one file cannot block a peer's catalog.
   // Shared-folder, permission, sharing, I/O and catalog errors still throw.
+  // Every request checks file/root access before using the bounded LRU cache.
+  // Concurrent requests for an unchanged file share one generation operation.
   Bytes Thumbnail(const std::string& id,
                   const std::function<Bytes(const MediaEntry&, const SafeFile&)>&
                       generate);
 
  private:
+  struct ThumbnailEntry {
+    MediaEntry source;
+    Bytes bytes;
+    std::list<std::string>::iterator recent;
+  };
+  struct ThumbnailFlight {
+    MediaEntry source;
+    uint64_t generation = 0;
+    std::condition_variable ready;
+    bool done = false;
+    Bytes bytes;
+    std::exception_ptr error;
+  };
+  static bool SameSource(const MediaEntry& left, const MediaEntry& right);
+  void PruneThumbnailsLocked();
+  void EraseThumbnailLocked(const std::string& id);
+  void CacheThumbnailLocked(const MediaEntry& source, const Bytes& bytes);
   void RevokeLocked();
   // A read may finish only while sharing continues and its file stays published.
   void AssertCurrent(const std::string& id, const MediaEntry& entry,
                      uint64_t generation) const;
+  void AssertCurrentLocked(const std::string& id, const MediaEntry& entry,
+                           uint64_t generation) const;
 
   mutable std::mutex mutex_;
   // Changes only when sharing stops or a scan fails; every read then ends.
@@ -140,6 +170,12 @@ class MediaCatalog {
   // The latest scan; starting another scan or clearing cancels older ones.
   uint64_t ticket_ = 0;
   std::map<std::string, MediaEntry> files_;
+  const size_t thumbnail_max_bytes_;
+  const size_t thumbnail_max_entries_;
+  size_t thumbnail_bytes_ = 0;
+  std::list<std::string> thumbnail_recent_;
+  std::map<std::string, ThumbnailEntry> thumbnails_;
+  std::map<std::string, std::shared_ptr<ThumbnailFlight>> thumbnail_flights_;
 };
 
 std::wstring ValidateDirectory(const std::string& path);
