@@ -1,5 +1,6 @@
 package dev.tamayura.app
 
+import android.app.NotificationManager
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.os.Build
@@ -54,7 +55,7 @@ internal class AndroidRuntime private constructor(private val context: Context) 
         try {
             when (call.method) {
                 "pickDirectory", "share", "open", "openBatteryOptimizationSettings" -> {
-                    val current = host ?: throw IllegalStateException("请先打开应用页面")
+                    val current = host ?: throw IllegalStateException(text(R.string.error_open_app_first))
                     current.handleUiMethod(call, result)
                 }
                 "scanDirectoriesMetadata" -> {
@@ -130,13 +131,18 @@ internal class AndroidRuntime private constructor(private val context: Context) 
                     result.success(null)
                 }
                 "stopDiscovery" -> { discovery.stop(); result.success(null) }
+                "setLanguage" -> {
+                    AppText.setLanguage(context, call.requiredString("language"))
+                    refreshLanguage()
+                    result.success(null)
+                }
                 else -> result.notImplemented()
             }
         } catch (error: Exception) { report(result, error) }
     }
 
     private fun requestTransfer(taskId: String, result: MethodChannel.Result) {
-        require(taskId.isNotBlank() && taskId.length <= 200) { "无效的下载任务 ID" }
+        TransferPolicy.requireTaskId(taskId)
         val request = TransferRequest(taskId, TransferScheduler.requestTicket(taskId), result)
         // Notification permission controls visibility, not permission to download.
         scheduleTransfer(request)
@@ -145,7 +151,7 @@ internal class AndroidRuntime private constructor(private val context: Context) 
     private fun scheduleTransfer(request: TransferRequest) {
         val (taskId, ticket, result) = request
         if (!TransferScheduler.requestCurrent(taskId, ticket)) {
-            result.error("TRANSFER_CANCELLED", "下载已取消", null)
+            result.error("TRANSFER_CANCELLED", text(R.string.error_download_cancelled), null)
             return
         }
         if (taskId in TransferScheduler.scheduledIds(context) &&
@@ -155,12 +161,12 @@ internal class AndroidRuntime private constructor(private val context: Context) 
         }
         BackgroundTransferService.whenIdle(taskId) {
             if (!TransferScheduler.requestCurrent(taskId, ticket)) {
-                result.error("TRANSFER_CANCELLED", "下载已取消", null)
+                result.error("TRANSFER_CANCELLED", text(R.string.error_download_cancelled), null)
             } else try {
                 TransferScheduler.schedule(context, taskId)
                 result.success(null)
             } catch (error: Exception) {
-                result.error("TRANSFER_SCHEDULE_FAILED", error.message ?: "下载任务调度失败", null)
+                result.error("TRANSFER_SCHEDULE_FAILED", error.message ?: text(R.string.error_schedule_failed), null)
             }
         }
     }
@@ -195,7 +201,21 @@ internal class AndroidRuntime private constructor(private val context: Context) 
             is java.util.concurrent.CancellationException -> "SCAN_CANCELLED"
             else -> "PLATFORM_ERROR"
         }
-        result.error(code, error.message ?: "Android operation failed", null)
+        result.error(code, AppText.message(context, error) ?: text(R.string.error_android_operation), null)
+    }
+
+    private fun text(id: Int): String = AppText.get(context, id)
+
+    /** Rename existing notification channels and refresh shown notifications. */
+    private fun refreshLanguage() {
+        val notifications = context.getSystemService(NotificationManager::class.java)
+        if (notifications.getNotificationChannel(TransferScheduler.CHANNEL) != null) {
+            TransferScheduler.ensureNotificationChannel(context)
+        }
+        if (notifications.getNotificationChannel(BackgroundSharingService.CHANNEL) != null) {
+            BackgroundSharingService.createChannel(context)
+        }
+        sharing.refreshNotification()
     }
 
     private fun localInfo(): Map<String, Any> {

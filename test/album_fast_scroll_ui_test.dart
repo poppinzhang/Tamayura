@@ -283,7 +283,7 @@ MediaView _centerPhoto(WidgetTester tester, _Model model) {
 }
 
 String _fullDate(DateTime date) =>
-    '${date.year}年${date.month}月${date.day}日 '
+    '${date.year}年${date.month}月${date.day}日'
     '周${const ['一', '二', '三', '四', '五', '六', '日'][date.weekday - 1]}';
 
 void main() {

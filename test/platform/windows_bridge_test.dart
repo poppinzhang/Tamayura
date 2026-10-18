@@ -32,6 +32,23 @@ void main() {
     expect(bridge.platformName, 'Windows');
   });
 
+  test('every platform receives the interface language preference', () async {
+    for (final platform in [
+      WindowsBridge(methods: channel),
+      MacOSBridge(methods: channel),
+      AndroidBridge(methods: channel),
+    ]) {
+      final calls = <MethodCall>[];
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        calls.add(call);
+        return null;
+      });
+      await platform.setLanguage('ja');
+      expect(calls.single.method, 'setLanguage');
+      expect(calls.single.arguments, {'language': 'ja'});
+    }
+  });
+
   test('Windows identity must be a persisted lowercase UUID', () async {
     const identity = 'windows-aabbccdd-1234-5678-abcd-123456789abc';
     messenger.setMockMethodCallHandler(channel, (_) async => identity);

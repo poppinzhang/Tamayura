@@ -30,6 +30,8 @@ internal class SafMediaStore(private val context: Context) {
     private data class PendingDirectory(val documentId: String, val relativePath: String)
     private data class ChildDocument(val id: String, val name: String, val mimeType: String)
 
+    private fun text(id: Int, vararg args: Any): String = AppText.get(context, id, *args)
+
     fun clear(): Long = catalog.clear()
 
     /** Peers keep reading the previous catalogue until this scan publishes. */
@@ -47,26 +49,28 @@ internal class SafMediaStore(private val context: Context) {
 
     private fun assertNotInterrupted() {
         if (Thread.currentThread().isInterrupted) {
-            throw CancellationException("共享目录已改变，请重新扫描")
+            throw CancellationException(text(R.string.error_scan_cancelled))
         }
     }
 
     private fun authorizedTree(value: String, write: Boolean = false): Uri {
         val uri = Uri.parse(value)
-        require(uri.scheme == "content" && DocumentsContract.isTreeUri(uri)) { "无效的目录 URI" }
+        require(uri.scheme == "content" && DocumentsContract.isTreeUri(uri)) {
+            text(R.string.error_invalid_directory_uri)
+        }
         val authorized = resolver.persistedUriPermissions.any {
             it.uri == uri && it.isReadPermission && (!write || it.isWritePermission)
         }
-        if (!authorized) throw SecurityException("目录授权已失效，请重新选择目录")
+        if (!authorized) throw SecurityException(text(R.string.error_permission_lost))
         return uri
     }
 
     fun directoryName(tree: Uri): String {
         val document = DocumentsContract.buildDocumentUriUsingTree(tree, DocumentsContract.getTreeDocumentId(tree))
         resolver.query(document, arrayOf(Document.COLUMN_DISPLAY_NAME), null, null, null)?.use {
-            if (it.moveToFirst()) return it.getString(0) ?: "已选择目录"
+            if (it.moveToFirst()) return it.getString(0) ?: text(R.string.selected_directory_fallback)
         }
-        return "已选择目录"
+        return text(R.string.selected_directory_fallback)
     }
 
     fun validateSharedDirectory(value: String, existing: List<String>) {
@@ -114,8 +118,8 @@ internal class SafMediaStore(private val context: Context) {
 
     private fun scanAuthorized(shared: List<SharedDirectory>, expected: Long): List<Map<String, Any>> {
         assertScan(expected)
-        require(shared.all { it.id.isNotBlank() && it.name.isNotBlank() }) { "共享目录缺少标识或名称" }
-        require(shared.map { it.id }.toSet().size == shared.size) { "共享目录标识重复" }
+        require(shared.all { it.id.isNotBlank() && it.name.isNotBlank() }) { text(R.string.error_directory_identity) }
+        require(shared.map { it.id }.toSet().size == shared.size) { text(R.string.error_directory_duplicate_id) }
         shared.forEachIndexed { index, directory ->
             validateSharedDirectory(directory.uri, shared.take(index).map { it.uri })
         }
@@ -197,7 +201,7 @@ internal class SafMediaStore(private val context: Context) {
             if (required) throw error
             null
         }
-        if (cursor == null && required) throw FileNotFoundException("无法读取目录，请检查目录是否仍存在")
+        if (cursor == null && required) throw FileNotFoundException(text(R.string.error_directory_unreadable_missing))
         return cursor
     }
 
@@ -205,7 +209,7 @@ internal class SafMediaStore(private val context: Context) {
         val root = DocumentsContract.buildDocumentUriUsingTree(tree, rootId)
         val found = resolver.query(root, arrayOf(Document.COLUMN_DOCUMENT_ID), null, null, null)
             ?.use { it.moveToFirst() } ?: false
-        if (!found) throw FileNotFoundException("共享目录已不存在，请重新选择目录")
+        if (!found) throw FileNotFoundException(text(R.string.error_directory_missing))
     }
 
     fun thumbnail(id: String): ByteArray {
@@ -225,7 +229,7 @@ internal class SafMediaStore(private val context: Context) {
     }
 
     fun readRange(id: String, offset: Long, length: Int): ByteArray {
-        require(offset >= 0 && length in 0..MAX_RANGE_BYTES) { "无效的文件分块范围" }
+        require(offset >= 0 && length in 0..MAX_RANGE_BYTES) { text(R.string.error_invalid_range) }
         val snapshot = catalog.lookup(id)
         return try {
             readAuthorizedRange(id, snapshot, offset, length)
@@ -240,22 +244,22 @@ internal class SafMediaStore(private val context: Context) {
         val tree = Uri.parse(snapshot.directory)
         val file = snapshot.entry
         authorizedTree(tree.toString())
-        require(offset <= file.size) { "请求偏移量超出文件大小" }
+        require(offset <= file.size) { text(R.string.error_range_offset) }
         val count = minOf(length.toLong(), file.size - offset).toInt()
         if (count == 0) return ByteArray(0)
         val bytes = ByteArray(count)
         val descriptor = resolver.openFileDescriptor(file.uri, "r")
-            ?: throw FileNotFoundException("文件已不可用，请刷新相册")
+            ?: throw FileNotFoundException(text(R.string.error_file_unavailable))
         descriptor.use {
             if (it.statSize >= 0 && it.statSize != file.size) {
-                throw IllegalStateException("文件大小已改变，请刷新相册")
+                throw IllegalStateException(text(R.string.error_file_changed))
             }
             try {
                 var read = 0
                 while (read < count) {
                     assertCurrent(id, snapshot)
                     val size = Os.pread(it.fileDescriptor, bytes, read, count - read, offset + read)
-                    if (size <= 0) throw java.io.EOFException("文件提前结束，请刷新相册")
+                    if (size <= 0) throw java.io.EOFException(text(R.string.error_file_ended_refresh))
                     read += size
                 }
             } catch (error: ErrnoException) {
@@ -269,17 +273,17 @@ internal class SafMediaStore(private val context: Context) {
                         val skipped = stream.skip(remaining)
                         if (skipped > 0) { remaining -= skipped; continue }
                         val consumed = stream.read(skipBuffer, 0, minOf(remaining, skipBuffer.size.toLong()).toInt())
-                        if (consumed <= 0) throw java.io.EOFException("文件提前结束")
+                        if (consumed <= 0) throw java.io.EOFException(text(R.string.error_file_ended))
                         remaining -= consumed
                     }
                     var read = 0
                     while (read < count) {
                         assertCurrent(id, snapshot)
                         val size = stream.read(bytes, read, count - read)
-                        if (size <= 0) throw java.io.EOFException("文件提前结束")
+                        if (size <= 0) throw java.io.EOFException(text(R.string.error_file_ended))
                         read += size
                     }
-                } ?: throw FileNotFoundException("无法打开媒体文件")
+                } ?: throw FileNotFoundException(text(R.string.error_open_media))
             }
         }
         // Do not return an old read that completed after sharing was revoked or changed.
@@ -292,12 +296,12 @@ internal class SafMediaStore(private val context: Context) {
         val children = DocumentsContract.buildChildDocumentsUriUsingTree(tree, DocumentsContract.getDocumentId(parent))
         val cursor = resolver.query(children,
             arrayOf(Document.COLUMN_DOCUMENT_ID, Document.COLUMN_DISPLAY_NAME, Document.COLUMN_MIME_TYPE),
-            null, null, null) ?: throw java.io.IOException("无法读取接收目录")
+            null, null, null) ?: throw java.io.IOException(text(R.string.error_receive_directory_read))
         return cursor.use {
             buildList {
                 while (it.moveToNext()) add(ChildDocument(
-                    it.getString(0) ?: throw java.io.IOException("接收目录返回了无效的文档"),
-                    it.getString(1) ?: throw java.io.IOException("接收目录返回了无效的名称"),
+                    it.getString(0) ?: throw java.io.IOException(text(R.string.error_receive_directory_document)),
+                    it.getString(1) ?: throw java.io.IOException(text(R.string.error_receive_directory_name)),
                     it.getString(2) ?: "application/octet-stream"))
             }
         }
@@ -315,26 +319,26 @@ internal class SafMediaStore(private val context: Context) {
                      directories: List<String>,
                      cancelled: () -> Boolean = { Thread.currentThread().isInterrupted }): String {
         fun checkCancelled() {
-            if (cancelled()) throw CancellationException("下载保存已取消")
+            if (cancelled()) throw CancellationException(text(R.string.error_save_cancelled))
         }
         checkCancelled()
         StoragePaths.requireSegment(name)
         directories.forEach(StoragePaths::requireSegment)
-        require(expectedSize >= 0 && sourcePaths.isNotEmpty()) { "下载分片或大小无效" }
+        require(expectedSize >= 0 && sourcePaths.isNotEmpty()) { text(R.string.error_parts_invalid) }
         val roots = listOf(context.cacheDir, context.filesDir, context.noBackupFilesDir)
         var total = 0L
         val sources = sourcePaths.map { path ->
             val source = File(path).canonicalFile
             require(roots.any { source.path.startsWith(it.canonicalPath + File.separator) }) {
-                "下载源文件必须在应用私有目录中"
+                text(R.string.error_source_location)
             }
-            require(source.isFile) { "下载临时文件不存在" }
+            require(source.isFile) { text(R.string.error_part_missing) }
             val size = source.length()
-            require(size <= expectedSize - total) { "下载分片大小与预期不符" }
+            require(size <= expectedSize - total) { text(R.string.error_parts_size) }
             total += size
             source
         }
-        require(total == expectedSize) { "下载分片大小与预期不符" }
+        require(total == expectedSize) { text(R.string.error_parts_size) }
         val tree = authorizedTree(directoryUri, write = true)
         // The lock spans all SafMediaStore instances, including headless transfer engines.
         // Reserve the final document before allowing another save to inspect this path.
@@ -344,26 +348,26 @@ internal class SafMediaStore(private val context: Context) {
                 checkCancelled()
                 val matching = childDocuments(tree, parent).filter { it.name == segment }
                 if (matching.size > 1 || matching.any { it.mimeType != Document.MIME_TYPE_DIR }) {
-                    throw java.io.IOException("接收路径中的 $segment 已被同名文件或重复目录占用")
+                    throw java.io.IOException(text(R.string.error_path_occupied, segment))
                 }
                 parent = if (matching.isEmpty()) {
                     DocumentsContract.createDocument(resolver, parent, Document.MIME_TYPE_DIR, segment)
-                        ?: throw java.io.IOException("无法创建接收子目录 $segment")
+                        ?: throw java.io.IOException(text(R.string.error_create_subdirectory, segment))
                 } else DocumentsContract.buildDocumentUriUsingTree(tree, matching.single().id)
             }
             checkCancelled()
             val existing = childDocuments(tree, parent)
             val availableName = StoragePaths.availableFileName(name, existing.map { it.name }.toSet())
             val created = DocumentsContract.createDocument(resolver, parent, mimeType, availableName)
-                ?: throw java.io.IOException("无法在接收目录创建文件")
+                ?: throw java.io.IOException(text(R.string.error_create_file))
             if (existing.any { it.id == DocumentsContract.getDocumentId(created) }) {
-                throw java.io.IOException("文档提供方没有创建独立文件，已拒绝覆盖现有文件")
+                throw java.io.IOException(text(R.string.error_provider_overwrite))
             }
             created
         }
         try {
             val output = resolver.openOutputStream(document, "w")
-                ?: throw java.io.IOException("无法写入接收目录")
+                ?: throw java.io.IOException(text(R.string.error_write_directory))
             output.use { target ->
                 val buffer = ByteArray(256 * 1024)
                 var copied = 0L
@@ -374,13 +378,13 @@ internal class SafMediaStore(private val context: Context) {
                             checkCancelled()
                             val count = input.read(buffer)
                             if (count < 0) break
-                            require(count.toLong() <= expectedSize - copied) { "下载分片在保存时已变化" }
+                            require(count.toLong() <= expectedSize - copied) { text(R.string.error_parts_changed) }
                             target.write(buffer, 0, count)
                             copied += count
                         }
                     }
                 }
-                require(copied == expectedSize) { "下载分片在保存时已变化" }
+                require(copied == expectedSize) { text(R.string.error_parts_changed) }
             }
             checkCancelled()
             return document.toString()
@@ -391,10 +395,10 @@ internal class SafMediaStore(private val context: Context) {
     }
 
     fun readPreview(value: String, maximum: Int): ByteArray {
-        require(maximum in 1..2560) { "预览尺寸必须在 1 至 2560 之间" }
+        require(maximum in 1..2560) { text(R.string.error_preview_range) }
         val uri = Uri.parse(value)
         require(uri.scheme == "content" && DocumentsContract.isDocumentUri(context, uri)) {
-            "需要有效的已下载文档 URI"
+            text(R.string.error_downloaded_uri)
         }
         var bitmap = decodeImage(uri, maximum)
         try {
@@ -406,7 +410,7 @@ internal class SafMediaStore(private val context: Context) {
                 if (data.size <= 8 * 1024 * 1024) return data
                 val smaller = Bitmap.createScaledBitmap(bitmap,
                     maxOf(1, bitmap.width / 2), maxOf(1, bitmap.height / 2), true)
-                if (smaller === bitmap) throw java.io.IOException("预览图过大")
+                if (smaller === bitmap) throw java.io.IOException(text(R.string.error_preview_too_large))
                 bitmap.recycle()
                 bitmap = smaller
             }
@@ -417,28 +421,28 @@ internal class SafMediaStore(private val context: Context) {
     fun deleteDownload(value: String) {
         val uri = Uri.parse(value)
         require(uri.scheme == "content" && DocumentsContract.isTreeUri(uri) && uri.pathSegments.size == 4) {
-            "需要有效的已下载文档 URI"
+            text(R.string.error_downloaded_uri)
         }
         val documentId = DocumentsContract.getDocumentId(uri)
         val treeId = DocumentsContract.getTreeDocumentId(uri)
-        require(documentId != treeId) { "不能删除接收目录" }
+        require(documentId != treeId) { text(R.string.error_delete_directory) }
         val tree = DocumentsContract.buildTreeDocumentUri(requireNotNull(uri.authority), treeId)
         authorizedTree(tree.toString(), write = true)
         // Null cursors and provider exceptions are not reliable proof of absence.
         // Keep the saved record when access cannot be established.
         val cursor = resolver.query(uri, arrayOf(Document.COLUMN_MIME_TYPE), null, null, null)
-            ?: throw java.io.IOException("无法确认已下载文件是否存在")
+            ?: throw java.io.IOException(text(R.string.error_delete_check))
         val exists = cursor.use {
             if (!it.moveToFirst()) false else {
                 val mimeType = it.getString(0)
-                    ?: throw java.io.IOException("无法确认已下载文件类型")
-                require(mimeType != Document.MIME_TYPE_DIR) { "不能删除接收目录" }
+                    ?: throw java.io.IOException(text(R.string.error_delete_type))
+                require(mimeType != Document.MIME_TYPE_DIR) { text(R.string.error_delete_directory) }
                 true
             }
         }
         authorizedTree(tree.toString(), write = true)
         if (exists && !DocumentsContract.deleteDocument(resolver, uri)) {
-            throw java.io.IOException("无法删除已下载文件")
+            throw java.io.IOException(text(R.string.error_delete_failed))
         }
         authorizedTree(tree.toString(), write = true)
     }

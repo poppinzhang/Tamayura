@@ -1,0 +1,902 @@
+{
+  "@@locale": "zh",
+  "appTitle": "Tamayura · 玉响",
+  "@appTitle": {
+    "description": "Window/task title and the project name on the About page."
+  },
+  "appLocalName": "玉响",
+  "@appLocalName": {
+    "description": "Local-language name shown after the Latin brand in the app bar. Empty hides it."
+  },
+  "commonCancel": "取消",
+  "commonSave": "保存",
+  "commonSaving": "正在保存…",
+  "commonRetry": "重试",
+  "commonDone": "完成",
+  "commonConfirm": "确认",
+  "commonConnect": "连接",
+  "commonShare": "分享",
+  "commonOnline": "在线",
+  "commonOffline": "离线",
+  "commonVideo": "视频",
+  "commonImage": "图片",
+  "navAlbum": "相册",
+  "navDevices": "设备",
+  "navSettings": "设置",
+  "homeDownloadsTooltip": "下载任务",
+  "homeRefreshTooltip": "刷新设备和相册",
+  "homeOpening": "正在打开你的随身相册…",
+  "homeActionFailed": "操作未能完成，请检查网络与目录权限后重试。",
+  "homeErrorRetry": "重试连接与刷新",
+  "homeErrorDismiss": "关闭提示",
+  "albumHeadline": "每一刻，都在手边。",
+  "albumSubtitle": "按共享文件夹浏览合集，轻点照片就存到这里。",
+  "albumAllDevices": "全部设备",
+  "albumAllCollections": "全部合集",
+  "albumSharedCollectionFallback": "共享合集",
+  "albumDeleteLocalFiles": "删除本地文件",
+  "albumCollectionCount": "{count} 个合集",
+  "@albumCollectionCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "albumMomentCount": "{count} 个瞬间",
+  "@albumMomentCount": {
+    "description": "Number of photos and videos.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "albumSelectSavedHint": "选择已保存的图片或视频",
+  "albumTapToDownloadHint": "轻点下载原文件",
+  "albumReceivingTitle": "正在接收相册",
+  "albumReceivingDescription": "缩略图会陆续显示，你可以边同步边浏览。",
+  "albumSyncIncompleteTitle": "同步尚未完成",
+  "albumSyncIncompleteDescription": "请检查两台设备的连接，然后重试同步。",
+  "albumNoDevicesTitle": "让照片相遇",
+  "albumNoDevicesDescription": "在另一台设备上打开玉响，连接同一个局域网。\n发现设备后，共享文件夹会以合集出现在这里。",
+  "albumEmptyCollectionTitle": "这个合集还没有照片",
+  "albumNoCollectionsTitle": "这里还没有合集",
+  "albumNoMediaDesktopDescription": "对方需要选择共享目录，并保持玉响运行。\n点击右上角刷新，更新已连接设备的相册。",
+  "albumNoMediaMobileDescription": "对方需要选择共享目录，开启后台共享后锁屏也能访问。\n点击右上角刷新，更新已连接设备的相册。",
+  "albumConnectDevice": "连接一台设备",
+  "albumLoadMoreFailed": "更多照片暂时未能加载，请重试。",
+  "albumLoadingMore": "正在加载更多照片…",
+  "albumLoadMore": "加载更多照片",
+  "albumRetryLoad": "重试加载",
+  "albumLoadingThumbnail": "正在加载缩略图",
+  "albumRetryThumbnail": "重试加载缩略图",
+  "albumSortTooltip": "按名称或文件修改日期排序",
+  "albumSorting": "正在排序…",
+  "albumSortLabel": "排序：{order}",
+  "@albumSortLabel": {
+    "placeholders": {
+      "order": {
+        "type": "String"
+      }
+    }
+  },
+  "albumSortNameAscending": "名称升序",
+  "albumSortNameDescending": "名称降序",
+  "albumSortDateAscending": "日期升序",
+  "albumSortDateDescending": "日期降序",
+  "albumSelectedCount": "已选择 {count} 项",
+  "@albumSelectedCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "albumDeleting": "正在删除…",
+  "albumLocalDeleted": "已删除 {count} 个本地文件，可轻点缩略图重新下载。",
+  "@albumLocalDeleted": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "albumLocalDeletePartial": "已删除 {deleted} 个本地文件，{failed} 个未能删除，请检查目录权限后重试。",
+  "@albumLocalDeletePartial": {
+    "placeholders": {
+      "deleted": {
+        "type": "int"
+      },
+      "failed": {
+        "type": "int"
+      }
+    }
+  },
+  "albumMonthLabel": "{date}",
+  "@albumMonthLabel": {
+    "description": "Fast-scroll section label for a month.",
+    "placeholders": {
+      "date": {
+        "type": "DateTime",
+        "format": "yMMM"
+      }
+    }
+  },
+  "albumDateLabel": "{date}",
+  "@albumDateLabel": {
+    "description": "Fast-scroll date with weekday.",
+    "placeholders": {
+      "date": {
+        "type": "DateTime",
+        "format": "yMMMEd"
+      }
+    }
+  },
+  "albumFastScrollLabel": "快速滚动相册，{label}",
+  "@albumFastScrollLabel": {
+    "placeholders": {
+      "label": {
+        "type": "String"
+      }
+    }
+  },
+  "rememberedDeviceFallback": "已记住的设备",
+  "@rememberedDeviceFallback": {
+    "description": "Name for a source device whose record is unavailable."
+  },
+  "setupTitle": "先安顿好你的相册",
+  "setupDescription": "添加要分享的文件夹，以及收到照片后存放的位置。",
+  "setupShareFolder": "共享文件夹",
+  "setupDownloadFolder": "接收目录",
+  "collectionSemantics": "{folder}，来自{device}，{count} 个瞬间",
+  "@collectionSemantics": {
+    "placeholders": {
+      "folder": {
+        "type": "String"
+      },
+      "device": {
+        "type": "String"
+      },
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "mediaSemantics": "{name}，来自{device}，{state}",
+  "@mediaSemantics": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      },
+      "device": {
+        "type": "String"
+      },
+      "state": {
+        "type": "String"
+      }
+    }
+  },
+  "mediaStateSaved": "已保存",
+  "mediaStateDownloading": "正在下载",
+  "mediaStateFailed": "下载失败，点击重试",
+  "mediaStateTapToDownload": "点击下载原文件",
+  "mediaStateOffline": "设备离线，点击查看详情",
+  "mediaDeviceOffline": "设备离线",
+  "mediaDownloadingName": "正在下载 {name}",
+  "@mediaDownloadingName": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "mediaSelectName": "选择 {name}",
+  "@mediaSelectName": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "mediaNotSavedName": "{name} 尚未保存",
+  "@mediaNotSavedName": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "mediaDeleteLocalOnly": "仅删除本地文件",
+  "mediaNotSaved": "尚未保存",
+  "mediaDownloadFailedRetry": "下载失败 · 重试",
+  "mediaReceivingOriginal": "正在接收原文件…",
+  "mediaCardDate": "{date}",
+  "@mediaCardDate": {
+    "description": "Modified date on a detailed album card.",
+    "placeholders": {
+      "date": {
+        "type": "DateTime",
+        "format": "MMMd"
+      }
+    }
+  },
+  "devicesTitle": "附近的伙伴",
+  "devicesSubtitle": "同一个局域网，让每台设备的相册连在一起。",
+  "devicesThisDevice": "这台设备",
+  "devicesNoAddress": "暂无局域网地址，请连接网络后刷新",
+  "devicesShowQr": "展示连接二维码",
+  "devicesConnectByIp": "输入 IP 连接",
+  "devicesScan": "扫一扫",
+  "devicesConnecting": "正在连接设备…",
+  "devicesRemembered": "已记住的设备",
+  "devicesOnlineCount": "{count} 台在线",
+  "@devicesOnlineCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "devicesReorder": "调整顺序",
+  "devicesEmptyTitle": "等待另一台玉响",
+  "devicesEmptyDescription": "设备会通过局域网自动发现。\n如果暂时没找到，可以输入 IP 或扫描二维码连接。",
+  "devicesFooterWindows": "设备离线后仍会保留相册缩略图。共享与接收需要玉响运行、电脑保持唤醒，并与来源设备处于同一局域网。",
+  "devicesFooterMac": "设备离线后仍会保留相册缩略图。共享与接收需要玉响保持运行、Mac 保持唤醒，并与来源设备处于同一局域网。",
+  "devicesFooterMobile": "设备离线后仍会保留相册缩略图。来源设备开启后台共享后，锁屏也能提供原文件；这台设备可以切换到其他应用继续接收。",
+  "deviceLastSuccessfulSync": "最后成功同步：{time}",
+  "@deviceLastSuccessfulSync": {
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "deviceNeverSynced": "尚未成功同步",
+  "devicePendingApproval": "新发现的设备 · 尚未开启相册同步",
+  "deviceSyncDeclined": "未开启相册同步",
+  "deviceOfflineCached": "离线 · 可浏览缓存",
+  "deviceActions": "设备操作",
+  "deviceEnableAlbumSync": "开启相册同步",
+  "deviceForget": "忘记设备",
+  "deviceStartSync": "开启同步",
+  "deviceForgotten": "已忘记「{name}」，再次发现时会作为新设备询问是否同步。",
+  "@deviceForgotten": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "deviceForgetFailed": "未能忘记这台设备，请稍后重试。",
+  "deviceForgetTitle": "忘记「{name}」？",
+  "@deviceForgetTitle": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "deviceForgetMessage": "将从设备列表移除这台设备，并删除它的离线相册信息、缩略图和未完成的同步进度。\n\n已下载到本机的文件和下载任务不受影响，对端的原文件也不会被删除。再次在局域网中发现它时，会作为新设备询问是否同步。",
+  "syncApprovalTitle": "发现新设备",
+  "syncApprovalMessage": "「{name}」（{address}）出现在局域网中。是否同步它共享的相册？\n\n同步只获取文件信息和缩略图，原文件仍在点开时下载。选择「暂不同步」后，可以随时在「设备」页面开启。",
+  "@syncApprovalMessage": {
+    "description": "Quotes the decline button and the Devices tab.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      },
+      "address": {
+        "type": "String"
+      }
+    }
+  },
+  "syncApprovalDecline": "暂不同步",
+  "syncApprovalAccept": "开始同步",
+  "connectDialogTitle": "连接另一台设备",
+  "connectDialogHint": "在对方的「设备」页面找到 IP 地址。",
+  "connectDialogLabel": "IP 地址与端口",
+  "connectDialogEmpty": "请输入对方的 IP 地址",
+  "qrDialogHint": "另一台设备打开玉响扫一扫",
+  "qrSemantics": "本机连接二维码，地址 {address}，端口 {port}",
+  "@qrSemantics": {
+    "placeholders": {
+      "address": {
+        "type": "String"
+      },
+      "port": {
+        "type": "int"
+      }
+    }
+  },
+  "scannerTitle": "扫描设备二维码",
+  "scannerInvalidCode": "这不是玉响的设备二维码，请扫描对方「设备」页面的二维码。",
+  "scannerCameraUnavailable": "无法打开相机。请在系统设置中允许相机权限，或返回后输入 IP 连接。",
+  "scannerBack": "返回设备页面",
+  "scannerHint": "将对方的设备二维码放入镜头中\n双方需要连接同一个局域网",
+  "syncPhaseConnecting": "正在连接",
+  "syncPhaseReceiving": "正在同步相册",
+  "syncPhaseCommitting": "正在完成同步",
+  "syncPhaseCompleted": "相册同步完成",
+  "syncPhaseFailed": "本次同步未完成",
+  "syncConnectingResume": "已保留 {count} 项，正在连接设备继续同步。",
+  "@syncConnectingResume": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "syncConnectingFresh": "正在获取相册信息，请保持设备连接。",
+  "syncReceivingOpen": "已就绪 {count} 项，正在获取更多照片。",
+  "@syncReceivingOpen": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "syncReceivingProgress": "已就绪 {ready} / {total} 项，可边同步边浏览。",
+  "@syncReceivingProgress": {
+    "placeholders": {
+      "ready": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "syncCommittingDetail": "缩略图已就绪，正在整理相册。",
+  "syncCompletedDetail": "已就绪 {count} 项。",
+  "@syncCompletedDetail": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "syncFailedResume": "已保留 {count} 项，恢复连接后可继续同步。",
+  "@syncFailedResume": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "syncFailedFresh": "相册和同步进度已保留，请检查连接后重试。",
+  "syncDismiss": "关闭同步提示",
+  "syncProgressSemantics": "{device}，{status}，{detail}",
+  "@syncProgressSemantics": {
+    "placeholders": {
+      "device": {
+        "type": "String"
+      },
+      "status": {
+        "type": "String"
+      },
+      "detail": {
+        "type": "String"
+      }
+    }
+  },
+  "syncContinue": "继续同步",
+  "settingsTitle": "你的相册，你来安排",
+  "settingsSubtitle": "只分享选定的目录，原文件按需获取。",
+  "settingsAppearance": "外观",
+  "settingsThemeMode": "主题模式",
+  "settingsThemeSystem": "跟随系统",
+  "settingsThemeLight": "浅色",
+  "settingsThemeDark": "深色",
+  "settingsThemeSaving": "正在保存主题…",
+  "settingsThemeSystemDescription": "随系统自动切换浅色和深色外观。",
+  "settingsThemeLightDescription": "已固定为浅色外观。",
+  "settingsThemeDarkDescription": "已固定为深色外观。",
+  "settingsLanguage": "语言",
+  "settingsLanguageSystem": "跟随系统",
+  "settingsLanguageSaving": "正在保存语言…",
+  "settingsLanguageSystemDescription": "跟随系统语言，当前显示{language}。系统语言不是中文或日文时显示英文。",
+  "@settingsLanguageSystemDescription": {
+    "description": "The placeholder is the language's own name, such as 日本語.",
+    "placeholders": {
+      "language": {
+        "type": "String"
+      }
+    }
+  },
+  "settingsLanguageFixedDescription": "已固定为{language}，不随系统语言切换。",
+  "@settingsLanguageFixedDescription": {
+    "placeholders": {
+      "language": {
+        "type": "String"
+      }
+    }
+  },
+  "settingsAlbum": "相册",
+  "settingsDetailedMode": "详细模式",
+  "settingsDetailedModeSaving": "正在保存显示模式…",
+  "settingsDetailedModeDescription": "默认模式使用紧凑的正方形网格，点击照片查看详细信息。\n开启详细模式后，照片卡片会显示文件名、来源设备、日期和下载状态。",
+  "settingsSync": "同步",
+  "settingsAutoSyncInterval": "自动同步间隔",
+  "settingsAutoSyncSaving": "正在保存同步间隔…",
+  "settingsAutoSyncDescription": "上次同步尝试超过 {minutes} 分钟后自动同步。\n手动同步和同步失败都会重新计时。点击右上角刷新可立即同步。",
+  "@settingsAutoSyncDescription": {
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      }
+    }
+  },
+  "settingsFilesStorage": "文件与存储",
+  "settingsSharedFolders": "共享文件夹",
+  "settingsSharedFoldersDescription": "可添加多个文件夹，自动包含所有子目录。已添加的目录及其父目录、子目录不能重复添加。",
+  "settingsSharedFoldersEmpty": "尚未选择 · 让其他设备看到这里的照片",
+  "settingsRemoveSharedFolder": "移除 {name}",
+  "@settingsRemoveSharedFolder": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "settingsAddSharedFolder": "添加共享文件夹",
+  "settingsBackgroundSharing": "后台共享",
+  "settingsBackgroundSharingWindows": "关闭窗口后玉响会留在系统托盘。开启此项后，关闭或最小化窗口仍可共享；关闭此项后在窗口隐藏时停止共享。电脑需要保持唤醒。",
+  "settingsBackgroundSharingMac": "关闭窗口后玉响会留在菜单栏。开启此项后，关闭、隐藏或最小化窗口仍可共享；关闭此项后在窗口隐藏时停止共享。Mac 需要保持唤醒。",
+  "settingsBackgroundSharingMobile": "开启后锁屏仍可共享媒体；关闭后仅在使用应用时共享，更省电。",
+  "backgroundSharingStarting": "正在启动后台共享…",
+  "backgroundSharingUpdating": "正在更新后台共享…",
+  "backgroundSharingStartFailed": "后台共享启动失败，请重试。",
+  "backgroundSharingOff": "后台共享已关闭。",
+  "backgroundSharingRunningWindows": "后台共享正在运行。电脑睡眠或退出玉响后，共享会停止。",
+  "backgroundSharingRunningMac": "后台共享正在运行。Mac 睡眠或退出玉响后，共享会停止。",
+  "backgroundSharingRunningMobile": "后台共享正在运行，锁屏后仍可访问已选目录。",
+  "backgroundSharingNotRunning": "后台共享尚未运行。",
+  "backgroundSharingRetry": "重试后台共享",
+  "backgroundSharingBatteryHint": "系统省电限制可能在休眠时中断共享。可在电池设置中允许玉响不受限制地运行。",
+  "backgroundSharingBatterySettings": "电池设置",
+  "settingsDownloadFolder": "接收目录",
+  "settingsDownloadFolderEmpty": "尚未选择 · 下载的原文件会保存在这里",
+  "settingsSharingSummary": "当前从 {folders} 个目录共享 {count} 个媒体文件",
+  "@settingsSharingSummary": {
+    "placeholders": {
+      "folders": {
+        "type": "int"
+      },
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "settingsDownloadLayout": "原文件按「对端设备 / 共享文件夹 / 原有子目录」保存，保留目录层级。",
+  "settingsDeviceInfo": "本机信息",
+  "settingsNoLan": "尚未连接局域网",
+  "settingsTips": "使用小提示",
+  "tipNetworkTitle": "连接同一个网络",
+  "tipNetworkDescription": "目前仅支持局域网，设备无需登录账号。请只在可信的网络中共享目录。",
+  "tipWindowsTitle": "为 Windows 准备",
+  "tipWindowsDescription": "支持 Windows 10 1809 及更新版本、Windows 11（x64）。请允许玉响通过专用网络防火墙；也可使用手动 IP 连接。",
+  "tipBackgroundReceiveTitle": "关闭窗口，接收继续",
+  "tipBackgroundReceiveWindows": "关闭窗口后，已开始的下载继续。点击系统托盘中的玉响图标可重新打开，右键菜单可选择「退出玉响」。电脑睡眠或断网后可在下载任务中重试。",
+  "@tipBackgroundReceiveWindows": {
+    "description": "Quotes the Windows tray menu item that exits the app."
+  },
+  "tipBackgroundReceiveMac": "关闭窗口后，已开始的下载继续。从右上角菜单栏或 Dock 可重新打开；选择「退出玉响」或按 ⌘Q 才会退出。Mac 睡眠或断网后可在下载任务中重试。",
+  "@tipBackgroundReceiveMac": {
+    "description": "Quotes the macOS menu bar item that quits the app."
+  },
+  "tipKeyboardTitle": "用键盘快速切换",
+  "tipKeyboardWindows": "Ctrl+1 相册 · Ctrl+2 设备 · Ctrl+3 或 Ctrl+, 设置 · Ctrl+R 刷新。",
+  "tipKeyboardMac": "⌘1 相册 · ⌘2 设备 · ⌘3 或 ⌘, 设置 · ⌘R 刷新。",
+  "tipMacTitle": "为 Mac 准备",
+  "tipMacDescription": "支持 macOS Sequoia 15、Tahoe 26 及后续版本。目录访问和相机权限由系统管理，可在系统设置中调整。",
+  "tipAndroidTitle": "接收可在后台继续",
+  "tipAndroidDescription": "支持 Android 16 及更新版本。通知权限为可选项，关闭通知仍可下载并在下载中心查看进度；来源设备开启后台共享后可以锁屏，双方需要处于同一局域网。",
+  "tipOpenTitle": "轻点获取，下载后打开",
+  "tipOpenDescription": "每个共享文件夹显示为独立合集；点击下载原文件，可用系统应用打开，或在资源管理器中定位文件。",
+  "tipShareTitle": "轻点获取，下载后分享",
+  "tipShareDescription": "每个共享文件夹显示为独立合集，包含其所有子目录的照片与视频；点击下载原文件，再使用分享按钮发送到其他应用。",
+  "settingsAboutProject": "关于项目",
+  "settingsCheckUpdates": "检查更新",
+  "settingsCheckUpdatesSubtitle": "从 GitHub 检查新版本，由你确认后更新",
+  "settingsAbout": "关于",
+  "settingsAboutSubtitle": "版本、开源许可与一点碎碎念",
+  "autoSyncDialogDescription": "从最近一次同步尝试开始计时，超过设定分钟数后尝试自动同步。手动同步和同步失败都会重新计时。",
+  "autoSyncDialogLabel": "间隔分钟数",
+  "autoSyncDialogHelper": "1–525600 分钟，默认 10 分钟",
+  "autoSyncDialogInvalid": "请输入 1–525600 之间的整数分钟",
+  "autoSyncDialogSaveFailed": "同步间隔未能保存，请重试。",
+  "deviceOrderTitle": "调整设备顺序",
+  "deviceOrderDescription": "拖动手柄或使用箭头调整，相册中的设备也会按此顺序展示。",
+  "deviceOrderDrag": "拖动 {name}",
+  "@deviceOrderDrag": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "deviceOrderMoveUp": "上移 {name}",
+  "@deviceOrderMoveUp": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "deviceOrderMoveDown": "下移 {name}",
+  "@deviceOrderMoveDown": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "deviceOrderSaveFailed": "设备顺序保存失败，请重试。",
+  "previewUnavailable": "原文件已保存，暂无法在应用内预览。可用其他应用打开。",
+  "previewReadFailed": "原文件预览读取失败，可重试或用其他应用打开。",
+  "previewActionFailed": "操作未完成，请检查网络或文件权限后重试。",
+  "previewLocalDeleted": "已删除本地文件，可重新下载。",
+  "previewLocalDeleteFailed": "本地文件未能删除，请检查目录权限后重试。",
+  "previewDetails": "详细信息",
+  "previewCloseDetails": "关闭详细信息",
+  "detailFileName": "文件名",
+  "detailSourceDevice": "来源设备",
+  "detailDeviceStatus": "设备状态",
+  "detailDeviceUnknown": "设备记录不可用",
+  "detailModified": "修改时间（本地）",
+  "detailType": "类型",
+  "detailSize": "大小",
+  "detailSizeValue": "{size}（{bytes} 字节）",
+  "@detailSizeValue": {
+    "placeholders": {
+      "size": {
+        "type": "String"
+      },
+      "bytes": {
+        "type": "int"
+      }
+    }
+  },
+  "detailCollection": "合集",
+  "detailRelativePath": "相对路径",
+  "previewImageError": "无法显示这张预览图，可下载后用其他应用打开。",
+  "previewBack": "返回相册",
+  "previewDeleteLocal": "删除本地文件",
+  "previewZoomReset": "还原缩放",
+  "previewZoomIn": "放大预览",
+  "previewVideoHint": "视频缩略图 · 下载后可用系统播放器打开",
+  "previewReadingOriginal": "正在读取本机原图…",
+  "previewOriginalDesktop": "本机原图 · 双击或滚轮缩放",
+  "previewOriginalMobile": "本机原图 · 双指缩放",
+  "previewCachedThumbnail": "缓存缩略图 · 下载完成后显示原图",
+  "previewResetDesktop": "双击还原",
+  "previewResetMobile": "双击还原",
+  "@previewResetMobile": {
+    "description": "Shown on touch devices; double-tap restores the zoom."
+  },
+  "previewZoomDesktop": "双击放大",
+  "previewSwipeDown": "下滑返回",
+  "previewSource": "来自 {device}",
+  "@previewSource": {
+    "placeholders": {
+      "device": {
+        "type": "String"
+      }
+    }
+  },
+  "previewRetry": "重新读取预览",
+  "downloadsTitle": "下载任务",
+  "downloadsEmptyTitle": "下一张心动的照片，在路上",
+  "downloadsEmptyDescription": "轻点相册中的照片或视频，即可在这里查看下载进度。",
+  "downloadsBackToAlbum": "返回相册",
+  "downloadsAllDone": "每一份，都有着落。",
+  "downloadsActive": "{count} 个任务正在进行",
+  "@downloadsActive": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "downloadsHintWindows": "关闭窗口后仍可继续接收，从系统托盘可重新打开。请保持电脑唤醒，并与来源设备处于同一局域网；退出或睡眠中断后可重试。",
+  "downloadsHintMac": "关闭窗口后仍可继续接收，从菜单栏或 Dock 可重新打开。请保持 Mac 唤醒，并与来源设备处于同一局域网；退出或睡眠中断后可重试。",
+  "downloadsHintMobile": "接收可在后台继续。来源设备需要保持玉响运行，并与这台设备处于同一局域网。",
+  "downloadsActionFailed": "任务操作未完成，请重试。",
+  "downloadsMediaFallback": "媒体文件",
+  "transferQueued": "等待下载",
+  "transferDownloading": "正在下载",
+  "transferSaving": "正在保存到接收目录",
+  "transferCompleted": "已保存到本机",
+  "transferFailed": "下载失败",
+  "transferPaused": "已暂停",
+  "transferDiscarded": "等待清理暂存",
+  "transferNotDownloaded": "原文件尚未下载",
+  "transferContinues": "可返回相册或切换应用，接收任务会继续进行。",
+  "transferStaged": "已暂存约 {size}，暂停会保留，删除任务可释放空间。",
+  "@transferStaged": {
+    "placeholders": {
+      "size": {
+        "type": "String"
+      }
+    }
+  },
+  "transferAttempt": "第 {attempt} 次尝试",
+  "@transferAttempt": {
+    "placeholders": {
+      "attempt": {
+        "type": "int"
+      }
+    }
+  },
+  "transferShowInFolder": "在文件夹中显示",
+  "transferPlayVideo": "播放视频",
+  "transferOpenWith": "用其他应用打开",
+  "transferPause": "暂停下载",
+  "transferRetry": "重试下载",
+  "transferResume": "继续下载",
+  "transferDownloadOriginal": "下载原文件",
+  "transferCancelAndDelete": "取消并删除",
+  "transferDeleteTask": "删除任务并释放空间",
+  "transferRetryLater": "{error}；稍后会自动重试",
+  "@transferRetryLater": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "updateTitle": "检查更新",
+  "updateChecking": "正在检查更新…",
+  "updateUpToDate": "已是最新版本",
+  "updateAvailable": "发现新版本 {version}",
+  "@updateAvailable": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
+  "updateSystemFailed": "系统无法完成更新，请重试",
+  "updateFailed": "更新操作失败，请检查网络、磁盘空间及安装权限后重试",
+  "updateConfirmTitle": "更新至 {version}？",
+  "@updateConfirmTitle": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
+  "updateConfirmMac": "将打开此版本的 GitHub Release 页面，请下载 macOS 安装包并手动完成升级。",
+  "updateConfirmAutomatic": "确认后下载并校验安装包，完成后自动发起安装。更新会中断共享和传输，未完成的下载可在重新打开后重试。\n\nv1.0.0 前不保证旧数据或跨版本互联兼容，请阅读更新说明；必要时需重新选择目录并连接设备。",
+  "updateConfirmAndroid": "Android 可能要求允许安装此来源的应用，并在系统界面确认。",
+  "updateConfirmWindows": "Windows 将退出并重新启动玉响。",
+  "updateDecline": "暂不更新",
+  "updateOpenDownloadPage": "打开下载页面",
+  "updateDownloadAndInstall": "下载并安装",
+  "updateOpenedDownloadPage": "已打开此版本的下载页面，请手动完成升级",
+  "updateDownloading": "正在下载安装包…",
+  "updateVerifying": "正在校验安装包…",
+  "updatePreparing": "正在准备安装…",
+  "updateExiting": "正在结束传输，安装后将重新打开玉响…",
+  "updateHandedToSystem": "已交给系统安装，请完成系统提示",
+  "updateDownloadCancelled": "已取消下载",
+  "updateInstallIncomplete": "安装未完成，请重试",
+  "updateInstalled": "安装完成，请重新打开玉响",
+  "updatePendingUserAction": "请在系统安装界面确认更新",
+  "updateCurrentVersion": "当前版本 {version}",
+  "@updateCurrentVersion": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
+  "updateIncomplete": "更新未完成",
+  "updateCancelDownload": "取消下载",
+  "updateExitFailedHint": "应用已停止共享和传输，可重试完成安装；如仍失败，请从系统托盘选择「退出玉响」后重新打开。",
+  "@updateExitFailedHint": {
+    "description": "Windows only; quotes the tray menu item that exits the app."
+  },
+  "updateRetryInstall": "重试安装",
+  "updateCheckAgain": "重新检查",
+  "updateFinishExit": "完成退出并安装",
+  "updateSourceNote": "从 GitHub 获取已公开版本（包括预发布），需要互联网连接。",
+  "updateReleaseNotes": "更新说明",
+  "updateNoReleaseNotes": "此版本未提供更新说明。",
+  "aboutTitle": "关于",
+  "aboutSummary": "在局域网设备之间浏览与按需传递照片、视频，让美好的瞬间随手可及。",
+  "aboutVersion": "版本号",
+  "aboutReadingVersion": "正在读取版本…",
+  "aboutVersionUnavailable": "暂时无法读取版本信息",
+  "aboutProjectLicense": "项目开源许可",
+  "aboutThirdPartyLicenses": "第三方开源许可",
+  "aboutThirdPartyLicensesSubtitle": "感谢 Flutter 与开源社区",
+  "aboutMusings": "碎碎念",
+  "aboutMusingsSubtitle": "关于名字、摄影，还有一个特别的端口",
+  "licenseIntro": "Tamayura 采用 Apache License 2.0 开源许可。以下为完整许可正文。",
+  "licenseReading": "正在读取许可…",
+  "licenseUnavailable": "暂时无法读取许可正文",
+  "musingNameTitle": "名字来自《玉响》",
+  "musingNameText": "项目取名自动画《玉响》（Tamayura / たまゆら）。这是一部以摄影为线索、描绘日常与成长的动画：喜欢摄影的沢渡楓来到父亲的故乡——广岛县竹原市，用相机记录身边的风景，也与朋友们一起寻找生活中的小小幸福。",
+  "musingMomentsTitle": "把美好的瞬间，留在身边",
+  "musingMomentsText": "摄影让转瞬即逝的光、风景和笑容有了可以重逢的地方。玉响这个项目也是为此而生：让记录下来的美好，在自己的设备之间轻松流动。无论照片留在哪一台设备里，都希望你能随时翻到、取回，再分享给在意的人。",
+  "musingPortTitle": "50728，一个小小的纪念",
+  "musingPortText": "沢渡（さわたり）楓（ふう）的生日是 1995 年 7 月 28 日。取年份末位的「5」和月日的「0728」，组成了玉响的默认端口 {port}。每一次连接，也藏着对这部动画的一点喜欢。",
+  "@musingPortText": {
+    "placeholders": {
+      "port": {
+        "type": "int"
+      }
+    }
+  },
+  "defaultDeviceName": "我的设备",
+  "lanDeviceFallback": "局域网设备",
+  "fallbackFolderName": "目录",
+  "@fallbackFolderName": {
+    "description": "Name of a receive subfolder when the source folder name is unusable."
+  },
+  "spaceLocationDownloadDisk": "下载所在磁盘",
+  "spaceLocationStaging": "下载暂存目录",
+  "spaceLocationDestination": "接收目录",
+  "errorAppNotReady": "应用尚未完成初始化，请稍后重试",
+  "errorAppNotReadyTheme": "应用尚未完成初始化，请重试后切换主题",
+  "errorDeviceOrderSave": "设备顺序保存失败，请重试",
+  "errorThemeSave": "主题设置保存失败，请重试",
+  "errorLanguageSave": "语言设置保存失败，请重试",
+  "errorDetailedModeSave": "相册详细模式设置保存失败，请重试",
+  "errorAutoSyncRange": "自动同步间隔请输入 1–525600 的整数分钟",
+  "errorAutoSyncSave": "自动同步间隔保存失败，请重试",
+  "errorStagingCleanup": "部分下载暂存未能清理，可重试删除任务。{error}",
+  "@errorStagingCleanup": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "errorDiscoveryUnavailable": "设备发现暂不可用，可手动输入 IP 连接。{error}",
+  "@errorDiscoveryUnavailable": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "errorAutoDiscoveryUnavailable": "自动发现暂不可用，可在「设备」中手动连接。",
+  "errorAddressInUse": "此 IP 地址已由另一台设备使用，请重新发现设备",
+  "errorOwnAddress": "这是本机地址，请输入另一台设备的地址",
+  "errorFolderAlreadyShared": "这个目录已在共享列表中，无需重复添加",
+  "errorSharingIdentity": "共享服务身份核验失败",
+  "errorSharingConfirm": "后台共享启动确认失败，请重试",
+  "errorPeerStalled": "对端长时间没有响应，可能已休眠或离开局域网",
+  "errorSystemOperation": "系统操作失败，请重试",
+  "errorPeerFileMissing": "对端文件已删除或不可访问，请刷新相册",
+  "errorPeerFolderUnavailable": "对端共享目录不可用，请在对端重新选择目录并刷新",
+  "errorTransferIncomplete": "文件未传输完整，请重试",
+  "errorPeerUnreachable": "暂时连不上这台设备，请确认两台设备在同一局域网，且对端应用已打开",
+  "errorNetworkUnavailable": "无法连接局域网，请检查 Wi-Fi 后重试",
+  "errorFileSave": "文件保存失败，请检查剩余空间和目录权限",
+  "errorUnknown": "操作未完成，请重试。{error}",
+  "@errorUnknown": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "errorFolderOverlap": "此目录已共享，或与现有共享目录存在父子关系",
+  "errorFileChanged": "文件大小已改变，请刷新相册",
+  "errorScanCancelled": "共享目录已改变，请重新扫描",
+  "errorAddressRequired": "请输入局域网 IPv4 地址，或扫描 Tamayura 二维码",
+  "errorAddressInvalid": "请输入有效的局域网 IPv4 地址，例如 192.168.1.8:{port}",
+  "@errorAddressInvalid": {
+    "placeholders": {
+      "port": {
+        "type": "int"
+      }
+    }
+  },
+  "errorAddressNotPrivate": "当前原型仅支持局域网私有 IPv4 地址",
+  "errorPortRange": "端口应为 1 到 65535",
+  "errorVersionUnreadable": "无法读取应用版本信息，请重试",
+  "errorAppExiting": "应用正在退出，请重新打开后重试下载",
+  "errorSharedFolderConfig": "共享目录配置无效，请重新选择目录",
+  "errorMediaPath": "媒体文件的相对路径无效",
+  "errorMediaFolderPath": "媒体文件的共享目录或相对路径无效",
+  "errorCatalogChanged": "媒体目录已更新，请重试同步",
+  "errorSharedFoldersChanged": "共享目录已更新，请稍后重试",
+  "errorTaskIdMissing": "下载任务缺少 ID",
+  "errorAddressOwnedByOther": "该地址已属于另一台设备，请重新发现后重试",
+  "errorSpaceInsufficient": "{location}空间不足，请释放空间后重试",
+  "@errorSpaceInsufficient": {
+    "placeholders": {
+      "location": {
+        "type": "String"
+      }
+    }
+  },
+  "errorChunkSize": "收到的文件分片大小有误，请刷新后重试",
+  "errorChunkIncomplete": "文件分片未传输完整，请重试继续下载",
+  "errorDownloadSizeMismatch": "下载文件大小与目录记录不符，请刷新后重试",
+  "errorDatabaseDirectory": "本机数据库目录不可用，请检查用户目录权限后重试",
+  "errorTransferTarget": "媒体所属设备或共享目录无效，请刷新相册",
+  "errorStagingNotCleaned": "暂存文件尚未清理，请先重试删除任务",
+  "errorStagingCleanupFailed": "暂存清理失败，请重试删除任务",
+  "errorFileDeletedRedownload": "文件已删除，请重新下载",
+  "errorTaskInterrupted": "任务已中断，点重试继续下载",
+  "errorCatalogVersion": "无效的媒体目录版本",
+  "errorCatalogCursor": "无效的媒体目录分页断点",
+  "errorCatalogInvalidEntries": "对端媒体目录包含无效或重复的文件",
+  "errorCatalogInvalidEntriesRefresh": "对端媒体目录包含无效或重复的文件，请刷新后重试",
+  "errorCatalogDuplicate": "对端媒体目录包含重复文件，请重试",
+  "errorCatalogCount": "对端媒体目录数量不一致，请重试",
+  "errorCatalogIncomplete": "媒体目录尚未接收完整，原有离线相册保持不变",
+  "errorThumbnailTooLarge": "缩略图超过允许大小",
+  "errorIncompatiblePeer": "对端不是兼容的 Tamayura 设备，请确认两端应用版本一致",
+  "errorPeerPaging": "对端目录分页信息无效，请刷新后重试",
+  "errorPeerCatalogInvalid": "对端返回的媒体目录无效，请刷新后重试",
+  "errorPeerThumbnail": "对端缩略图无效，请刷新后重试",
+  "errorPeerCatalogCount": "对端目录数量不一致，请重试",
+  "errorPeerCatalogVersion": "对端目录版本发生变化，请重试",
+  "errorPeerCatalogPageRepeated": "对端目录分页重复，请重试",
+  "errorChunkInvalid": "收到的文件分片有误，请重新下载",
+  "errorTransferEnded": "文件传输提前结束，请重新下载",
+  "errorSharingStatus": "无法读取后台共享状态，请重试",
+  "errorStagingUnavailable": "下载暂存目录不可用",
+  "errorSaveFailed": "未能保存文件",
+  "errorCacheUnavailable": "临时目录不可用",
+  "errorDeviceId": "无法读取 {platform} 设备标识，请重启应用后重试",
+  "@errorDeviceId": {
+    "placeholders": {
+      "platform": {
+        "type": "String"
+      }
+    }
+  },
+  "errorPlatformUnsupported": "尚未支持 {platform} 平台",
+  "@errorPlatformUnsupported": {
+    "placeholders": {
+      "platform": {
+        "type": "String"
+      }
+    }
+  },
+  "updateErrorCancelled": "已取消更新下载",
+  "updateErrorCurrentVersion": "无法识别当前应用版本，请重新安装正式发布的安装包",
+  "updateErrorReleaseList": "GitHub 版本列表格式不正确，请稍后重试",
+  "updateErrorPageUrl": "更新页面地址无效，请稍后重试",
+  "updateErrorNotes": "更新说明格式不正确，请稍后重试",
+  "updateErrorListTooLong": "版本列表过长，暂时无法确认最新版本，请前往 GitHub 查看",
+  "updateErrorManifest": "新版本的更新清单无效，暂时无法自动更新",
+  "updateErrorManifestMismatch": "新版本的更新清单与发布版本不一致",
+  "updateErrorAndroidBuild": "新版本的 Android 构建号无效，暂时无法覆盖安装",
+  "updateErrorPackageInfo": "新版本缺少有效的对应平台安装包信息",
+  "updateErrorArchitecture": "新版本的安装包架构不受支持",
+  "updateErrorPackageSize": "新版本的安装包大小与更新清单不一致",
+  "updateErrorInvalidPackage": "安装包信息无效，请重新检查更新",
+  "updateErrorDownloadSize": "安装包下载大小与更新清单不一致，请重试",
+  "updateErrorDownloadTooLarge": "安装包下载大小超出更新清单，请重试",
+  "updateErrorChecksum": "安装包完整性校验失败，请重新下载",
+  "updateErrorBusy": "已有更新操作正在进行，请稍候",
+  "updateErrorTimeout": "连接 GitHub 或下载安装包超时，请检查网络后重试",
+  "updateErrorConnect": "无法连接 GitHub，请检查网络后重试",
+  "updateErrorConnectionLost": "GitHub 连接中断，请稍后重试",
+  "updateErrorStorage": "无法保存更新安装包，请检查可用空间和目录权限后重试",
+  "updateErrorFormat": "更新信息格式不正确，请稍后重试",
+  "updateErrorResponseTooLarge": "更新信息超过允许大小，请稍后重试",
+  "updateErrorRedirect": "GitHub 下载地址重定向异常，请稍后重试",
+  "updateErrorForbidden": "GitHub 拒绝访问或请求过于频繁，请稍后重试",
+  "updateErrorUnavailable": "GitHub 更新信息或安装包暂时不可用，请稍后重试",
+  "updateErrorEncoding": "GitHub 返回了不支持的下载编码，请稍后重试",
+  "updateErrorUntrustedUrl": "更新下载地址不受信任，已停止更新",
+  "updateErrorNoAssets": "新版本缺少发布附件，暂时无法自动更新",
+  "updateErrorAmbiguousAssets": "新版本缺少唯一且完整的发布附件，暂时无法自动更新",
+  "updateErrorAssetsPending": "新版本的发布附件尚未上传完成，请稍后重试",
+  "updateErrorAssetUrl": "更新附件地址与发布版本不一致",
+  "updateErrorPlatform": "当前平台尚不支持应用更新",
+  "updateErrorStagingDirectory": "无法创建更新暂存目录，请检查磁盘空间后重试",
+  "updateErrorInstallInfo": "此版本缺少有效的安装信息",
+  "updateErrorInstallStart": "无法确认安装是否已启动，请重试",
+  "updateErrorReleaseUrl": "更新页面地址无效"
+}

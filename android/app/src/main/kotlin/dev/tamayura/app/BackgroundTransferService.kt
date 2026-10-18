@@ -35,7 +35,7 @@ class BackgroundTransferService : JobService() {
         var terminal = false
         var ready = false
         var cancelled = false
-        var name = "媒体文件"
+        var name: String? = null
         var received = 0L
         var total = 0L
         var lastNotification = 0L
@@ -49,7 +49,8 @@ class BackgroundTransferService : JobService() {
             return try {
                 TransferScheduler.ensureNotificationChannel(this)
                 setNotification(params, params.jobId,
-                    basicNotification(params.jobId, "等待上一下载停止", "正在保存下载进度"),
+                    basicNotification(params.jobId, text(R.string.transfer_waiting_title),
+                        text(R.string.transfer_waiting_text)),
                     JOB_END_NOTIFICATION_POLICY_REMOVE)
                 waitingStarts[params.jobId] = params
                 whenIdle(taskId) {
@@ -63,11 +64,11 @@ class BackgroundTransferService : JobService() {
         running[taskId] = this to session
         try {
             TransferScheduler.ensureNotificationChannel(this)
-            publish(session, "正在准备局域网下载", true)
+            publish(session, text(R.string.transfer_preparing), true)
             // Notify synchronously, then initialize Flutter after returning to JobScheduler.
             main.post { if (isCurrent(session) && !session.stopping.get()) startEngine(session) }
         } catch (error: Exception) {
-            finish(session, false, error.message ?: "无法启动后台下载")
+            finish(session, false, error.message ?: text(R.string.transfer_error_start))
         }
         return true
     }
@@ -89,22 +90,24 @@ class BackgroundTransferService : JobService() {
                 DartExecutor.DartEntrypoint(loader.findAppBundlePath(), "backgroundTransferMain"))
             main.postDelayed({
                 if (isCurrent(session) && !session.ready && !session.stopping.get()) {
-                    finish(session, false, "后台下载入口未响应，请重新打开应用重试")
+                    finish(session, false, text(R.string.transfer_error_entry_timeout))
                 }
             }, 30_000)
-        } catch (error: Exception) { finish(session, false, error.message ?: "后台下载启动失败") }
+        } catch (error: Exception) { finish(session, false, error.message ?: text(R.string.transfer_error_engine)) }
     }
 
     private fun handleWorker(session: Session, call: MethodCall, result: MethodChannel.Result) {
         if (!isCurrent(session) || session.terminal) {
-            result.error("TRANSFER_STOPPED", "此后台下载已结束", null)
+            result.error("TRANSFER_STOPPED", text(R.string.transfer_error_finished), null)
             return
         }
         try {
             when (call.method) {
                 "ready" -> {
                     session.ready = true
-                    result.success(mapOf("taskId" to session.taskId))
+                    // The worker writes task errors in the app's interface language.
+                    result.success(mapOf("taskId" to session.taskId,
+                        "language" to AppText.language(applicationContext)))
                     if (session.stopping.get()) sendStop(session, session.params.stopReason)
                 }
                 "progress" -> {
@@ -117,7 +120,7 @@ class BackgroundTransferService : JobService() {
                             session.lastNotification = now
                             updateEstimatedNetworkBytes(session.params, session.total, 0)
                             updateTransferredNetworkBytes(session.params, session.received, 0)
-                            publish(session, "正在通过局域网下载", true)
+                            publish(session, text(R.string.transfer_downloading), true)
                         }
                     }
                     result.success(null)
@@ -137,13 +140,13 @@ class BackgroundTransferService : JobService() {
                 else -> result.notImplemented()
             }
         } catch (error: Exception) {
-            result.error("BACKGROUND_ERROR", error.message ?: "后台下载状态更新失败", null)
+            result.error("BACKGROUND_ERROR", error.message ?: text(R.string.transfer_error_status), null)
         }
     }
 
     private fun handlePlatform(session: Session, media: SafMediaStore, call: MethodCall, result: MethodChannel.Result) {
         if (!isCurrent(session) || session.stopping.get() || session.terminal) {
-            result.error("TRANSFER_STOPPED", "后台下载已停止", null)
+            result.error("TRANSFER_STOPPED", text(R.string.transfer_error_stopped), null)
             return
         }
         if (call.method !in setOf("transferDirectory", "saveDownload", "transferSpace")) { result.notImplemented(); return }
@@ -152,7 +155,9 @@ class BackgroundTransferService : JobService() {
             var value: Any? = null
             var failure: Exception? = null
             try {
-                if (session.stopping.get()) throw java.util.concurrent.CancellationException("下载已停止")
+                if (session.stopping.get()) {
+                    throw java.util.concurrent.CancellationException(text(R.string.transfer_stopped))
+                }
                 value = when (call.method) {
                     "transferDirectory" -> TransferScheduler.directory(applicationContext)
                     "transferSpace" -> media.transferSpace(call.requiredString("directoryUri"))
@@ -176,7 +181,7 @@ class BackgroundTransferService : JobService() {
                         is java.util.concurrent.CancellationException -> "TRANSFER_STOPPED"
                         is java.io.FileNotFoundException -> "FILE_NOT_FOUND"
                         else -> "PLATFORM_ERROR"
-                    }, error.message, null)
+                    }, AppText.message(applicationContext, error), null)
                 }
                 releaseIfDrained(session)
             }
@@ -206,7 +211,10 @@ class BackgroundTransferService : JobService() {
         session.cancelled = session.cancelled || cancelled
         if (!session.stopping.compareAndSet(false, true)) return
         sendStop(session, reason)
-        try { publish(session, if (session.cancelled) "下载已暂停" else "下载暂停，等待局域网恢复", false) }
+        try {
+            publish(session, text(if (session.cancelled) R.string.transfer_paused
+                else R.string.transfer_waiting_network), false)
+        }
         catch (_: Exception) { }
         main.postDelayed({
             if (isCurrent(session)) finish(session, false, null, session.cancelled)
@@ -223,11 +231,11 @@ class BackgroundTransferService : JobService() {
         session.terminal = true
         val paused = session.stopping.get() && !session.cancelled && !cancelled
         val text = when {
-            cancelled || session.cancelled -> "下载已暂停"
-            paused -> "下载暂停，等待局域网恢复"
-            success -> "下载完成，可以打开应用查看或分享"
-            retry -> RETRY_TEXT
-            else -> error?.take(200) ?: "下载失败，请打开应用重试"
+            cancelled || session.cancelled -> text(R.string.transfer_paused)
+            paused -> text(R.string.transfer_waiting_network)
+            success -> text(R.string.transfer_completed)
+            retry -> text(R.string.transfer_retry_later)
+            else -> error?.take(200) ?: text(R.string.transfer_failed)
         }
         try { publish(session, text, false) } catch (_: Exception) { }
         // A reschedule uses the job's exponential backoff; the Dart worker bounds
@@ -274,7 +282,7 @@ class BackgroundTransferService : JobService() {
 
     private fun publish(session: Session, text: String, active: Boolean) {
         val notification = Notification.Builder.recoverBuilder(this,
-            basicNotification(session.params.jobId, session.name, text))
+            basicNotification(session.params.jobId, session.name ?: text(R.string.transfer_default_name), text))
             .setOngoing(active).setAutoCancel(!active)
             .setProgress(if (active) 1000 else 0,
                 if (active) TransferPolicy.progress(session.received, session.total) else 0,
@@ -300,8 +308,9 @@ class BackgroundTransferService : JobService() {
         super.onDestroy()
     }
 
+    private fun text(id: Int): String = AppText.get(this, id)
+
     companion object {
-        internal const val RETRY_TEXT = "对端暂时不可用，稍后自动重试"
         private val gate = TransferRunGate()
         private val running = mutableMapOf<String, Pair<BackgroundTransferService, Session>>()
         private val waiting = mutableMapOf<String, MutableList<() -> Unit>>()

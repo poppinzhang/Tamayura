@@ -129,6 +129,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\test-windows-nativ
 
 自动化测试不能替代真实设备的 Wi-Fi 发现、目录权限、跨平台原文件传输、断网/睡眠恢复、系统菜单、扫码和分享验收。平台功能按实际支持范围验证，不把回环 gRPC 或独立原生宿主检查写成完整跨设备验收。
 
+## 界面文案与生成代码
+
+界面支持简体中文、日本語和 English，默认跟随系统。面向用户的 Flutter 文案统一维护在 `lib/l10n/app_zh.arb`（模板）、`app_ja.arb`、`app_en.arb`，修改后运行 `flutter gen-l10n`（`flutter pub get` 也会生成），将 ARB 与 `lib/l10n/generated/` 一起提交，不手工修改生成代码。界面通过 `context.l10n`、服务层通过 `AppLocale.strings` 读取文案；原生文案分别维护在 Android `res/values*/strings.xml`、macOS `Runner/AppText.swift` 和 Windows `runner/app_text.cpp`。新增或修改文案须同时提供三种语言，不在代码中写死面向用户的文字，细节见 [多语言](docs/多语言.md)。
+
 ## 协议与生成代码
 
 协议生成文件已提交，日常开发无需安装 `protoc`。修改 `proto/media.proto` 后安装 Protocol Buffers 编译器，并执行：
@@ -185,5 +189,5 @@ scripts/generate-proto.sh
 | 同步与缓存 | [自动与手动同步](docs/自动与手动同步.md)、[同步进度](docs/同步进度.md)、[缩略图存储](docs/缩略图存储.md)、[单张缩略图容错](docs/单张缩略图容错.md) |
 | 下载、保存与删除 | [传输恢复](docs/传输恢复.md)、[下载存储与清理](docs/下载存储与清理.md)、[相册本地原图](docs/相册本地原图.md)、[本地媒体删除](docs/本地媒体删除.md) |
 | 后台与桌面生命周期 | [后台共享](docs/后台共享.md)、[桌面托盘与窗口生命周期](docs/桌面托盘与窗口生命周期.md) |
-| 相册浏览与外观 | [合集显示模式](docs/合集显示模式.md)、[合集图片排序](docs/合集图片排序.md)、[合集快速滚动](docs/合集快速滚动.md)、[主题与外观](docs/主题与外观.md)、[应用图标](docs/应用图标.md) |
+| 相册浏览与外观 | [合集显示模式](docs/合集显示模式.md)、[合集图片排序](docs/合集图片排序.md)、[合集快速滚动](docs/合集快速滚动.md)、[主题与外观](docs/主题与外观.md)、[多语言](docs/多语言.md)、[应用图标](docs/应用图标.md) |
 | 项目说明与发布 | [关于与项目缘起](docs/关于与项目缘起.md)、[发布与打包](docs/发布.md)、[版本记录](docs/releases/)、[变更日志](CHANGELOG.md) |

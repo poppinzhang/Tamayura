@@ -39,6 +39,8 @@ class AppUpdateInstallerTest {
 
     @Before fun setUp() {
         application = RuntimeEnvironment.getApplication()
+        // Assertions use the Simplified Chinese resources.
+        AppText.setLanguage(application, "zh")
         updates = AppUpdateInstaller.get(application)
         application.getSharedPreferences("app-update", Context.MODE_PRIVATE).edit().clear().commit()
         activity = Robolectric.buildActivity(Activity::class.java).setup().get()

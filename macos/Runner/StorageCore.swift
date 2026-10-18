@@ -7,19 +7,29 @@ struct PlatformFailure: LocalizedError {
   let code: String
   let message: String
   var errorDescription: String? { message }
+  init(code: String, message: String) {
+    self.code = code
+    self.message = message
+  }
+  init(code: String, _ text: AppText.Key) {
+    self.init(code: code, message: AppText.text(text))
+  }
   static func invalid(_ message: String) -> PlatformFailure {
     PlatformFailure(code: "INVALID_ARGUMENT", message: message)
   }
-  static func io(_ message: String) -> PlatformFailure {
+  static func invalid(_ text: AppText.Key) -> PlatformFailure { invalid(AppText.text(text)) }
+  static func io(_ text: AppText.Key) -> PlatformFailure {
+    // Classify before looking up text, which may change errno.
+    let error = errno
     let code: String
-    switch errno {
+    switch error {
     case ENOENT, ENOTDIR: code = "FILE_NOT_FOUND"
     case EACCES, EPERM: code = "PERMISSION_LOST"
     case ENOSPC, EDQUOT: code = "STORAGE_FULL"
     case EMFILE, ENFILE: code = "RESOURCE_EXHAUSTED"
     default: code = "IO_ERROR"
     }
-    return PlatformFailure(code: code, message: message)
+    return PlatformFailure(code: code, message: AppText.text(text))
   }
 }
 
@@ -30,16 +40,16 @@ enum StoragePaths {
     guard !value.isEmpty, value != ".", value != "..", value.utf8.count <= 255,
           !value.contains("/"), !value.contains("\\"),
           !value.unicodeScalars.contains(where: { $0.value < 32 || (127...159).contains($0.value) }) else {
-      throw PlatformFailure.invalid("媒体目录或文件名称无效")
+      throw PlatformFailure.invalid(.invalidMediaName)
     }
   }
 
   static func components(_ path: String) throws -> [String] {
     guard !path.isEmpty, path.utf8.count <= 4096 else {
-      throw PlatformFailure.invalid("媒体相对路径无效")
+      throw PlatformFailure.invalid(.invalidRelativePath)
     }
     guard path.range(of: "^[A-Za-z]:", options: .regularExpression) == nil else {
-      throw PlatformFailure.invalid("媒体相对路径不能使用盘符")
+      throw PlatformFailure.invalid(.driveLetterPath)
     }
     let parts = path.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
     try parts.forEach(segment)
@@ -58,7 +68,7 @@ enum StoragePaths {
 
   static func relative(_ url: URL, root: URL) throws -> [String] {
     guard contains(root, url), url.standardizedFileURL != root.standardizedFileURL else {
-      throw PlatformFailure.invalid("文件不在授权目录中")
+      throw PlatformFailure.invalid(.fileOutsideAuthorizedDirectory)
     }
     let parts = Array(url.standardizedFileURL.pathComponents.dropFirst(root.standardizedFileURL.pathComponents.count))
     try parts.forEach(segment)
@@ -69,7 +79,7 @@ enum StoragePaths {
     guard let url = URL(string: value), url.isFileURL,
           url.host == nil || url.host == "" || url.host == "localhost",
           url.query == nil, url.fragment == nil else {
-      throw PlatformFailure.invalid("需要本机文件 URI")
+      throw PlatformFailure.invalid(.localFileUriRequired)
     }
     return url.standardizedFileURL
   }
@@ -87,7 +97,7 @@ enum StoragePaths {
 final class SafeFile {
   let fd: Int32
   init(fd: Int32) throws {
-    guard fd >= 0 else { throw PlatformFailure.io("无法访问文件或目录，请检查授权和路径") }
+    guard fd >= 0 else { throw PlatformFailure.io(.cannotAccess) }
     self.fd = fd
   }
   deinit { Darwin.close(fd) }
@@ -101,7 +111,7 @@ final class SafeFile {
     for part in parts {
       try StoragePaths.segment(part)
       if create && mkdirat(current.fd, part, 0o755) != 0 && errno != EEXIST {
-        throw PlatformFailure.io("无法创建接收子目录")
+        throw PlatformFailure.io(.cannotCreateSubdirectory)
       }
       current = try SafeFile(fd: openat(current.fd, part, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC))
     }
@@ -109,7 +119,7 @@ final class SafeFile {
   }
 
   func file(_ parts: [String]) throws -> SafeFile {
-    guard let name = parts.last else { throw PlatformFailure.invalid("文件路径为空") }
+    guard let name = parts.last else { throw PlatformFailure.invalid(.emptyPath) }
     try StoragePaths.segment(name)
     let parent = try directory(Array(parts.dropLast()))
     let file = try SafeFile(fd: openat(parent.fd, name, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC))
@@ -121,7 +131,7 @@ final class SafeFile {
   /// parent lookup relative to pinned descriptors and never follow a symlink.
   /// Missing descendants are already deleted; authorization errors still fail.
   func deleteFile(_ parts: [String]) throws {
-    guard let name = parts.last else { throw PlatformFailure.invalid("文件路径为空") }
+    guard let name = parts.last else { throw PlatformFailure.invalid(.emptyPath) }
     try parts.forEach(StoragePaths.segment)
     var parent = try SafeFile(fd: dup(fd))
     for part in parts.dropLast() {
@@ -132,22 +142,22 @@ final class SafeFile {
     var info = stat()
     if fstatat(parent.fd, name, &info, AT_SYMLINK_NOFOLLOW) != 0 {
       if errno == ENOENT { return }
-      throw PlatformFailure.io("无法读取待删除的本地文件")
+      throw PlatformFailure.io(.cannotReadDeletion)
     }
     guard info.st_mode & S_IFMT == S_IFREG else {
-      throw PlatformFailure.invalid("只能删除本地普通文件")
+      throw PlatformFailure.invalid(.onlyRegularFiles)
     }
     // Without AT_REMOVEDIR, a replacement directory can never be removed.
     if unlinkat(parent.fd, name, 0) != 0 && errno != ENOENT {
-      throw PlatformFailure.io("无法删除本地文件，请检查目录权限")
+      throw PlatformFailure.io(.cannotDelete)
     }
   }
 
   func info() throws -> stat {
     var value = stat()
-    guard fstat(fd, &value) == 0 else { throw PlatformFailure.io("无法读取媒体文件信息") }
+    guard fstat(fd, &value) == 0 else { throw PlatformFailure.io(.cannotReadMediaInfo) }
     guard value.st_mode & S_IFMT == S_IFREG else {
-      throw PlatformFailure(code: "FILE_NOT_FOUND", message: "媒体文件不存在或不是普通文件")
+      throw PlatformFailure(code: "FILE_NOT_FOUND", .mediaMissing)
     }
     return value
   }
@@ -157,10 +167,10 @@ final class SafeFile {
 
   func read(offset: Int64, length: Int, expectedSize: Int64) throws -> Data {
     guard offset >= 0, offset <= expectedSize, (0...SafeFile.maxReadChunkBytes).contains(length) else {
-      throw PlatformFailure.invalid("无效的文件分块范围")
+      throw PlatformFailure.invalid(.invalidRange)
     }
     guard try info().st_size == expectedSize else {
-      throw PlatformFailure(code: "FILE_CHANGED", message: "文件大小已改变，请刷新相册")
+      throw PlatformFailure(code: "FILE_CHANGED", .fileChanged)
     }
     let count = min(length, Int(expectedSize - offset))
     var data = Data(count: count)
@@ -169,7 +179,7 @@ final class SafeFile {
       while read < count {
         let amount = pread(fd, raw.baseAddress!.advanced(by: read), count - read, offset + Int64(read))
         if amount < 0 && errno == EINTR { continue }
-        guard amount > 0 else { throw PlatformFailure.io("文件提前结束，请刷新相册") }
+        guard amount > 0 else { throw PlatformFailure.io(.fileEnded) }
         read += amount
       }
     }
@@ -230,7 +240,7 @@ final class MediaCatalog {
   private func assertScan(_ expected: UInt64) throws {
     lock.lock(); defer { lock.unlock() }
     guard expected == ticket else {
-      throw PlatformFailure(code: "SCAN_CANCELLED", message: "共享目录已改变，请重新扫描")
+      throw PlatformFailure(code: "SCAN_CANCELLED", .scanCancelled)
     }
   }
 
@@ -238,7 +248,7 @@ final class MediaCatalog {
   private func assertCurrent(_ id: String, _ entry: SharedMedia, generation expected: UInt64) throws {
     lock.lock(); defer { lock.unlock() }
     guard expected == generation, files[id] == entry else {
-      throw PlatformFailure(code: "SCAN_CANCELLED", message: "共享目录已改变，请重新扫描")
+      throw PlatformFailure(code: "SCAN_CANCELLED", .scanCancelled)
     }
   }
 
@@ -247,7 +257,7 @@ final class MediaCatalog {
       for previous in existing {
         try access.withDirectory(previous) { root in
           if StoragePaths.overlap(candidate, root) {
-            throw PlatformFailure(code: "DIR_OVERLAP", message: "共享目录不能重复或互相包含")
+            throw PlatformFailure(code: "DIR_OVERLAP", .directoryOverlap)
           }
         }
       }
@@ -270,7 +280,7 @@ final class MediaCatalog {
   private func scanAuthorized(_ directories: [SharedDirectory], expected: UInt64) throws -> [[String: Any]] {
     try assertScan(expected)
     guard Set(directories.map { $0.id }).count == directories.count else {
-      throw PlatformFailure.invalid("共享目录标识重复")
+      throw PlatformFailure.invalid(.duplicateDirectoryId)
     }
     for (index, directory) in directories.enumerated() {
       try StoragePaths.segment(directory.id)
@@ -293,7 +303,7 @@ final class MediaCatalog {
             }
             enumerationError = error
             return false
-          }) else { throw PlatformFailure(code: "FILE_NOT_FOUND", message: "无法读取共享目录") }
+          }) else { throw PlatformFailure(code: "FILE_NOT_FOUND", .cannotReadSharedDirectory) }
         for case let url as URL in enumerator {
           try assertScan(expected)
           let parts: [String], path: String, mime: String, info: stat
@@ -330,7 +340,7 @@ final class MediaCatalog {
     }
     lock.lock(); defer { lock.unlock() }
     guard expected == ticket else {
-      throw PlatformFailure(code: "SCAN_CANCELLED", message: "共享目录已改变，请重新扫描")
+      throw PlatformFailure(code: "SCAN_CANCELLED", .scanCancelled)
     }
     files = next
     return metadata
@@ -341,7 +351,7 @@ final class MediaCatalog {
     let expected = generation
     let entry = files[id]
     lock.unlock()
-    guard let entry else { throw PlatformFailure(code: "FILE_NOT_FOUND", message: "文件未被共享，请刷新相册") }
+    guard let entry else { throw PlatformFailure(code: "FILE_NOT_FOUND", .fileNotShared) }
     return try access.withDirectory(entry.directoryURI) { root in
       try assertCurrent(id, entry, generation: expected)
       // Root access errors affect the whole shared directory, not one preview.
@@ -356,7 +366,7 @@ final class MediaCatalog {
     try withAuthorizedMedia(id) { entry, root in
       let file = try root.file(StoragePaths.components(entry.relativePath))
       guard try file.info().st_size == entry.size else {
-        throw PlatformFailure(code: "FILE_CHANGED", message: "文件大小已改变，请刷新相册")
+        throw PlatformFailure(code: "FILE_CHANGED", .fileChanged)
       }
       return try operation(entry, file)
     }
@@ -412,20 +422,20 @@ enum DownloadWriter {
                    directories: [String], name: String) throws -> URL {
     try StoragePaths.segment(name)
     try directories.forEach(StoragePaths.segment)
-    guard expectedSize >= 0, !sources.isEmpty else { throw PlatformFailure.invalid("下载分片或大小无效") }
+    guard expectedSize >= 0, !sources.isEmpty else { throw PlatformFailure.invalid(.partsInvalid) }
     var total: Int64 = 0
     let inputs = try sources.map { source -> SafeFile in
       let source = source.standardizedFileURL
       guard let sourceRoot = allowedRoots.first(where: { StoragePaths.contains($0, source) && $0 != source }) else {
-        throw PlatformFailure.invalid("下载源文件必须在应用私有目录中")
+        throw PlatformFailure.invalid(.sourceLocation)
       }
       let input = try SafeFile.directory(sourceRoot).file(StoragePaths.relative(source, root: sourceRoot))
       let size = try input.info().st_size
-      guard size <= expectedSize - total else { throw PlatformFailure.invalid("下载分片大小与预期不符") }
+      guard size <= expectedSize - total else { throw PlatformFailure.invalid(.partsSize) }
       total += size
       return input
     }
-    guard total == expectedSize else { throw PlatformFailure.invalid("下载分片大小与预期不符") }
+    guard total == expectedSize else { throw PlatformFailure.invalid(.partsSize) }
     let parent = try SafeFile.directory(destination).directory(directories, create: true)
     var finalName = name
     var descriptor: Int32 = -1
@@ -434,7 +444,7 @@ enum DownloadWriter {
       try StoragePaths.segment(finalName)
       descriptor = openat(parent.fd, finalName, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o644)
       if descriptor >= 0 { break }
-      guard errno == EEXIST else { throw PlatformFailure.io("无法创建接收文件") }
+      guard errno == EEXIST else { throw PlatformFailure.io(.cannotCreateFile) }
     }
     let output = try SafeFile(fd: descriptor)
     do {
@@ -444,23 +454,23 @@ enum DownloadWriter {
         while true {
           let count = Darwin.read(input.fd, &buffer, buffer.count)
           if count < 0 && errno == EINTR { continue }
-          guard count >= 0 else { throw PlatformFailure.io("无法读取下载暂存文件") }
+          guard count >= 0 else { throw PlatformFailure.io(.cannotReadStaging) }
           if count == 0 { break }
-          guard Int64(count) <= expectedSize - copied else { throw PlatformFailure.invalid("下载分片在保存时已变化") }
+          guard Int64(count) <= expectedSize - copied else { throw PlatformFailure.invalid(.partsChanged) }
           try buffer.withUnsafeBytes { bytes in
             var written = 0
             while written < count {
               let amount = Darwin.write(output.fd, bytes.baseAddress!.advanced(by: written), count - written)
               if amount < 0 && errno == EINTR { continue }
-              guard amount > 0 else { throw PlatformFailure.io("无法保存下载文件，可能磁盘空间不足") }
+              guard amount > 0 else { throw PlatformFailure.io(.cannotSaveSpace) }
               written += amount
             }
           }
           copied += Int64(count)
         }
       }
-      guard copied == expectedSize else { throw PlatformFailure.invalid("下载分片在保存时已变化") }
-      guard fsync(output.fd) == 0 else { throw PlatformFailure.io("无法完成文件保存") }
+      guard copied == expectedSize else { throw PlatformFailure.invalid(.partsChanged) }
+      guard fsync(output.fd) == 0 else { throw PlatformFailure.io(.cannotFinishSave) }
     } catch {
       unlinkat(parent.fd, finalName, 0)
       throw error

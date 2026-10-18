@@ -1327,7 +1327,7 @@ void main() {
       model.transfers[photo.key]!.receivedBytes,
       (photo.size * .4).round(),
     );
-    await tester.pageBack();
+    await tester.tap(find.byType(BackButton));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('devices-tab')));
     await tester.pumpAndSettle();
@@ -1830,7 +1830,7 @@ void main() {
     await tester.tap(find.byKey(const Key('about-entry')));
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('about-page')), findsOneWidget);
-    await tester.pageBack();
+    await tester.tap(find.byType(BackButton));
     await tester.pumpAndSettle();
     expect(
       tester.widget<NavigationBar>(find.byType(NavigationBar)).selectedIndex,

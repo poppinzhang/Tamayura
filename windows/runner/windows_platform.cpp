@@ -8,6 +8,7 @@
 #include <cwctype>
 #include <set>
 
+#include "app_text.h"
 #include "discovery_core.h"
 #include "lan_discovery.h"
 #include "windows_storage.h"
@@ -26,7 +27,7 @@ std::string ArgumentString(const Map& args, const char* key) {
       if (!value->empty()) return *value;
     }
   }
-  throw StorageError("INVALID_ARGUMENT", std::string("缺少参数：") + key);
+  throw StorageError("INVALID_ARGUMENT", app_text::Utf8(TextId::kMissingArgument) + key);
 }
 
 bool ReadSharingEnabled() {
@@ -44,7 +45,7 @@ void WriteSetting(const wchar_t* name, DWORD type, const void* data, DWORD bytes
     RegCloseKey(key);
   }
   if (status != ERROR_SUCCESS) {
-    throw StorageError("SETTINGS_UNAVAILABLE", "无法保存 Windows 应用设置");
+    throw StorageError("SETTINGS_UNAVAILABLE", app_text::Utf8(TextId::kSettingsUnavailable));
   }
 }
 
@@ -58,11 +59,11 @@ std::string DeviceId() {
   }
   GUID uuid{};
   if (FAILED(CoCreateGuid(&uuid))) {
-    throw StorageError("DEVICE_ID_UNAVAILABLE", "无法创建 Windows 设备标识");
+    throw StorageError("DEVICE_ID_UNAVAILABLE", app_text::Utf8(TextId::kDeviceIdCreateFailed));
   }
   wchar_t text[40]{};
   if (StringFromGUID2(uuid, text, 40) != 39) {
-    throw StorageError("DEVICE_ID_UNAVAILABLE", "无法读取 Windows 设备标识");
+    throw StorageError("DEVICE_ID_UNAVAILABLE", app_text::Utf8(TextId::kDeviceIdReadFailed));
   }
   std::wstring value = L"windows-" + std::wstring(text + 1, 36);
   std::transform(value.begin(), value.end(), value.begin(), [](wchar_t c) {
@@ -222,7 +223,8 @@ void WindowsPlatform::Background(std::shared_ptr<Result> result,
       const std::string message = error.what();
       dispatcher->Post([result, message] { result->Error("PLATFORM_ERROR", message); });
     } catch (...) {
-      dispatcher->Post([result] { result->Error("PLATFORM_ERROR", "Windows 操作失败"); });
+      const auto message = app_text::Utf8(TextId::kOperationFailed);
+      dispatcher->Post([result, message] { result->Error("PLATFORM_ERROR", message); });
     }
   });
 }
@@ -284,7 +286,9 @@ void WindowsPlatform::Handle(const flutter::MethodCall<Value>& call,
     } else if (method == "setBackgroundSharing") {
       const auto found = args.find(Value("enabled"));
       const auto* enabled = found == args.end() ? nullptr : std::get_if<bool>(&found->second);
-      if (!enabled) throw StorageError("INVALID_ARGUMENT", "缺少共享状态");
+      if (!enabled) {
+        throw StorageError("INVALID_ARGUMENT", app_text::Utf8(TextId::kMissingSharingState));
+      }
       const DWORD value = *enabled ? 1 : 0;
       WriteSetting(L"BackgroundSharing", REG_DWORD, &value, sizeof(value));
       sharing_enabled_ = *enabled;
@@ -298,12 +302,21 @@ void WindowsPlatform::Handle(const flutter::MethodCall<Value>& call,
         if (auto value = std::get_if<int32_t>(&found->second)) port = *value;
         if (auto value = std::get_if<int64_t>(&found->second)) port = *value;
       }
-      if (port < 1 || port > 65535) throw StorageError("INVALID_ARGUMENT", "无效的服务端口");
+      if (port < 1 || port > 65535) {
+        throw StorageError("INVALID_ARGUMENT", app_text::Utf8(TextId::kInvalidPort));
+      }
       discovery_->Start(ArgumentString(args, "id"), ArgumentString(args, "name"),
                         static_cast<uint16_t>(port));
       result->Success();
     } else if (method == "stopDiscovery") {
       discovery_->Stop();
+      result->Success();
+    } else if (method == "setLanguage") {
+      if (!app_text::SetPreference(ArgumentString(args, "language"))) {
+        throw StorageError("INVALID_ARGUMENT", app_text::Utf8(TextId::kInvalidLanguage));
+      }
+      // The tray refreshes its tooltip; its menu is built in the current language.
+      PostMessageW(window_, kLanguageChangedMessage, 0, 0);
       result->Success();
     } else if (method == "setTransferActivity" || method == "openBatteryOptimizationSettings" ||
                method == "scheduleTransfer" || method == "cancelTransfer") {

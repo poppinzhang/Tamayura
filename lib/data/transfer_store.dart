@@ -5,6 +5,7 @@ import 'package:sqflite/sqflite.dart';
 import 'package:uuid/uuid.dart';
 import '../core/models.dart';
 import '../core/transfer_task.dart';
+import '../l10n/app_locale.dart';
 import '../network/downloader.dart' show MediaDownloader, safeMediaFilename;
 import 'platform_database.dart';
 
@@ -89,7 +90,7 @@ class TransferStore {
     String directoryUri,
   ) async {
     if (peer.id != item.deviceId) {
-      throw const FormatException('媒体所属设备或共享目录无效，请刷新相册');
+      throw FormatException(AppLocale.strings.errorTransferTarget);
     }
     validateMediaLocation(item);
     final segments = mediaPathSegments(item.relativePath);
@@ -101,7 +102,7 @@ class TransferStore {
       );
       final old = rows.isEmpty ? null : TransferTask.fromRow(rows.single);
       if (old?.state == DownloadState.discarded) {
-        throw StateError('暂存文件尚未清理，请先重试删除任务');
+        throw StateError(AppLocale.strings.errorStagingNotCleaned);
       }
       if (old?.active == true || old?.state == DownloadState.completed) {
         return old!.id;
@@ -163,7 +164,7 @@ class TransferStore {
     );
     if (previous.isNotEmpty) return previous.single['component'] as String;
     var base = safeMediaFilename(name).replaceAll(RegExp(r'[. ]+$'), '');
-    if (base.isEmpty) base = '目录';
+    if (base.isEmpty) base = AppLocale.strings.fallbackFolderName;
     if (RegExp(
       r'^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\.|$)',
       caseSensitive: false,
@@ -285,7 +286,7 @@ class TransferStore {
     } catch (_) {
       await _db.update(
         'transfers',
-        {'error': '暂存清理失败，请重试删除任务'},
+        {'error': AppLocale.strings.errorStagingCleanupFailed},
         where: "id = ? AND state = 'discarded'",
         whereArgs: [id],
       );
@@ -355,7 +356,11 @@ class TransferStore {
   Future<void> invalidate(String deviceId, String mediaId) async {
     await _db.update(
       'transfers',
-      {'state': 'failed', 'saved_uri': null, 'error': '文件已删除，请重新下载'},
+      {
+        'state': 'failed',
+        'saved_uri': null,
+        'error': AppLocale.strings.errorFileDeletedRedownload,
+      },
       where: 'device_id = ? AND media_id = ?',
       whereArgs: [deviceId, mediaId],
     );
@@ -382,7 +387,7 @@ class TransferStore {
           {
             'state': 'failed',
             'run_token': null,
-            'error': '任务已中断，点重试继续下载',
+            'error': AppLocale.strings.errorTaskInterrupted,
             'updated_ms': DateTime.now().millisecondsSinceEpoch,
           },
           where:

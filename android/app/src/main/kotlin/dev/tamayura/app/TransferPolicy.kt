@@ -5,7 +5,7 @@ import java.security.MessageDigest
 /** Pure helpers shared by scheduling/notifications and JVM tests. */
 internal object TransferPolicy {
     fun jobId(taskId: String, allocated: Map<Int, String>, hash: (String) -> Int = ::hashId): Int {
-        require(taskId.isNotBlank() && taskId.length <= 200) { "无效的下载任务 ID" }
+        requireTaskId(taskId)
         allocated.entries.firstOrNull { it.value == taskId }?.let { return it.key }
         var candidate = hash(taskId) and Int.MAX_VALUE
         if (candidate == 0) candidate = 1
@@ -13,6 +13,12 @@ internal object TransferPolicy {
             candidate = if (candidate == Int.MAX_VALUE) 1 else candidate + 1
         }
         return candidate
+    }
+
+    fun requireTaskId(taskId: String) {
+        if (taskId.isBlank() || taskId.length > 200) {
+            throw InvalidArgumentException(R.string.error_invalid_task_id, "Invalid download task ID")
+        }
     }
 
     private fun hashId(value: String): Int {
@@ -26,7 +32,9 @@ internal object TransferPolicy {
     }
 
     fun previewSize(width: Int, height: Int, maximum: Int): Pair<Int, Int> {
-        require(width > 0 && height > 0 && maximum in 1..2560) { "无效的预览尺寸" }
+        if (width <= 0 || height <= 0 || maximum !in 1..2560) {
+            throw InvalidArgumentException(R.string.error_invalid_preview_size, "Invalid preview size")
+        }
         val scale = minOf(1.0, maximum.toDouble() / maxOf(width, height))
         return maxOf(1, (width * scale).toInt()) to maxOf(1, (height * scale).toInt())
     }

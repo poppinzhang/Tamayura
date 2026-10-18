@@ -7,6 +7,7 @@ import 'package:path/path.dart' as p;
 import 'package:uuid/uuid.dart';
 
 import '../core/models.dart';
+import '../l10n/app_locale.dart';
 import 'media_rpc.dart';
 
 const parallelDownloadThreshold = 50 * 1024 * 1024;
@@ -328,7 +329,7 @@ class MediaDownloader {
               cancel.check();
               if (failed) throw const DownloadCancelled();
               if (chunk.isEmpty || chunk.length > range.length - size) {
-                throw const FormatException('收到的文件分片大小有误，请刷新后重试');
+                throw FormatException(AppLocale.strings.errorChunkSize);
               }
               await output.writeFrom(chunk);
               size += chunk.length;
@@ -340,7 +341,7 @@ class MediaDownloader {
             cancel.check();
             if (stalled) throw const TransferStalled();
             if (size != range.length) {
-              throw const FormatException('文件分片未传输完整，请重试继续下载');
+              throw FormatException(AppLocale.strings.errorChunkIncomplete);
             }
           } catch (error, stack) {
             firstError ??= stalled && !cancel.cancelled
@@ -362,7 +363,7 @@ class MediaDownloader {
       }
       for (var index = 0; index < parts.length; index++) {
         if (await parts[index].length() != ranges[index].length) {
-          throw const FormatException('下载文件大小与目录记录不符，请刷新后重试');
+          throw FormatException(AppLocale.strings.errorDownloadSizeMismatch);
         }
       }
       return DownloadParts(parts, item.size);

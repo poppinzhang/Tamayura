@@ -9,6 +9,7 @@ import 'package:uuid/uuid.dart';
 import '../core/models.dart';
 import '../data/repository.dart';
 import '../data/transfer_store.dart';
+import '../l10n/app_locale.dart';
 import '../core/transfer_task.dart';
 import 'errors.dart';
 export 'errors.dart' show describeError;
@@ -116,7 +117,8 @@ class AppController extends TamayuraModel {
   int _presenceGeneration = 0;
   final Map<String, MediaItem> _items = {};
   final Map<String, TransferView> _transfers = {};
-  String _id = '', _deviceName = '我的设备';
+  String _id = '';
+  String? _deviceName;
   List<String> _addresses = [];
   List<SharedFolder> _sharedFolders = [];
   List<MediaCollection> _collections = [];
@@ -126,6 +128,8 @@ class AppController extends TamayuraModel {
   bool _loading = true, _busy = false, _disposed = false;
   ThemeMode _themeMode = ThemeMode.system;
   bool _themeModeSaving = false;
+  AppLanguage _language = AppLanguage.system;
+  bool _languageSaving = false;
   bool _albumDetailedMode = false, _albumDetailedModeSaving = false;
   int _autoSyncIntervalMinutes = 10;
   bool _autoSyncIntervalSaving = false, _autoSyncRunning = false;
@@ -134,6 +138,13 @@ class AppController extends TamayuraModel {
 
   @override
   ThemeMode get themeMode => _themeMode;
+  @override
+  AppLanguage get language => _language;
+  @override
+  bool get languageSaving => _languageSaving;
+
+  /// Strings for messages this controller reports, in the interface language.
+  AppLocalizations get _text => lookupAppLocalizations(locale);
   @override
   bool get albumDetailedMode => _albumDetailedMode;
   @override
@@ -177,7 +188,7 @@ class AppController extends TamayuraModel {
   @override
   String? get error => _error;
   @override
-  String get deviceName => _deviceName;
+  String get deviceName => _deviceName ?? _text.defaultDeviceName;
   @override
   List<String> get addresses => List.unmodifiable(_addresses);
   @override
@@ -484,7 +495,7 @@ class AppController extends TamayuraModel {
     if (server.scanError != null) throw server.scanError!;
     // Binding a socket alone does not prove Dart's service can handle RPCs.
     final probe = MediaRpcClient(
-      Peer(id: _id, name: _deviceName, host: '127.0.0.1', port: server.port),
+      Peer(id: _id, name: deviceName, host: '127.0.0.1', port: server.port),
     );
     try {
       Future<Peer> identityRequest() =>
@@ -492,7 +503,7 @@ class AppController extends TamayuraModel {
       final identity = await (startup == null
           ? identityRequest()
           : startup.wait(identityRequest));
-      if (identity.id != _id) throw StateError('共享服务身份核验失败');
+      if (identity.id != _id) throw StateError(_text.errorSharingIdentity);
     } finally {
       await probe.close();
     }
@@ -502,7 +513,7 @@ class AppController extends TamayuraModel {
     if (!_ownsSharingSession(sessionId)) return;
     await _readSharingStatus();
     if (!accepted && _ownsSharingSession(sessionId)) {
-      throw StateError('后台共享启动确认失败，请重试');
+      throw StateError(_text.errorSharingConfirm);
     }
   }
 
@@ -641,7 +652,7 @@ class AppController extends TamayuraModel {
     } on MissingPluginException {
       // Platforms without native storage do not own a transfer directory.
     } catch (error) {
-      _error = '部分下载暂存未能清理，可重试删除任务。${describeError(error)}';
+      _error = _text.errorStagingCleanup(describeError(error));
     }
   }
 
@@ -674,7 +685,7 @@ class AppController extends TamayuraModel {
     if (_disposed || _deviceOrderSaving) return false;
     final db = _repository;
     if (db == null || !_initialized) {
-      _error = '应用尚未完成初始化，请稍后重试';
+      _error = _text.errorAppNotReady;
       _notify();
       return false;
     }
@@ -693,7 +704,7 @@ class AppController extends TamayuraModel {
       _deviceOrder = order;
       return true;
     } catch (_) {
-      if (!_disposed) _error = '设备顺序保存失败，请重试';
+      if (!_disposed) _error = _text.errorDeviceOrderSave;
       return false;
     } finally {
       _deviceOrderSaving = false;
@@ -706,7 +717,7 @@ class AppController extends TamayuraModel {
     if (_disposed || _themeModeSaving || mode == _themeMode) return;
     final db = _repository;
     if (db == null || _loading) {
-      _error = '应用尚未完成初始化，请重试后切换主题';
+      _error = _text.errorAppNotReadyTheme;
       _notify();
       return;
     }
@@ -717,11 +728,56 @@ class AppController extends TamayuraModel {
       await db.setSetting('themeMode', mode.name);
       if (!_disposed) _themeMode = mode;
     } catch (_) {
-      if (!_disposed) _error = '主题设置保存失败，请重试';
+      if (!_disposed) _error = _text.errorThemeSave;
     } finally {
       _themeModeSaving = false;
       _notify();
     }
+  }
+
+  @override
+  Future<void> setLanguage(AppLanguage language) async {
+    if (_disposed || _languageSaving || language == _language) return;
+    final db = _repository;
+    if (db == null || _loading) {
+      _error = _text.errorAppNotReady;
+      _notify();
+      return;
+    }
+    _languageSaving = true;
+    _error = null;
+    _notify();
+    try {
+      await db.setSetting('language', language.name);
+      if (!_disposed) _applyLanguage(language);
+    } catch (_) {
+      if (!_disposed) _error = _text.errorLanguageSave;
+    } finally {
+      _languageSaving = false;
+      _notify();
+    }
+  }
+
+  @override
+  void systemLocalesChanged() {
+    if (_language != AppLanguage.system) return;
+    // Native menus and notifications re-resolve the system language too.
+    unawaited(_pushLanguage());
+    _notify();
+  }
+
+  void _applyLanguage(AppLanguage language) {
+    _language = language;
+    AppLocale.language = language;
+    unawaited(_pushLanguage());
+  }
+
+  /// Native text keeps its previous language when the platform cannot be
+  /// updated; the next start or language change sends the preference again.
+  Future<void> _pushLanguage() async {
+    try {
+      await _bridge.setLanguage(_language.name);
+    } catch (_) {}
   }
 
   @override
@@ -733,7 +789,7 @@ class AppController extends TamayuraModel {
     }
     final db = _repository;
     if (db == null || !_initialized) {
-      _error = '应用尚未完成初始化，请稍后重试';
+      _error = _text.errorAppNotReady;
       _notify();
       return;
     }
@@ -744,7 +800,7 @@ class AppController extends TamayuraModel {
       await db.setSetting('albumDetailedMode', enabled.toString());
       if (!_disposed) _albumDetailedMode = enabled;
     } catch (_) {
-      if (!_disposed) _error = '相册详细模式设置保存失败，请重试';
+      if (!_disposed) _error = _text.errorDetailedModeSave;
     } finally {
       _albumDetailedModeSaving = false;
       _notify();
@@ -755,14 +811,14 @@ class AppController extends TamayuraModel {
   Future<void> setAutoSyncIntervalMinutes(int minutes) async {
     if (_disposed || _autoSyncIntervalSaving) return;
     if (minutes < 1 || minutes > 525600) {
-      _error = '自动同步间隔请输入 1–525600 的整数分钟';
+      _error = _text.errorAutoSyncRange;
       _notify();
       return;
     }
     if (minutes == _autoSyncIntervalMinutes) return;
     final db = _repository;
     if (db == null || !_initialized) {
-      _error = '应用尚未完成初始化，请稍后重试';
+      _error = _text.errorAppNotReady;
       _notify();
       return;
     }
@@ -776,7 +832,7 @@ class AppController extends TamayuraModel {
         _scheduleAutoSync();
       }
     } catch (_) {
-      if (!_disposed) _error = '自动同步间隔保存失败，请重试';
+      if (!_disposed) _error = _text.errorAutoSyncSave;
     } finally {
       _autoSyncIntervalSaving = false;
       _notify();
@@ -856,6 +912,11 @@ class AppController extends TamayuraModel {
             )
           : NativeTransferScheduler(_bridge);
       final db = _repository!;
+      _applyLanguage(
+        AppLanguage.parse(await startup.wait(() => db.getSetting('language'))),
+      );
+      // Show the remaining startup in the saved language.
+      _notify();
       _themeMode = switch (await startup.wait(
         () => db.getSetting('themeMode'),
       )) {
@@ -979,13 +1040,14 @@ class AppController extends TamayuraModel {
         startup == null ? action() : startup.wait(action);
     _source ??= _PlatformMediaSource(_bridge, _id, () => sharedFolders, _clock);
     final info = await wait(_bridge.localInfo);
-    _deviceName = info['name'] as String? ?? _bridge.platformName;
+    final name = info['name'] as String? ?? _bridge.platformName;
+    _deviceName = name;
     _addresses = (info['addresses'] as List? ?? []).cast<String>();
     _server ??= MediaRpcServer(
-      identity: Peer(id: _id, name: _deviceName, host: '', port: 0),
+      identity: Peer(id: _id, name: name, host: '', port: 0),
       source: _source!,
     );
-    _server!.updateDeviceName(_deviceName);
+    _server!.updateDeviceName(name);
     if (_server!.port == 0) {
       try {
         await wait(() => _server!.start(port: _preferredPort));
@@ -1002,12 +1064,12 @@ class AppController extends TamayuraModel {
     _discovery ??= _bridge.discoveryEvents.listen(
       _onDiscovery,
       onError: (Object e) {
-        _error = '设备发现暂不可用，可手动输入 IP 连接。${describeError(e)}';
+        _error = _text.errorDiscoveryUnavailable(describeError(e));
         _notify();
       },
     );
     await wait(
-      () => _bridge.startDiscovery(id: _id, name: _deviceName, port: port),
+      () => _bridge.startDiscovery(id: _id, name: deviceName, port: port),
     );
     if (!_shouldShare) await _stopNetwork();
     _scheduleAutoSync();
@@ -1031,7 +1093,7 @@ class AppController extends TamayuraModel {
             _onDiscoveredPeer(
               Peer(
                 id: id,
-                name: event['name'] as String? ?? '局域网设备',
+                name: event['name'] as String? ?? _text.lanDeviceFallback,
                 host: host,
                 port: remotePort,
               ),
@@ -1047,7 +1109,7 @@ class AppController extends TamayuraModel {
           unawaited(_checkPeerPresence(id));
         }
       case 'error':
-        _error = '自动发现暂不可用，可在「设备」中手动连接。';
+        _error = _text.errorAutoDiscoveryUnavailable;
         _notify();
     }
   }
@@ -1724,7 +1786,7 @@ class AppController extends TamayuraModel {
         return;
       }
       if (candidate.id.isNotEmpty && peer.id != candidate.id) {
-        throw const FormatException('此 IP 地址已由另一台设备使用，请重新发现设备');
+        throw FormatException(_text.errorAddressInUse);
       }
       if (peer.id == _id) {
         if (ownsProgress()) {
@@ -1732,7 +1794,7 @@ class AppController extends TamayuraModel {
           _syncProgressOwners.remove(progressKey);
           _syncCandidates.remove(progressKey);
         }
-        if (reportError) _error = '这是本机地址，请输入另一台设备的地址';
+        if (reportError) _error = _text.errorOwnAddress;
         return;
       }
       if (!mayContinue(peer.id)) {
@@ -2017,7 +2079,7 @@ class AppController extends TamayuraModel {
     if (directory == null) return;
     final uri = directory['uri'] as String;
     if (_sharedFolders.any((folder) => folder.uri == uri)) {
-      throw const FormatException('这个目录已在共享列表中，无需重复添加');
+      throw FormatException(_text.errorFolderAlreadyShared);
     }
     await _bridge.validateSharedDirectory(
       uri,
@@ -2082,7 +2144,12 @@ class AppController extends TamayuraModel {
     // Network synchronization has its own per-device state. Keep local actions
     // such as choosing a download folder available while previews arrive.
     await _syncPeer(
-      Peer(id: '', name: '局域网设备', host: target.host, port: target.port),
+      Peer(
+        id: '',
+        name: _text.lanDeviceFallback,
+        host: target.host,
+        port: target.port,
+      ),
       reportError: true,
       automatic: false,
       approve: true,

@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:tamayura/l10n/app_locale.dart';
 import 'package:tamayura/app/view_state.dart';
 import 'package:tamayura/ui/album_image.dart';
 
@@ -76,6 +77,9 @@ Finder _cached(MediaView item) =>
 Future<void> _show(WidgetTester tester, _Model model, MediaView item) async {
   await tester.pumpWidget(
     MaterialApp(
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      supportedLocales: AppLocalizations.supportedLocales,
+      locale: AppLocale.current,
       home: SizedBox(
         width: 160,
         height: 160,

@@ -3,6 +3,19 @@ package dev.tamayura.app
 import java.io.FileNotFoundException
 import java.util.concurrent.CancellationException
 
+internal class CatalogChangedException :
+    CancellationException("Shared directories changed"), LocalizedText {
+    override val textId = R.string.error_scan_cancelled
+}
+
+internal class NotSharingException : SecurityException("No directory is shared"), LocalizedText {
+    override val textId = R.string.error_no_shared_directory
+}
+
+internal class UnsharedFileException : FileNotFoundException("The file is not shared"), LocalizedText {
+    override val textId = R.string.error_shared_file_missing
+}
+
 /** Small independently testable boundary between a scan and file serving. */
 internal class SharedCatalog<T> {
     data class Entry<T>(val directory: String, val value: T)
@@ -35,12 +48,15 @@ internal class SharedCatalog<T> {
     }
 
     @Synchronized fun assertScan(ticket: Long) {
-        if (scan != ticket) throw CancellationException("共享目录已改变，请重新扫描")
+        if (scan != ticket) throw CatalogChangedException()
     }
 
     @Synchronized fun publish(ticket: Long, entries: Map<String, Entry<T>>) {
         assertScan(ticket)
-        require(entries.values.all { it.directory.isNotBlank() }) { "共享文件必须保留所属目录授权" }
+        if (entries.values.any { it.directory.isBlank() }) {
+            throw InvalidArgumentException(R.string.error_shared_file_authorization,
+                "Shared files must keep their directory grant")
+        }
         this.entries = entries.toMap()
         published = true
     }
@@ -51,16 +67,14 @@ internal class SharedCatalog<T> {
     }
 
     @Synchronized fun lookup(id: String): Snapshot<T> {
-        if (!published) throw SecurityException("当前没有共享目录")
-        val entry = entries[id] ?: throw FileNotFoundException("文件已删除或不在当前共享目录中")
+        if (!published) throw NotSharingException()
+        val entry = entries[id] ?: throw UnsharedFileException()
         return Snapshot(generation, entry.directory, entry.value)
     }
 
     /** A read may finish only while sharing continues and its file stays published. */
     @Synchronized fun assertCurrent(id: String, snapshot: Snapshot<T>) {
-        if (!isCurrent(id, snapshot)) {
-            throw CancellationException("共享目录已改变，请重新扫描")
-        }
+        if (!isCurrent(id, snapshot)) throw CatalogChangedException()
     }
 
     /** Only a failure from a still-published file can revoke sharing. */

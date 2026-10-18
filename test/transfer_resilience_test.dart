@@ -305,9 +305,12 @@ void main() {
     },
   );
 
-  test(
-    'the Android worker asks JobScheduler to retry while its peer is away',
-    () async {
+  for (final (language, retryText) in [
+    (null, '稍后会自动重试'),
+    ('en', 'will retry automatically'),
+  ]) {
+    test('the Android worker asks JobScheduler to retry while its peer is away '
+        '(${language ?? 'system'} language)', () async {
       databaseFactory = databaseFactoryFfi;
       final databases = p.join(root.path, 'db');
       await databaseFactoryFfi.setDatabasesPath(databases);
@@ -340,7 +343,7 @@ void main() {
       messenger.setMockMethodCallHandler(background, (call) async {
         switch (call.method) {
           case 'ready':
-            return {'taskId': task.id};
+            return {'taskId': task.id, 'language': ?language};
           case 'complete':
             completed.complete(Map.of(call.arguments as Map));
         }
@@ -351,13 +354,13 @@ void main() {
       expect(report['success'], isFalse);
       expect(report['cancelled'], isFalse);
       expect(report['retry'], isTrue);
-      expect(report['error'], contains('稍后会自动重试'));
+      expect(report['error'], contains(retryText));
       final reopened = await TransferStore.open();
       addTearDown(reopened.close);
       final waiting = (await reopened.get(task.id))!;
       expect(waiting.state, DownloadState.queued);
       expect(waiting.outageSinceMs, isNotNull);
-    },
-    timeout: const Timeout(Duration(seconds: 30)),
-  );
+      expect(waiting.error, contains(retryText));
+    }, timeout: const Timeout(Duration(seconds: 30)));
+  }
 }

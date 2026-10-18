@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:tamayura/l10n/app_locale.dart';
 import 'package:tamayura/app/app_info.dart';
 import 'package:tamayura/ui/update_page.dart';
 import 'package:tamayura/update/update_platform.dart';
@@ -110,6 +111,9 @@ Future<void> _show(
 }) async {
   await tester.pumpWidget(
     MaterialApp(
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      supportedLocales: AppLocalizations.supportedLocales,
+      locale: AppLocale.current,
       home: UpdatePage(
         service: service,
         platform: platform,

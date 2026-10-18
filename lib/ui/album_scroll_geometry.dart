@@ -1,5 +1,7 @@
 import 'dart:math' as math;
 
+import '../l10n/app_locale.dart';
+
 /// Maps album grid items to scroll positions, including slivers before the grid.
 class AlbumScrollGeometry {
   const AlbumScrollGeometry({
@@ -58,13 +60,10 @@ String albumNameInitial(String name) {
   return '#';
 }
 
-String albumMonthLabel(DateTime date) {
-  final local = date.toLocal();
-  return '${local.year}年${local.month}月';
-}
+/// The month heading of a date-sorted album, in the local calendar.
+String albumMonthLabel(AppLocalizations l10n, DateTime date) =>
+    l10n.albumMonthLabel(date.toLocal());
 
-String albumDateLabel(DateTime date) {
-  final local = date.toLocal();
-  const weekdays = ['一', '二', '三', '四', '五', '六', '日'];
-  return '${local.year}年${local.month}月${local.day}日 周${weekdays[local.weekday - 1]}';
-}
+/// The full local date with its weekday, shown while fast scrolling.
+String albumDateLabel(AppLocalizations l10n, DateTime date) =>
+    l10n.albumDateLabel(date.toLocal());

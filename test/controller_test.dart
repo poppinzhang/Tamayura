@@ -711,7 +711,8 @@ void main() {
       bridge.overlaps = true;
       bridge.selection = {'uri': 'content://parent/child', 'name': 'Child'};
       await model.chooseSharedFolder();
-      expect(model.error, contains('父子目录'));
+      // Every platform's overlap code reads the same in the interface.
+      expect(model.error, '此目录已共享，或与现有共享目录存在父子关系');
       expect(model.sharedFolders, hasLength(1));
       expect(model.localMediaCount, 1);
       expect(await db.getSetting('sharedFolders'), stored);

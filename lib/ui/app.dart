@@ -7,6 +7,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 
 import '../app/view_state.dart';
 import '../app/endpoint.dart';
+import '../l10n/app_locale.dart';
 import 'about_page.dart';
 import 'album_image.dart';
 import 'album_fast_scroll.dart';
@@ -28,7 +29,10 @@ class TamayuraApp extends StatelessWidget {
   Widget build(BuildContext context) => ListenableBuilder(
     listenable: model,
     builder: (context, _) => MaterialApp(
-      title: 'Tamayura · 玉响',
+      onGenerateTitle: (context) => context.l10n.appTitle,
+      locale: model.locale,
+      supportedLocales: AppLocalizations.supportedLocales,
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light,
       darkTheme: AppTheme.dark,
@@ -57,7 +61,7 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
   late SyncNotices _syncNotices;
   AlbumScrollGeometry? _albumGridGeometry;
   bool _requestingMore = false;
-  String? _loadMoreError;
+  bool _loadMoreFailed = false;
   int _albumPageGeneration = 0;
   bool _selectingLocal = false;
   bool _deletingLocal = false;
@@ -104,7 +108,7 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
         !model.loadingMoreMedia &&
         !model.mediaSortOrderChanging &&
         !_requestingMore &&
-        _loadMoreError == null &&
+        !_loadMoreFailed &&
         model.error == null) {
       unawaited(_loadMore());
     }
@@ -120,13 +124,13 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
     final generation = _albumPageGeneration;
     setState(() {
       _requestingMore = true;
-      _loadMoreError = null;
+      _loadMoreFailed = false;
     });
     try {
       await model.loadMoreMedia();
     } catch (_) {
       if (mounted && generation == _albumPageGeneration) {
-        setState(() => _loadMoreError = '更多照片暂时未能加载，请重试。');
+        setState(() => _loadMoreFailed = true);
       }
     } finally {
       if (mounted && generation == _albumPageGeneration) {
@@ -138,7 +142,7 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
   void _resetAlbumPaging() => setState(() {
     _albumPageGeneration++;
     _requestingMore = false;
-    _loadMoreError = null;
+    _loadMoreFailed = false;
   });
 
   Future<void> _selectDevice(String? id) async {
@@ -175,7 +179,7 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
     return PopupMenuButton<MediaSortOrder>(
       key: const Key('album-sort'),
       enabled: enabled,
-      tooltip: '按名称或文件修改日期排序',
+      tooltip: context.l10n.albumSortTooltip,
       initialValue: model.mediaSortOrder,
       onSelected: _setMediaSortOrder,
       itemBuilder: (_) => [
@@ -210,8 +214,10 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
                   Flexible(
                     child: Text(
                       model.mediaSortOrderChanging
-                          ? '正在排序…'
-                          : '排序：${_mediaSortLabel(model.mediaSortOrder)}',
+                          ? context.l10n.albumSorting
+                          : context.l10n.albumSortLabel(
+                              _mediaSortLabel(model.mediaSortOrder),
+                            ),
                       style: TextStyle(
                         color: enabled
                             ? colors.primary
@@ -231,10 +237,10 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
   }
 
   String _mediaSortLabel(MediaSortOrder order) => switch (order) {
-    MediaSortOrder.nameAscending => '名称升序',
-    MediaSortOrder.nameDescending => '名称降序',
-    MediaSortOrder.dateAscending => '日期升序',
-    MediaSortOrder.dateDescending => '日期降序',
+    MediaSortOrder.nameAscending => context.l10n.albumSortNameAscending,
+    MediaSortOrder.nameDescending => context.l10n.albumSortNameDescending,
+    MediaSortOrder.dateAscending => context.l10n.albumSortDateAscending,
+    MediaSortOrder.dateDescending => context.l10n.albumSortDateDescending,
   };
 
   void _preview(MediaView item) {
@@ -316,8 +322,8 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
       SnackBar(
         content: Text(
           failed == 0
-              ? '已删除 $deleted 个本地文件，可轻点缩略图重新下载。'
-              : '已删除 $deleted 个本地文件，$failed 个未能删除，请检查目录权限后重试。',
+              ? context.l10n.albumLocalDeleted(deleted)
+              : context.l10n.albumLocalDeletePartial(deleted, failed),
         ),
       ),
     );
@@ -330,7 +336,7 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
       runSpacing: 8,
       crossAxisAlignment: WrapCrossAlignment.center,
       children: [
-        Text('已选择 ${_selectedLocal.length} 项'),
+        Text(context.l10n.albumSelectedCount(_selectedLocal.length)),
         FilledButton.icon(
           key: const Key('confirm-delete-local'),
           onPressed: _deletingLocal || _selectedLocal.isEmpty
@@ -339,16 +345,16 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
           icon: const Icon(Icons.delete_outline_rounded),
           label: Text(
             _deletingLocal
-                ? '正在删除…'
+                ? context.l10n.albumDeleting
                 : isMobile
-                ? '删除本地文件'
-                : '确认',
+                ? context.l10n.albumDeleteLocalFiles
+                : context.l10n.commonConfirm,
           ),
         ),
         TextButton(
           key: const Key('cancel-delete-local'),
           onPressed: _deletingLocal ? null : _clearLocalSelection,
-          child: const Text('取消'),
+          child: Text(context.l10n.commonCancel),
         ),
       ],
     ),
@@ -361,7 +367,7 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('操作未能完成，请检查网络与目录权限后重试。')));
+      ).showSnackBar(SnackBar(content: Text(context.l10n.homeActionFailed)));
     }
   }
 
@@ -445,20 +451,26 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
         ? NavigationRailLabelType.none
         : NavigationRailLabelType.all,
     leading: const SizedBox(height: 12),
-    destinations: const [
+    destinations: [
       NavigationRailDestination(
-        icon: Icon(Icons.photo_library_outlined, key: Key('album-tab')),
-        selectedIcon: Icon(Icons.photo_library_rounded, key: Key('album-tab')),
-        label: Text('相册'),
+        icon: const Icon(Icons.photo_library_outlined, key: Key('album-tab')),
+        selectedIcon: const Icon(
+          Icons.photo_library_rounded,
+          key: Key('album-tab'),
+        ),
+        label: Text(context.l10n.navAlbum),
       ),
       NavigationRailDestination(
-        icon: Icon(Icons.devices_outlined, key: Key('devices-tab')),
-        selectedIcon: Icon(Icons.devices_rounded, key: Key('devices-tab')),
-        label: Text('设备'),
+        icon: const Icon(Icons.devices_outlined, key: Key('devices-tab')),
+        selectedIcon: const Icon(
+          Icons.devices_rounded,
+          key: Key('devices-tab'),
+        ),
+        label: Text(context.l10n.navDevices),
       ),
       NavigationRailDestination(
-        icon: Icon(Icons.tune_rounded, key: Key('settings-tab')),
-        label: Text('设置'),
+        icon: const Icon(Icons.tune_rounded, key: Key('settings-tab')),
+        label: Text(context.l10n.navSettings),
       ),
     ],
   );
@@ -540,20 +552,24 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
                           style: TextStyle(fontWeight: FontWeight.w700),
                         ),
                       ),
-                      SizedBox(width: 8),
-                      Text(
-                        '玉响',
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      if (context.l10n.appLocalName.isNotEmpty) ...[
+                        SizedBox(width: 8),
+                        Text(
+                          context.l10n.appLocalName,
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: Theme.of(
+                              context,
+                            ).colorScheme.onSurfaceVariant,
+                          ),
                         ),
-                      ),
+                      ],
                     ],
                   ),
                   actions: [
                     IconButton(
                       key: const Key('downloads-entry'),
-                      tooltip: '下载任务',
+                      tooltip: context.l10n.homeDownloadsTooltip,
                       onPressed: () => Navigator.of(context).push<void>(
                         MaterialPageRoute(
                           builder: (_) => DownloadsPage(model: model),
@@ -568,7 +584,7 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
                     ),
                     IconButton(
                       key: const Key('refresh'),
-                      tooltip: '刷新设备和相册',
+                      tooltip: context.l10n.homeRefreshTooltip,
                       onPressed: model.busy ? null : () => _run(model.refresh),
                       icon: const Icon(Icons.refresh_rounded),
                     ),
@@ -604,13 +620,13 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
                                       !(_tab == 2 &&
                                           model.backgroundSharingEnabled &&
                                           model.backgroundSharingStarting)
-                                  ? const Center(
+                                  ? Center(
                                       child: Column(
                                         mainAxisSize: MainAxisSize.min,
                                         children: [
-                                          CircularProgressIndicator(),
-                                          SizedBox(height: 20),
-                                          Text('正在打开你的随身相册…'),
+                                          const CircularProgressIndicator(),
+                                          const SizedBox(height: 20),
+                                          Text(context.l10n.homeOpening),
                                         ],
                                       ),
                                     )
@@ -637,23 +653,25 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
                     : NavigationBar(
                         selectedIndex: _tab,
                         onDestinationSelected: _changeTab,
-                        destinations: const [
+                        destinations: [
                           NavigationDestination(
-                            key: Key('album-tab'),
-                            icon: Icon(Icons.photo_library_outlined),
-                            selectedIcon: Icon(Icons.photo_library_rounded),
-                            label: '相册',
+                            key: const Key('album-tab'),
+                            icon: const Icon(Icons.photo_library_outlined),
+                            selectedIcon: const Icon(
+                              Icons.photo_library_rounded,
+                            ),
+                            label: context.l10n.navAlbum,
                           ),
                           NavigationDestination(
-                            key: Key('devices-tab'),
-                            icon: Icon(Icons.devices_outlined),
-                            selectedIcon: Icon(Icons.devices_rounded),
-                            label: '设备',
+                            key: const Key('devices-tab'),
+                            icon: const Icon(Icons.devices_outlined),
+                            selectedIcon: const Icon(Icons.devices_rounded),
+                            label: context.l10n.navDevices,
                           ),
                           NavigationDestination(
-                            key: Key('settings-tab'),
-                            icon: Icon(Icons.tune_rounded),
-                            label: '设置',
+                            key: const Key('settings-tab'),
+                            icon: const Icon(Icons.tune_rounded),
+                            label: context.l10n.navSettings,
                           ),
                         ],
                       ),
@@ -704,13 +722,16 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
-                  '每一刻，都在手边。',
-                  style: TextStyle(fontSize: 26, fontWeight: FontWeight.w700),
+                Text(
+                  context.l10n.albumHeadline,
+                  style: const TextStyle(
+                    fontSize: 26,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  '按共享文件夹浏览合集，轻点照片就存到这里。',
+                  context.l10n.albumSubtitle,
                   style: TextStyle(
                     color: Theme.of(context).colorScheme.onSurfaceVariant,
                     height: 1.5,
@@ -725,7 +746,7 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
                     scrollDirection: Axis.horizontal,
                     child: Row(
                       children: [
-                        _filterChip(null, '全部设备', null),
+                        _filterChip(null, context.l10n.albumAllDevices, null),
                         for (final device in devices)
                           _filterChip(device.id, device.name, device.online),
                       ],
@@ -764,11 +785,12 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
                     key: const Key('back-to-collections'),
                     onPressed: () => _selectCollection(null),
                     icon: const Icon(Icons.arrow_back_rounded),
-                    label: const Text('全部合集'),
+                    label: Text(context.l10n.albumAllCollections),
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    collection?.sharedFolderName ?? '共享合集',
+                    collection?.sharedFolderName ??
+                        context.l10n.albumSharedCollectionFallback,
                     style: const TextStyle(
                       fontSize: 22,
                       fontWeight: FontWeight.w700,
@@ -796,7 +818,7 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
                                 ? () => setState(() => _selectingLocal = true)
                                 : null,
                             icon: const Icon(Icons.delete_outline_rounded),
-                            label: const Text('删除本地文件'),
+                            label: Text(context.l10n.albumDeleteLocalFiles),
                           ),
                       ],
                     ),
@@ -806,7 +828,7 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
                   Padding(
                     padding: const EdgeInsets.only(bottom: 14),
                     child: Text(
-                      '${collections.length} 个合集',
+                      context.l10n.albumCollectionCount(collections.length),
                       style: const TextStyle(fontWeight: FontWeight.w600),
                     ),
                   ),
@@ -817,13 +839,17 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
                       children: [
                         Expanded(
                           child: Text(
-                            '${model.totalMediaCount} 个瞬间',
+                            context.l10n.albumMomentCount(
+                              model.totalMediaCount,
+                            ),
                             style: const TextStyle(fontWeight: FontWeight.w600),
                           ),
                         ),
                         Flexible(
                           child: Text(
-                            _selectingLocal ? '选择已保存的图片或视频' : '轻点下载原文件',
+                            _selectingLocal
+                                ? context.l10n.albumSelectSavedHint
+                                : context.l10n.albumTapToDownloadHint,
                             textAlign: TextAlign.right,
                             style: TextStyle(
                               fontSize: 12,
@@ -847,29 +873,29 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
               child: _EmptyState(
                 icon: Icons.photo_library_outlined,
                 title: syncing
-                    ? '正在接收相册'
+                    ? context.l10n.albumReceivingTitle
                     : syncFailed
-                    ? '同步尚未完成'
+                    ? context.l10n.albumSyncIncompleteTitle
                     : devices.isEmpty
-                    ? '让照片相遇'
+                    ? context.l10n.albumNoDevicesTitle
                     : browsingCollection
-                    ? '这个合集还没有照片'
-                    : '这里还没有合集',
+                    ? context.l10n.albumEmptyCollectionTitle
+                    : context.l10n.albumNoCollectionsTitle,
                 description: syncing
-                    ? '缩略图会陆续显示，你可以边同步边浏览。'
+                    ? context.l10n.albumReceivingDescription
                     : syncFailed
-                    ? '请检查两台设备的连接，然后重试同步。'
+                    ? context.l10n.albumSyncIncompleteDescription
                     : devices.isEmpty
-                    ? '在另一台设备上打开玉响，连接同一个局域网。\n发现设备后，共享文件夹会以合集出现在这里。'
+                    ? context.l10n.albumNoDevicesDescription
                     : isDesktop
-                    ? '对方需要选择共享目录，并保持玉响运行。\n点击右上角刷新，更新已连接设备的相册。'
-                    : '对方需要选择共享目录，开启后台共享后锁屏也能访问。\n点击右上角刷新，更新已连接设备的相册。',
+                    ? context.l10n.albumNoMediaDesktopDescription
+                    : context.l10n.albumNoMediaMobileDescription,
                 action: syncing || syncFailed
                     ? null
                     : TextButton.icon(
                         onPressed: () => setState(() => _tab = 1),
                         icon: const Icon(Icons.add_rounded),
-                        label: const Text('连接一台设备'),
+                        label: Text(context.l10n.albumConnectDevice),
                       ),
               ),
             ),
@@ -899,7 +925,8 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
                         .firstOrNull;
                     return _CollectionCard(
                       collection: item,
-                      deviceName: device?.name ?? '已记住的设备',
+                      deviceName:
+                          device?.name ?? context.l10n.rememberedDeviceFallback,
                       onTap: () => _selectCollection(item.key),
                     );
                   }, childCount: collections.length),
@@ -961,7 +988,8 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
                       model: model,
                       detailed: detailed,
                       item: item,
-                      deviceName: device?.name ?? '已记住的设备',
+                      deviceName:
+                          device?.name ?? context.l10n.rememberedDeviceFallback,
                       online: device?.online ?? false,
                       transfer: model.transfers[item.key],
                       selecting: _selectingLocal,
@@ -985,32 +1013,32 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
             (model.hasMoreMedia ||
                 model.loadingMoreMedia ||
                 _requestingMore ||
-                _loadMoreError != null))
+                _loadMoreFailed))
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(22, 0, 22, 26),
               child: Column(
                 children: [
-                  if (_loadMoreError != null)
+                  if (_loadMoreFailed)
                     Text(
-                      _loadMoreError!,
+                      context.l10n.albumLoadMoreFailed,
                       style: TextStyle(
                         color: Theme.of(context).colorScheme.onSurfaceVariant,
                       ),
                     ),
                   if (model.loadingMoreMedia || _requestingMore)
-                    const Padding(
-                      padding: EdgeInsets.all(14),
+                    Padding(
+                      padding: const EdgeInsets.all(14),
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          SizedBox(
+                          const SizedBox(
                             width: 18,
                             height: 18,
                             child: CircularProgressIndicator(strokeWidth: 2),
                           ),
-                          SizedBox(width: 10),
-                          Text('正在加载更多照片…'),
+                          const SizedBox(width: 10),
+                          Text(context.l10n.albumLoadingMore),
                         ],
                       ),
                     )
@@ -1019,7 +1047,11 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
                       key: const Key('load-more-media'),
                       onPressed: _loadMore,
                       icon: const Icon(Icons.expand_more_rounded),
-                      label: Text(_loadMoreError == null ? '加载更多照片' : '重试加载'),
+                      label: Text(
+                        _loadMoreFailed
+                            ? context.l10n.albumRetryLoad
+                            : context.l10n.albumLoadMore,
+                      ),
                     ),
                 ],
               ),
@@ -1062,10 +1094,10 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
           ? Icon(
               Icons.image_outlined,
               color: Theme.of(context).colorScheme.onSurfaceVariant,
-              semanticLabel: '正在加载缩略图',
+              semanticLabel: context.l10n.albumLoadingThumbnail,
             )
           : IconButton(
-              tooltip: '重试加载缩略图',
+              tooltip: context.l10n.albumRetryThumbnail,
               icon: const Icon(Icons.refresh_rounded),
               onPressed: () =>
                   _run(() => model.ensureMediaScrollRange(index, index)),
@@ -1102,20 +1134,26 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Row(
+        Row(
           children: [
-            Icon(Icons.folder_open_rounded, size: 20),
-            SizedBox(width: 8),
+            const Icon(Icons.folder_open_rounded, size: 20),
+            const SizedBox(width: 8),
             Expanded(
               child: Text(
-                '先安顿好你的相册',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+                context.l10n.setupTitle,
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
             ),
           ],
         ),
         const SizedBox(height: 8),
-        const Text('添加要分享的文件夹，以及收到照片后存放的位置。', style: TextStyle(height: 1.5)),
+        Text(
+          context.l10n.setupDescription,
+          style: const TextStyle(height: 1.5),
+        ),
         const SizedBox(height: 14),
         Wrap(
           spacing: 8,
@@ -1128,7 +1166,7 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
                     ? null
                     : () => _run(model.chooseSharedFolder),
                 icon: const Icon(Icons.add_rounded, size: 18),
-                label: const Text('共享文件夹'),
+                label: Text(context.l10n.setupShareFolder),
               ),
             if (model.downloadFolder == null)
               FilledButton.icon(
@@ -1137,7 +1175,7 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
                     ? null
                     : () => _run(model.chooseDownloadFolder),
                 icon: const Icon(Icons.download_rounded, size: 18),
-                label: const Text('接收目录'),
+                label: Text(context.l10n.setupDownloadFolder),
               ),
           ],
         ),
@@ -1148,11 +1186,13 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
   Widget _deviceCard(DeviceView device) {
     final colors = Theme.of(context).colorScheme;
     final forgetting = model.forgettingDeviceIds.contains(device.id);
+    final l10n = context.l10n;
     final syncStatus = switch (device.syncApproval) {
-      PeerSyncApproval.approved =>
-        '最后成功同步：${_formatSuccessfulSync(device.lastSuccessfulSync)}',
-      PeerSyncApproval.pending => '新发现的设备 · 尚未开启相册同步',
-      PeerSyncApproval.declined => '未开启相册同步',
+      PeerSyncApproval.approved => l10n.deviceLastSuccessfulSync(
+        _formatSuccessfulSync(l10n, device.lastSuccessfulSync),
+      ),
+      PeerSyncApproval.pending => l10n.devicePendingApproval,
+      PeerSyncApproval.declined => l10n.deviceSyncDeclined,
     };
     return _SurfaceCard(
       margin: const EdgeInsets.only(bottom: 10),
@@ -1174,15 +1214,15 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
               style: const TextStyle(fontWeight: FontWeight.w600),
             ),
             subtitle: Text(
-              '${device.online ? '在线' : '离线 · 可浏览缓存'}\n${device.address}\n'
-              '$syncStatus',
+              '${device.online ? l10n.commonOnline : l10n.deviceOfflineCached}'
+              '\n${device.address}\n$syncStatus',
               style: const TextStyle(height: 1.6, fontSize: 12),
             ),
             isThreeLine: true,
             trailing: PopupMenuButton<_DeviceAction>(
               key: Key('device-menu-${device.id}'),
               enabled: !forgetting,
-              tooltip: '设备操作',
+              tooltip: l10n.deviceActions,
               icon: forgetting
                   ? const SizedBox.square(
                       dimension: 20,
@@ -1198,12 +1238,12 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
                   PopupMenuItem(
                     key: Key('device-enable-sync-${device.id}'),
                     value: _DeviceAction.enableSync,
-                    child: const Text('开启相册同步'),
+                    child: Text(l10n.deviceEnableAlbumSync),
                   ),
                 PopupMenuItem(
                   key: Key('device-forget-${device.id}'),
                   value: _DeviceAction.forget,
-                  child: const Text('忘记设备'),
+                  child: Text(context.l10n.deviceForget),
                 ),
               ],
             ),
@@ -1219,7 +1259,7 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
                 key: Key('device-start-sync-${device.id}'),
                 onPressed: forgetting ? null : () => _enableDeviceSync(device),
                 icon: const Icon(Icons.sync_rounded, size: 18),
-                label: const Text('开启同步'),
+                label: Text(l10n.deviceStartSync),
               ),
             ),
         ],
@@ -1245,8 +1285,8 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
       SnackBar(
         content: Text(
           forgotten
-              ? '已忘记「${device.name}」，再次发现时会作为新设备询问是否同步。'
-              : model.error ?? '未能忘记这台设备，请稍后重试。',
+              ? context.l10n.deviceForgotten(device.name)
+              : model.error ?? context.l10n.deviceForgetFailed,
         ),
       ),
     );
@@ -1285,7 +1325,10 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
     physics: const AlwaysScrollableScrollPhysics(),
     padding: const EdgeInsets.fromLTRB(22, 20, 22, 30),
     children: [
-      const _PageHeading(title: '附近的伙伴', subtitle: '同一个局域网，让每台设备的相册连在一起。'),
+      _PageHeading(
+        title: context.l10n.devicesTitle,
+        subtitle: context.l10n.devicesSubtitle,
+      ),
       const SizedBox(height: 22),
       Container(
         padding: const EdgeInsets.all(20),
@@ -1304,10 +1347,12 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
                   size: 22,
                 ),
                 SizedBox(width: 8),
-                Text(
-                  '这台设备',
-                  style: TextStyle(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                Flexible(
+                  child: Text(
+                    context.l10n.devicesThisDevice,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
                   ),
                 ),
               ],
@@ -1324,7 +1369,7 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
             const SizedBox(height: 7),
             Text(
               model.addresses.isEmpty
-                  ? '暂无局域网地址，请连接网络后刷新'
+                  ? context.l10n.devicesNoAddress
                   : model.addresses
                         .map((address) => '$address:${model.port}')
                         .join('\n'),
@@ -1346,7 +1391,7 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
                 side: BorderSide(color: Theme.of(context).colorScheme.outline),
               ),
               icon: const Icon(Icons.qr_code_rounded, size: 18),
-              label: const Text('展示连接二维码'),
+              label: Text(context.l10n.devicesShowQr),
             ),
           ],
         ),
@@ -1360,13 +1405,13 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
             key: const Key('connect-manual'),
             onPressed: _connecting || model.busy ? null : _manualConnect,
             icon: const Icon(Icons.add_link_rounded, size: 20),
-            label: const Text('输入 IP 连接'),
+            label: Text(context.l10n.devicesConnectByIp),
           ),
           if (!isWindowsDesktop)
             OutlinedButton.icon(
               onPressed: _connecting || model.busy ? null : _scan,
               icon: const Icon(Icons.qr_code_scanner_rounded, size: 20),
-              label: const Text('扫一扫'),
+              label: Text(context.l10n.devicesScan),
             ),
         ],
       ),
@@ -1375,7 +1420,7 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
         const LinearProgressIndicator(),
         const SizedBox(height: 6),
         Text(
-          '正在连接设备…',
+          context.l10n.devicesConnecting,
           style: TextStyle(
             color: Theme.of(context).colorScheme.onSurfaceVariant,
           ),
@@ -1384,14 +1429,16 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
       const SizedBox(height: 30),
       Row(
         children: [
-          const Expanded(
+          Expanded(
             child: Text(
-              '已记住的设备',
-              style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
+              context.l10n.devicesRemembered,
+              style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
             ),
           ),
           Text(
-            '${model.devices.where((device) => device.online).length} 台在线',
+            context.l10n.devicesOnlineCount(
+              model.devices.where((device) => device.online).length,
+            ),
             style: TextStyle(
               color: Theme.of(context).colorScheme.onSurfaceVariant,
             ),
@@ -1405,27 +1452,27 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
             key: const Key('edit-device-order'),
             onPressed: model.deviceOrderSaving ? null : _editDeviceOrder,
             icon: const Icon(Icons.swap_vert_rounded, size: 20),
-            label: const Text('调整顺序'),
+            label: Text(context.l10n.devicesReorder),
           ),
         ),
       const SizedBox(height: 12),
       if (model.devices.isEmpty)
-        const Padding(
-          padding: EdgeInsets.symmetric(vertical: 22),
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 22),
           child: _EmptyState(
             icon: Icons.radar_rounded,
-            title: '等待另一台玉响',
-            description: '设备会通过局域网自动发现。\n如果暂时没找到，可以输入 IP 或扫描二维码连接。',
+            title: context.l10n.devicesEmptyTitle,
+            description: context.l10n.devicesEmptyDescription,
           ),
         ),
       for (final device in model.devices) _deviceCard(device),
       const SizedBox(height: 12),
       Text(
         isWindowsDesktop
-            ? '设备离线后仍会保留相册缩略图。共享与接收需要玉响运行、电脑保持唤醒，并与来源设备处于同一局域网。'
+            ? context.l10n.devicesFooterWindows
             : isMacDesktop
-            ? '设备离线后仍会保留相册缩略图。共享与接收需要玉响保持运行、Mac 保持唤醒，并与来源设备处于同一局域网。'
-            : '设备离线后仍会保留相册缩略图。来源设备开启后台共享后，锁屏也能提供原文件；这台设备可以切换到其他应用继续接收。',
+            ? context.l10n.devicesFooterMac
+            : context.l10n.devicesFooterMobile,
         style: TextStyle(
           color: Theme.of(context).colorScheme.onSurfaceVariant,
           height: 1.6,
@@ -1435,22 +1482,82 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
     ],
   );
 
+  String _languageLabel(AppLanguage language) => language == AppLanguage.system
+      ? context.l10n.settingsLanguageSystem
+      : language.nativeName;
+
+  Widget _languageCard() {
+    final l10n = context.l10n;
+    final enabled = !model.loading && !model.languageSaving;
+    // The language actually shown, also when following the system.
+    final shown = AppLanguage.parse(model.locale.languageCode).nativeName;
+    return _SurfaceCard(
+      child: PopupMenuButton<AppLanguage>(
+        key: const Key('language-selector'),
+        enabled: enabled,
+        tooltip: l10n.settingsLanguage,
+        initialValue: model.language,
+        onSelected: (language) => _run(() => model.setLanguage(language)),
+        itemBuilder: (_) => [
+          for (final language in AppLanguage.values)
+            CheckedPopupMenuItem(
+              key: Key('language-${language.name}'),
+              value: language,
+              checked: language == model.language,
+              child: Text(_languageLabel(language)),
+            ),
+        ],
+        child: ListTile(
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 18,
+            vertical: 10,
+          ),
+          enabled: enabled,
+          leading: Icon(
+            Icons.translate_rounded,
+            color: Theme.of(context).colorScheme.primary,
+          ),
+          title: Text(l10n.settingsLanguage),
+          subtitle: Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Text(
+              model.languageSaving
+                  ? l10n.settingsLanguageSaving
+                  : model.language == AppLanguage.system
+                  ? l10n.settingsLanguageSystemDescription(shown)
+                  : l10n.settingsLanguageFixedDescription(shown),
+              key: const Key('language-status'),
+              style: const TextStyle(height: 1.6),
+            ),
+          ),
+          trailing: const Icon(Icons.expand_more_rounded),
+        ),
+      ),
+    );
+  }
+
   Widget _settings() => ListView(
     key: const PageStorageKey('settings-scroll'),
     padding: const EdgeInsets.fromLTRB(22, 20, 22, 30),
     children: [
-      const _PageHeading(title: '你的相册，你来安排', subtitle: '只分享选定的目录，原文件按需获取。'),
+      _PageHeading(
+        title: context.l10n.settingsTitle,
+        subtitle: context.l10n.settingsSubtitle,
+      ),
       const SizedBox(height: 26),
-      const _SectionLabel('外观'),
+      _SectionLabel(context.l10n.settingsAppearance),
       _SurfaceCard(
         child: Padding(
           padding: const EdgeInsets.all(18),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
-                '主题模式',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+              Text(
+                context.l10n.settingsThemeMode,
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
               const SizedBox(height: 14),
               LayoutBuilder(
@@ -1475,18 +1582,27 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
                       // A scrolling settings page has unbounded vertical space.
                       expandedInsets: vertical ? null : EdgeInsets.zero,
                       showSelectedIcon: false,
-                      segments: const [
+                      segments: [
                         ButtonSegment(
                           value: ThemeMode.system,
-                          label: Text('跟随系统', maxLines: 1),
+                          label: Text(
+                            context.l10n.settingsThemeSystem,
+                            maxLines: 1,
+                          ),
                         ),
                         ButtonSegment(
                           value: ThemeMode.light,
-                          label: Text('浅色', maxLines: 1),
+                          label: Text(
+                            context.l10n.settingsThemeLight,
+                            maxLines: 1,
+                          ),
                         ),
                         ButtonSegment(
                           value: ThemeMode.dark,
-                          label: Text('深色', maxLines: 1),
+                          label: Text(
+                            context.l10n.settingsThemeDark,
+                            maxLines: 1,
+                          ),
                         ),
                       ],
                       selected: {model.themeMode},
@@ -1502,10 +1618,12 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
               const SizedBox(height: 12),
               Text(
                 model.themeModeSaving
-                    ? '正在保存主题…'
+                    ? context.l10n.settingsThemeSaving
                     : model.themeMode == ThemeMode.system
-                    ? '随系统自动切换浅色和深色外观。'
-                    : '已固定为${model.themeMode == ThemeMode.light ? '浅色' : '深色'}外观。',
+                    ? context.l10n.settingsThemeSystemDescription
+                    : model.themeMode == ThemeMode.light
+                    ? context.l10n.settingsThemeLightDescription
+                    : context.l10n.settingsThemeDarkDescription,
                 style: TextStyle(
                   color: Theme.of(context).colorScheme.onSurfaceVariant,
                   fontSize: 12,
@@ -1516,8 +1634,10 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
           ),
         ),
       ),
+      const SizedBox(height: 12),
+      _languageCard(),
       const SizedBox(height: 28),
-      const _SectionLabel('相册'),
+      _SectionLabel(context.l10n.settingsAlbum),
       _SurfaceCard(
         child: SwitchListTile(
           key: const Key('album-detailed-mode'),
@@ -1525,14 +1645,13 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
             horizontal: 18,
             vertical: 10,
           ),
-          title: const Text('详细模式'),
+          title: Text(context.l10n.settingsDetailedMode),
           subtitle: Padding(
             padding: const EdgeInsets.only(top: 8),
             child: Text(
               model.albumDetailedModeSaving
-                  ? '正在保存显示模式…'
-                  : '默认模式使用紧凑的正方形网格，点击照片查看详细信息。'
-                        '\n开启详细模式后，照片卡片会显示文件名、来源设备、日期和下载状态。',
+                  ? context.l10n.settingsDetailedModeSaving
+                  : context.l10n.settingsDetailedModeDescription,
               style: const TextStyle(height: 1.6),
             ),
           ),
@@ -1543,7 +1662,7 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
         ),
       ),
       const SizedBox(height: 28),
-      const _SectionLabel('同步'),
+      _SectionLabel(context.l10n.settingsSync),
       _SurfaceCard(
         child: ListTile(
           key: const Key('auto-sync-interval'),
@@ -1551,14 +1670,15 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
             horizontal: 18,
             vertical: 10,
           ),
-          title: const Text('自动同步间隔'),
+          title: Text(context.l10n.settingsAutoSyncInterval),
           subtitle: Padding(
             padding: const EdgeInsets.only(top: 8),
             child: Text(
               model.autoSyncIntervalSaving
-                  ? '正在保存同步间隔…'
-                  : '上次同步尝试超过 ${model.autoSyncIntervalMinutes} 分钟后自动同步。'
-                        '\n手动同步和同步失败都会重新计时。点击右上角刷新可立即同步。',
+                  ? context.l10n.settingsAutoSyncSaving
+                  : context.l10n.settingsAutoSyncDescription(
+                      model.autoSyncIntervalMinutes,
+                    ),
               style: const TextStyle(height: 1.6),
             ),
           ),
@@ -1570,20 +1690,23 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
         ),
       ),
       const SizedBox(height: 28),
-      const _SectionLabel('文件与存储'),
+      _SectionLabel(context.l10n.settingsFilesStorage),
       _SurfaceCard(
         child: Padding(
           padding: const EdgeInsets.all(18),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
-                '共享文件夹',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+              Text(
+                context.l10n.settingsSharedFolders,
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
               const SizedBox(height: 8),
               Text(
-                '可添加多个文件夹，自动包含所有子目录。已添加的目录及其父目录、子目录不能重复添加。',
+                context.l10n.settingsSharedFoldersDescription,
                 style: TextStyle(
                   color: Theme.of(context).colorScheme.onSurfaceVariant,
                   fontSize: 12,
@@ -1591,9 +1714,9 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
                 ),
               ),
               if (model.sharedFolders.isEmpty)
-                const Padding(
-                  padding: EdgeInsets.only(top: 14),
-                  child: Text('尚未选择 · 让其他设备看到这里的照片'),
+                Padding(
+                  padding: const EdgeInsets.only(top: 14),
+                  child: Text(context.l10n.settingsSharedFoldersEmpty),
                 ),
               for (final folder in model.sharedFolders)
                 ListTile(
@@ -1608,7 +1731,9 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
                   ),
                   trailing: IconButton(
                     key: Key('remove-shared-folder-${folder.id}'),
-                    tooltip: '移除 ${folder.name}',
+                    tooltip: context.l10n.settingsRemoveSharedFolder(
+                      folder.name,
+                    ),
                     onPressed: model.loading || model.busy
                         ? null
                         : () => _run(() => model.removeSharedFolder(folder.id)),
@@ -1622,7 +1747,7 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
                     ? null
                     : () => _run(model.chooseSharedFolder),
                 icon: const Icon(Icons.add_rounded),
-                label: const Text('添加共享文件夹'),
+                label: Text(context.l10n.settingsAddSharedFolder),
               ),
             ],
           ),
@@ -1636,16 +1761,19 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
             SwitchListTile(
               key: const Key('background-sharing-switch'),
               contentPadding: const EdgeInsets.fromLTRB(18, 8, 18, 0),
-              title: const Text(
-                '后台共享',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+              title: Text(
+                context.l10n.settingsBackgroundSharing,
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
               subtitle: Text(
                 isWindowsDesktop
-                    ? '关闭窗口后玉响会留在系统托盘。开启此项后，关闭或最小化窗口仍可共享；关闭此项后在窗口隐藏时停止共享。电脑需要保持唤醒。'
+                    ? context.l10n.settingsBackgroundSharingWindows
                     : isMacDesktop
-                    ? '关闭窗口后玉响会留在菜单栏。开启此项后，关闭、隐藏或最小化窗口仍可共享；关闭此项后在窗口隐藏时停止共享。Mac 需要保持唤醒。'
-                    : '开启后锁屏仍可共享媒体；关闭后仅在使用应用时共享，更省电。',
+                    ? context.l10n.settingsBackgroundSharingMac
+                    : context.l10n.settingsBackgroundSharingMobile,
                 style: TextStyle(fontSize: 12, height: 1.6),
               ),
               value: model.backgroundSharingEnabled,
@@ -1664,20 +1792,20 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
                 children: [
                   Text(
                     model.backgroundSharingStarting
-                        ? '正在启动后台共享…'
+                        ? context.l10n.backgroundSharingStarting
                         : model.backgroundSharingSaving
-                        ? '正在更新后台共享…'
+                        ? context.l10n.backgroundSharingUpdating
                         : model.backgroundSharingError != null
-                        ? '后台共享启动失败，请重试。'
+                        ? context.l10n.backgroundSharingStartFailed
                         : !model.backgroundSharingEnabled
-                        ? '后台共享已关闭。'
+                        ? context.l10n.backgroundSharingOff
                         : model.backgroundSharingRunning
                         ? isWindowsDesktop
-                              ? '后台共享正在运行。电脑睡眠或退出玉响后，共享会停止。'
+                              ? context.l10n.backgroundSharingRunningWindows
                               : isMacDesktop
-                              ? '后台共享正在运行。Mac 睡眠或退出玉响后，共享会停止。'
-                              : '后台共享正在运行，锁屏后仍可访问已选目录。'
-                        : '后台共享尚未运行。',
+                              ? context.l10n.backgroundSharingRunningMac
+                              : context.l10n.backgroundSharingRunningMobile
+                        : context.l10n.backgroundSharingNotRunning,
                     key: const Key('background-sharing-status'),
                     style: TextStyle(
                       color: Theme.of(context).colorScheme.onSurfaceVariant,
@@ -1710,7 +1838,7 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
                           ? null
                           : () => _run(() => model.setBackgroundSharing(true)),
                       icon: const Icon(Icons.refresh_rounded),
-                      label: const Text('重试后台共享'),
+                      label: Text(context.l10n.backgroundSharingRetry),
                     ),
                   ],
                   if (!isDesktop &&
@@ -1718,7 +1846,7 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
                       !model.batteryOptimizationExempt) ...[
                     const SizedBox(height: 8),
                     Text(
-                      '系统省电限制可能在休眠时中断共享。可在电池设置中允许玉响不受限制地运行。',
+                      context.l10n.backgroundSharingBatteryHint,
                       style: TextStyle(
                         color: Theme.of(context).colorScheme.onSurfaceVariant,
                         fontSize: 12,
@@ -1732,7 +1860,9 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
                           ? null
                           : () => _run(model.openBatteryOptimizationSettings),
                       icon: const Icon(Icons.battery_saver_outlined),
-                      label: const Text('电池设置'),
+                      label: Text(
+                        context.l10n.backgroundSharingBatterySettings,
+                      ),
                     ),
                   ],
                 ],
@@ -1743,8 +1873,9 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
       ),
       const SizedBox(height: 12),
       _FolderTile(
-        title: '接收目录',
-        subtitle: model.downloadFolder ?? '尚未选择 · 下载的原文件会保存在这里',
+        title: context.l10n.settingsDownloadFolder,
+        subtitle:
+            model.downloadFolder ?? context.l10n.settingsDownloadFolderEmpty,
         icon: Icons.save_alt_rounded,
         onTap: model.loading || model.busy
             ? null
@@ -1752,7 +1883,10 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
       ),
       const SizedBox(height: 12),
       Text(
-        '当前从 ${model.sharedFolders.length} 个目录共享 ${model.localMediaCount} 个媒体文件',
+        context.l10n.settingsSharingSummary(
+          model.sharedFolders.length,
+          model.localMediaCount,
+        ),
         style: TextStyle(
           color: Theme.of(context).colorScheme.onSurfaceVariant,
           fontSize: 12,
@@ -1760,7 +1894,7 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
       ),
       const SizedBox(height: 8),
       Text(
-        '原文件按「对端设备 / 共享文件夹 / 原有子目录」保存，保留目录层级。',
+        context.l10n.settingsDownloadLayout,
         style: TextStyle(
           color: Theme.of(context).colorScheme.onSurfaceVariant,
           fontSize: 12,
@@ -1768,7 +1902,7 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
         ),
       ),
       const SizedBox(height: 28),
-      const _SectionLabel('本机信息'),
+      _SectionLabel(context.l10n.settingsDeviceInfo),
       _SurfaceCard(
         child: Padding(
           padding: const EdgeInsets.all(18),
@@ -1785,7 +1919,7 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
               const SizedBox(height: 8),
               SelectableText(
                 model.addresses.isEmpty
-                    ? '尚未连接局域网'
+                    ? context.l10n.settingsNoLan
                     : model.addresses
                           .map((address) => '$address:${model.port}')
                           .join('\n'),
@@ -1799,65 +1933,61 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
         ),
       ),
       const SizedBox(height: 28),
-      const _SectionLabel('使用小提示'),
-      const _Tip(
+      _SectionLabel(context.l10n.settingsTips),
+      _Tip(
         icon: Icons.wifi_rounded,
-        title: '连接同一个网络',
-        description: '目前仅支持局域网，设备无需登录账号。请只在可信的网络中共享目录。',
+        title: context.l10n.tipNetworkTitle,
+        description: context.l10n.tipNetworkDescription,
       ),
       if (isWindowsDesktop) ...[
-        const _Tip(
+        _Tip(
           icon: Icons.desktop_windows_rounded,
-          title: '为 Windows 准备',
-          description:
-              '支持 Windows 10 1809 及更新版本、Windows 11（x64）。请允许玉响通过专用网络防火墙；也可使用手动 IP 连接。',
+          title: context.l10n.tipWindowsTitle,
+          description: context.l10n.tipWindowsDescription,
         ),
-        const _Tip(
+        _Tip(
           icon: Icons.downloading_rounded,
-          title: '关闭窗口，接收继续',
-          description:
-              '关闭窗口后，已开始的下载继续。点击系统托盘中的玉响图标可重新打开，右键菜单可选择「退出玉响」。电脑睡眠或断网后可在下载任务中重试。',
+          title: context.l10n.tipBackgroundReceiveTitle,
+          description: context.l10n.tipBackgroundReceiveWindows,
         ),
-        const _Tip(
+        _Tip(
           icon: Icons.keyboard_rounded,
-          title: '用键盘快速切换',
-          description:
-              'Ctrl+1 相册 · Ctrl+2 设备 · Ctrl+3 或 Ctrl+, 设置 · Ctrl+R 刷新。',
+          title: context.l10n.tipKeyboardTitle,
+          description: context.l10n.tipKeyboardWindows,
         ),
       ] else if (isMacDesktop) ...[
-        const _Tip(
+        _Tip(
           icon: Icons.desktop_mac_rounded,
-          title: '为 Mac 准备',
-          description:
-              '支持 macOS Sequoia 15、Tahoe 26 及后续版本。目录访问和相机权限由系统管理，可在系统设置中调整。',
+          title: context.l10n.tipMacTitle,
+          description: context.l10n.tipMacDescription,
         ),
-        const _Tip(
+        _Tip(
           icon: Icons.downloading_rounded,
-          title: '关闭窗口，接收继续',
-          description:
-              '关闭窗口后，已开始的下载继续。从右上角菜单栏或 Dock 可重新打开；选择「退出玉响」或按 ⌘Q 才会退出。Mac 睡眠或断网后可在下载任务中重试。',
+          title: context.l10n.tipBackgroundReceiveTitle,
+          description: context.l10n.tipBackgroundReceiveMac,
         ),
-        const _Tip(
+        _Tip(
           icon: Icons.keyboard_rounded,
-          title: '用键盘快速切换',
-          description: '⌘1 相册 · ⌘2 设备 · ⌘3 或 ⌘, 设置 · ⌘R 刷新。',
+          title: context.l10n.tipKeyboardTitle,
+          description: context.l10n.tipKeyboardMac,
         ),
       ] else
-        const _Tip(
+        _Tip(
           icon: Icons.phone_android_rounded,
-          title: '接收可在后台继续',
-          description:
-              '支持 Android 16 及更新版本。通知权限为可选项，关闭通知仍可下载并在下载中心查看进度；来源设备开启后台共享后可以锁屏，双方需要处于同一局域网。',
+          title: context.l10n.tipAndroidTitle,
+          description: context.l10n.tipAndroidDescription,
         ),
       _Tip(
         icon: Icons.touch_app_outlined,
-        title: isWindowsDesktop ? '轻点获取，下载后打开' : '轻点获取，下载后分享',
+        title: isWindowsDesktop
+            ? context.l10n.tipOpenTitle
+            : context.l10n.tipShareTitle,
         description: isWindowsDesktop
-            ? '每个共享文件夹显示为独立合集；点击下载原文件，可用系统应用打开，或在资源管理器中定位文件。'
-            : '每个共享文件夹显示为独立合集，包含其所有子目录的照片与视频；点击下载原文件，再使用分享按钮发送到其他应用。',
+            ? context.l10n.tipOpenDescription
+            : context.l10n.tipShareDescription,
       ),
       const SizedBox(height: 28),
-      const _SectionLabel('关于项目'),
+      _SectionLabel(context.l10n.settingsAboutProject),
       _SurfaceCard(
         child: ListTile(
           key: const Key('check-update-entry'),
@@ -1869,8 +1999,8 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
             Icons.system_update_alt_rounded,
             color: Theme.of(context).colorScheme.primary,
           ),
-          title: const Text('检查更新'),
-          subtitle: const Text('从 GitHub 检查新版本，由你确认后更新'),
+          title: Text(context.l10n.settingsCheckUpdates),
+          subtitle: Text(context.l10n.settingsCheckUpdatesSubtitle),
           trailing: const Icon(Icons.chevron_right_rounded),
           onTap: () => Navigator.of(context).push<void>(
             MaterialPageRoute(
@@ -1891,8 +2021,8 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
             Icons.info_outline_rounded,
             color: Theme.of(context).colorScheme.primary,
           ),
-          title: const Text('关于'),
-          subtitle: const Text('版本、开源许可与一点碎碎念'),
+          title: Text(context.l10n.settingsAbout),
+          subtitle: Text(context.l10n.settingsAboutSubtitle),
           trailing: const Icon(Icons.chevron_right_rounded),
           onTap: () => Navigator.of(
             context,
@@ -1935,28 +2065,29 @@ class _SyncProgressCard extends StatelessWidget {
     final failed = progress.phase == SyncPhase.failed;
     final completed = progress.phase == SyncPhase.completed;
     final total = progress.totalCount;
+    final l10n = context.l10n;
     final status = switch (progress.phase) {
-      SyncPhase.connecting => '正在连接',
-      SyncPhase.receiving => '正在同步相册',
-      SyncPhase.committing => '正在完成同步',
-      SyncPhase.completed => '相册同步完成',
-      SyncPhase.failed => '本次同步未完成',
+      SyncPhase.connecting => l10n.syncPhaseConnecting,
+      SyncPhase.receiving => l10n.syncPhaseReceiving,
+      SyncPhase.committing => l10n.syncPhaseCommitting,
+      SyncPhase.completed => l10n.syncPhaseCompleted,
+      SyncPhase.failed => l10n.syncPhaseFailed,
     };
     final detail = switch (progress.phase) {
       SyncPhase.connecting =>
         progress.readyCount > 0
-            ? '已保留 ${progress.readyCount} 项，正在连接设备继续同步。'
-            : '正在获取相册信息，请保持设备连接。',
+            ? l10n.syncConnectingResume(progress.readyCount)
+            : l10n.syncConnectingFresh,
       SyncPhase.receiving =>
         total == null
-            ? '已就绪 ${progress.readyCount} 项，正在获取更多照片。'
-            : '已就绪 ${progress.readyCount} / $total 项，可边同步边浏览。',
-      SyncPhase.committing => '缩略图已就绪，正在整理相册。',
-      SyncPhase.completed => '已就绪 ${progress.readyCount} 项。',
+            ? l10n.syncReceivingOpen(progress.readyCount)
+            : l10n.syncReceivingProgress(progress.readyCount, total),
+      SyncPhase.committing => l10n.syncCommittingDetail,
+      SyncPhase.completed => l10n.syncCompletedDetail(progress.readyCount),
       SyncPhase.failed =>
         progress.readyCount > 0
-            ? '已保留 ${progress.readyCount} 项，恢复连接后可继续同步。'
-            : '相册和同步进度已保留，请检查连接后重试。',
+            ? l10n.syncFailedResume(progress.readyCount)
+            : l10n.syncFailedFresh,
     };
     final value =
         progress.phase == SyncPhase.receiving && total != null && total > 0
@@ -1997,7 +2128,7 @@ class _SyncProgressCard extends StatelessWidget {
                 ),
                 IconButton(
                   key: Key('dismiss-sync-${progress.peerId}'),
-                  tooltip: '关闭同步提示',
+                  tooltip: l10n.syncDismiss,
                   onPressed: onDismiss,
                   visualDensity: VisualDensity.compact,
                   style: IconButton.styleFrom(
@@ -2032,7 +2163,11 @@ class _SyncProgressCard extends StatelessWidget {
               LinearProgressIndicator(
                 key: Key('sync-indicator-${progress.peerId}'),
                 value: value,
-                semanticsLabel: '${progress.peerName}，$status，$detail',
+                semanticsLabel: l10n.syncProgressSemantics(
+                  progress.peerName,
+                  status,
+                  detail,
+                ),
                 minHeight: 5,
                 borderRadius: BorderRadius.circular(3),
               ),
@@ -2043,7 +2178,7 @@ class _SyncProgressCard extends StatelessWidget {
                 key: Key('retry-sync-${progress.peerId}'),
                 onPressed: onRetry,
                 icon: const Icon(Icons.refresh_rounded),
-                label: const Text('继续同步'),
+                label: Text(l10n.syncContinue),
               ),
             ],
           ],
@@ -2067,8 +2202,11 @@ class _CollectionCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) => _SurfaceCard(
     child: Semantics(
-      label:
-          '${collection.sharedFolderName}，来自$deviceName，${collection.itemCount} 个瞬间',
+      label: context.l10n.collectionSemantics(
+        collection.sharedFolderName,
+        deviceName,
+        collection.itemCount,
+      ),
       button: true,
       child: InkWell(
         key: Key('collection-${collection.key}'),
@@ -2112,7 +2250,7 @@ class _CollectionCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    '${collection.itemCount} 个瞬间',
+                    context.l10n.albumMomentCount(collection.itemCount),
                     style: TextStyle(
                       fontSize: 12,
                       color: Theme.of(context).colorScheme.onSurfaceVariant,
@@ -2158,19 +2296,23 @@ class _MediaCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     final running = transfer?.running ?? false;
     final complete = transfer?.complete ?? false;
     final image = Semantics(
-      label:
-          '${item.name}，来自$deviceName，${complete
-              ? '已保存'
-              : running
-              ? '正在下载'
-              : transfer?.error != null
-              ? '下载失败，点击重试'
-              : online
-              ? '点击下载原文件'
-              : '设备离线，点击查看详情'}',
+      label: l10n.mediaSemantics(
+        item.name,
+        deviceName,
+        complete
+            ? l10n.mediaStateSaved
+            : running
+            ? l10n.mediaStateDownloading
+            : transfer?.error != null
+            ? l10n.mediaStateFailed
+            : online
+            ? l10n.mediaStateTapToDownload
+            : l10n.mediaStateOffline,
+      ),
       button: true,
       selected: selecting ? selected : null,
       enabled: !selecting || (complete && selectionEnabled),
@@ -2199,13 +2341,13 @@ class _MediaCard extends StatelessWidget {
                 top: detailed ? 8 : 4,
                 left: detailed ? 8 : 4,
                 child: detailed
-                    ? const _ImageBadge(
+                    ? _ImageBadge(
                         icon: Icons.videocam_rounded,
-                        label: '视频',
+                        label: l10n.commonVideo,
                       )
-                    : const _CompactImageBadge(
+                    : _CompactImageBadge(
                         icon: Icons.videocam_rounded,
-                        label: '视频',
+                        label: l10n.commonVideo,
                       ),
               ),
             if (detailed)
@@ -2219,10 +2361,10 @@ class _MediaCard extends StatelessWidget {
                       ? Icons.download_rounded
                       : Icons.cloud_off_rounded,
                   label: complete
-                      ? '已保存'
+                      ? l10n.mediaStateSaved
                       : online
                       ? _formatBytes(item.size)
-                      : '设备离线',
+                      : l10n.mediaDeviceOffline,
                 ),
               ),
             if (!detailed &&
@@ -2238,10 +2380,10 @@ class _MediaCard extends StatelessWidget {
                       ? Icons.error_outline_rounded
                       : Icons.cloud_off_rounded,
                   label: complete
-                      ? '已保存'
+                      ? l10n.mediaStateSaved
                       : transfer?.error != null
-                      ? '下载失败，点击重试'
-                      : '设备离线',
+                      ? l10n.mediaStateFailed
+                      : l10n.mediaDeviceOffline,
                 ),
               ),
             if (running)
@@ -2256,7 +2398,9 @@ class _MediaCard extends StatelessWidget {
                             strokeWidth: 2,
                             color: Colors.white,
                             backgroundColor: Colors.white30,
-                            semanticsLabel: '正在下载 ${item.name}',
+                            semanticsLabel: l10n.mediaDownloadingName(
+                              item.name,
+                            ),
                             semanticsValue:
                                 '${(transfer!.progress * 100).round()}%',
                           ),
@@ -2297,8 +2441,8 @@ class _MediaCard extends StatelessWidget {
                         ? (_) => onSelect()
                         : null,
                     semanticLabel: complete
-                        ? '选择 ${item.name}'
-                        : '${item.name} 尚未保存',
+                        ? l10n.mediaSelectName(item.name)
+                        : l10n.mediaNotSavedName(item.name),
                   ),
                 ),
               ),
@@ -2344,7 +2488,7 @@ class _MediaCard extends StatelessWidget {
             child: selecting
                 ? Center(
                     child: Text(
-                      complete ? '仅删除本地文件' : '尚未保存',
+                      complete ? l10n.mediaDeleteLocalOnly : l10n.mediaNotSaved,
                       style: const TextStyle(fontSize: 12),
                     ),
                   )
@@ -2353,16 +2497,19 @@ class _MediaCard extends StatelessWidget {
                     key: Key('share-${item.key}'),
                     onPressed: onShare,
                     icon: const Icon(Icons.ios_share_rounded, size: 14),
-                    label: const Text('分享', style: TextStyle(fontSize: 12)),
+                    label: Text(
+                      l10n.commonShare,
+                      style: const TextStyle(fontSize: 12),
+                    ),
                   )
                 : transfer?.error != null
                 ? TextButton.icon(
                     key: Key('retry-${item.key}'),
                     onPressed: onDownload,
                     icon: const Icon(Icons.refresh_rounded, size: 14),
-                    label: const Text(
-                      '下载失败 · 重试',
-                      style: TextStyle(fontSize: 11),
+                    label: Text(
+                      l10n.mediaDownloadFailedRetry,
+                      style: const TextStyle(fontSize: 11),
                     ),
                   )
                 : Padding(
@@ -2371,8 +2518,8 @@ class _MediaCard extends StatelessWidget {
                       alignment: Alignment.centerLeft,
                       child: Text(
                         running
-                            ? '正在接收原文件…'
-                            : '${item.modified.month} 月 ${item.modified.day} 日',
+                            ? l10n.mediaReceivingOriginal
+                            : l10n.mediaCardDate(item.modified.toLocal()),
                         style: TextStyle(
                           color: Theme.of(context).colorScheme.onSurfaceVariant,
                           fontSize: 11,
@@ -2387,8 +2534,8 @@ class _MediaCard extends StatelessWidget {
   }
 }
 
-String _formatSuccessfulSync(DateTime? timestamp) {
-  if (timestamp == null) return '尚未成功同步';
+String _formatSuccessfulSync(AppLocalizations l10n, DateTime? timestamp) {
+  if (timestamp == null) return l10n.deviceNeverSynced;
   final local = timestamp.toLocal();
   String twoDigits(int value) => value.toString().padLeft(2, '0');
   return '${local.year.toString().padLeft(4, '0')}-'
@@ -2674,12 +2821,15 @@ class _ErrorNotice extends StatelessWidget {
                     height: 1.5,
                   ),
                 ),
-                TextButton(onPressed: onRetry, child: const Text('重试连接与刷新')),
+                TextButton(
+                  onPressed: onRetry,
+                  child: Text(context.l10n.homeErrorRetry),
+                ),
               ],
             ),
           ),
           IconButton(
-            tooltip: '关闭提示',
+            tooltip: context.l10n.homeErrorDismiss,
             onPressed: onDismiss,
             icon: const Icon(Icons.close_rounded, size: 18),
           ),
@@ -2723,7 +2873,7 @@ class _AutoSyncIntervalDialogState extends State<_AutoSyncIntervalDialog> {
         ? int.tryParse(text)
         : null;
     if (minutes == null || minutes < 1 || minutes > 525600) {
-      setState(() => _error = '请输入 1–525600 之间的整数分钟');
+      setState(() => _error = context.l10n.autoSyncDialogInvalid);
       return;
     }
     setState(() {
@@ -2736,7 +2886,7 @@ class _AutoSyncIntervalDialogState extends State<_AutoSyncIntervalDialog> {
       if (saved) {
         Navigator.of(context).pop();
       } else {
-        setState(() => _error = '同步间隔未能保存，请重试。');
+        setState(() => _error = context.l10n.autoSyncDialogSaveFailed);
       }
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -2747,16 +2897,15 @@ class _AutoSyncIntervalDialogState extends State<_AutoSyncIntervalDialog> {
   Widget build(BuildContext context) => PopScope(
     canPop: !_saving,
     child: AlertDialog(
-      title: const Text('自动同步间隔'),
+      title: Text(context.l10n.settingsAutoSyncInterval),
       content: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              '从最近一次同步尝试开始计时，超过设定分钟数后尝试自动同步。'
-              '手动同步和同步失败都会重新计时。',
-              style: TextStyle(height: 1.5),
+            Text(
+              context.l10n.autoSyncDialogDescription,
+              style: const TextStyle(height: 1.5),
             ),
             const SizedBox(height: 16),
             TextField(
@@ -2767,8 +2916,8 @@ class _AutoSyncIntervalDialogState extends State<_AutoSyncIntervalDialog> {
               keyboardType: TextInputType.number,
               textInputAction: TextInputAction.done,
               decoration: InputDecoration(
-                labelText: '间隔分钟数',
-                helperText: '1–525600 分钟，默认 10 分钟',
+                labelText: context.l10n.autoSyncDialogLabel,
+                helperText: context.l10n.autoSyncDialogHelper,
                 errorText: _error,
               ),
               onSubmitted: (_) => _save(),
@@ -2780,12 +2929,14 @@ class _AutoSyncIntervalDialogState extends State<_AutoSyncIntervalDialog> {
         TextButton(
           key: const Key('auto-sync-interval-cancel'),
           onPressed: _saving ? null : () => Navigator.of(context).pop(),
-          child: const Text('取消'),
+          child: Text(context.l10n.commonCancel),
         ),
         FilledButton(
           key: const Key('auto-sync-interval-save'),
           onPressed: _saving ? null : _save,
-          child: Text(_saving ? '正在保存…' : '保存'),
+          child: Text(
+            _saving ? context.l10n.commonSaving : context.l10n.commonSave,
+          ),
         ),
       ],
     ),
@@ -2801,11 +2952,9 @@ class _SyncApprovalDialog extends StatelessWidget {
   @override
   Widget build(BuildContext context) => AlertDialog(
     key: const Key('sync-approval-dialog'),
-    title: const Text('发现新设备'),
+    title: Text(context.l10n.syncApprovalTitle),
     content: Text(
-      '「${device.name}」（${device.address}）出现在局域网中。是否同步它共享的相册？\n\n'
-      '同步只获取文件信息和缩略图，原文件仍在点开时下载。选择「暂不同步」后，'
-      '可以随时在「设备」页面开启。',
+      context.l10n.syncApprovalMessage(device.name, device.address),
       style: TextStyle(
         color: Theme.of(context).colorScheme.onSurfaceVariant,
         height: 1.5,
@@ -2815,12 +2964,12 @@ class _SyncApprovalDialog extends StatelessWidget {
       TextButton(
         key: const Key('sync-approval-decline'),
         onPressed: () => Navigator.of(context).pop(false),
-        child: const Text('暂不同步'),
+        child: Text(context.l10n.syncApprovalDecline),
       ),
       FilledButton(
         key: const Key('sync-approval-accept'),
         onPressed: () => Navigator.of(context).pop(true),
-        child: const Text('开始同步'),
+        child: Text(context.l10n.syncApprovalAccept),
       ),
     ],
   );
@@ -2833,11 +2982,9 @@ class _ForgetDeviceDialog extends StatelessWidget {
   @override
   Widget build(BuildContext context) => AlertDialog(
     key: const Key('forget-device-dialog'),
-    title: Text('忘记「${device.name}」？'),
+    title: Text(context.l10n.deviceForgetTitle(device.name)),
     content: Text(
-      '将从设备列表移除这台设备，并删除它的离线相册信息、缩略图和未完成的同步进度。\n\n'
-      '已下载到本机的文件和下载任务不受影响，对端的原文件也不会被删除。'
-      '再次在局域网中发现它时，会作为新设备询问是否同步。',
+      context.l10n.deviceForgetMessage,
       style: TextStyle(
         color: Theme.of(context).colorScheme.onSurfaceVariant,
         height: 1.5,
@@ -2847,7 +2994,7 @@ class _ForgetDeviceDialog extends StatelessWidget {
       TextButton(
         key: const Key('forget-device-cancel'),
         onPressed: () => Navigator.of(context).pop(false),
-        child: const Text('取消'),
+        child: Text(context.l10n.commonCancel),
       ),
       FilledButton(
         key: const Key('forget-device-confirm'),
@@ -2856,7 +3003,7 @@ class _ForgetDeviceDialog extends StatelessWidget {
           foregroundColor: Theme.of(context).colorScheme.onError,
         ),
         onPressed: () => Navigator.of(context).pop(true),
-        child: const Text('忘记设备'),
+        child: Text(context.l10n.deviceForget),
       ),
     ],
   );
@@ -2888,13 +3035,13 @@ class _AddressDialogState extends State<_AddressDialog> {
 
   @override
   Widget build(BuildContext context) => AlertDialog(
-    title: const Text('连接另一台设备'),
+    title: Text(context.l10n.connectDialogTitle),
     content: Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          '在对方的「设备」页面找到 IP 地址。',
+          context.l10n.connectDialogHint,
           style: TextStyle(
             color: Theme.of(context).colorScheme.onSurfaceVariant,
             height: 1.5,
@@ -2910,9 +3057,9 @@ class _AddressDialogState extends State<_AddressDialog> {
           enableSuggestions: false,
           textInputAction: TextInputAction.done,
           decoration: InputDecoration(
-            labelText: 'IP 地址与端口',
+            labelText: context.l10n.connectDialogLabel,
             hintText: '192.168.1.20:${LanEndpoint.defaultPort}',
-            errorText: _empty ? '请输入对方的 IP 地址' : null,
+            errorText: _empty ? context.l10n.connectDialogEmpty : null,
           ),
           onSubmitted: (_) => _submit(),
         ),
@@ -2921,12 +3068,12 @@ class _AddressDialogState extends State<_AddressDialog> {
     actions: [
       TextButton(
         onPressed: () => Navigator.of(context).pop(),
-        child: const Text('取消'),
+        child: Text(context.l10n.commonCancel),
       ),
       FilledButton(
         key: const Key('confirm-connect'),
         onPressed: _submit,
-        child: const Text('连接'),
+        child: Text(context.l10n.commonConnect),
       ),
     ],
   );
@@ -2957,7 +3104,7 @@ class _DeviceQrDialogState extends State<_DeviceQrDialog> {
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(
-              '另一台设备打开玉响扫一扫',
+              context.l10n.qrDialogHint,
               style: TextStyle(
                 fontSize: 13,
                 color: Theme.of(context).colorScheme.onSurfaceVariant,
@@ -2965,7 +3112,7 @@ class _DeviceQrDialogState extends State<_DeviceQrDialog> {
             ),
             const SizedBox(height: 16),
             Semantics(
-              label: '本机连接二维码，地址 $_address，端口 ${widget.port}',
+              label: context.l10n.qrSemantics(_address, widget.port),
               child: QrImageView(
                 data: Uri(
                   scheme: 'tamayura',
@@ -3009,7 +3156,7 @@ class _DeviceQrDialogState extends State<_DeviceQrDialog> {
     actions: [
       TextButton(
         onPressed: () => Navigator.of(context).pop(),
-        child: const Text('完成'),
+        child: Text(context.l10n.commonDone),
       ),
     ],
   );
@@ -3023,14 +3170,14 @@ class _ScannerPage extends StatefulWidget {
 
 class _ScannerPageState extends State<_ScannerPage> {
   bool _handled = false;
-  String? _message;
+  bool _invalidCode = false;
   @override
   Widget build(BuildContext context) => Theme(
     data: AppTheme.dark,
     child: AnnotatedRegion<SystemUiOverlayStyle>(
       value: AppTheme.dark.appBarTheme.systemOverlayStyle!,
       child: Scaffold(
-        appBar: AppBar(title: const Text('扫描设备二维码')),
+        appBar: AppBar(title: Text(context.l10n.scannerTitle)),
         body: Column(
           children: [
             Expanded(
@@ -3042,11 +3189,7 @@ class _ScannerPageState extends State<_ScannerPage> {
                     if (value == null) continue;
                     final uri = Uri.tryParse(value);
                     if (uri?.scheme != 'tamayura' || uri!.host.isEmpty) {
-                      if (_message == null) {
-                        setState(
-                          () => _message = '这不是玉响的设备二维码，请扫描对方「设备」页面的二维码。',
-                        );
-                      }
+                      if (!_invalidCode) setState(() => _invalidCode = true);
                       continue;
                     }
                     _handled = true;
@@ -3066,15 +3209,18 @@ class _ScannerPageState extends State<_ScannerPage> {
                           size: 40,
                         ),
                         const SizedBox(height: 16),
-                        const Text(
-                          '无法打开相机。请在系统设置中允许相机权限，或返回后输入 IP 连接。',
+                        Text(
+                          context.l10n.scannerCameraUnavailable,
                           textAlign: TextAlign.center,
-                          style: TextStyle(color: Colors.white, height: 1.6),
+                          style: const TextStyle(
+                            color: Colors.white,
+                            height: 1.6,
+                          ),
                         ),
                         const SizedBox(height: 16),
                         FilledButton(
                           onPressed: () => Navigator.of(context).pop(),
-                          child: const Text('返回设备页面'),
+                          child: Text(context.l10n.scannerBack),
                         ),
                       ],
                     ),
@@ -3087,7 +3233,9 @@ class _ScannerPageState extends State<_ScannerPage> {
               child: SafeArea(
                 top: false,
                 child: Text(
-                  _message ?? '将对方的设备二维码放入镜头中\n双方需要连接同一个局域网',
+                  _invalidCode
+                      ? context.l10n.scannerInvalidCode
+                      : context.l10n.scannerHint,
                   textAlign: TextAlign.center,
                   style: const TextStyle(color: Colors.white, height: 1.6),
                 ),

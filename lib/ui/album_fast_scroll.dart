@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../app/view_state.dart';
+import '../l10n/app_locale.dart';
 import 'album_scroll_geometry.dart';
 
 /// An overlay for a single, uniformly laid out album grid. Geometry comes from
@@ -60,8 +61,14 @@ class _AlbumFastScrollState extends State<AlbumFastScroll> {
   void initState() {
     super.initState();
     widget.controller.addListener(_scheduleUpdate);
-    _rebuildSections();
     _scheduleUpdate();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Month section labels follow the interface language.
+    _rebuildSections();
   }
 
   @override
@@ -91,7 +98,7 @@ class _AlbumFastScrollState extends State<AlbumFastScroll> {
     for (var i = 0; i < widget.entries.length; i++) {
       final entry = widget.entries[i];
       final label = _byDate
-          ? albumMonthLabel(entry.modified)
+          ? albumMonthLabel(context.l10n, entry.modified)
           : albumNameInitial(entry.name);
       if (label != previous) _sections.add((i, label));
       previous = label;
@@ -310,7 +317,7 @@ class _AlbumFastScrollState extends State<AlbumFastScroll> {
     final label = entry == null
         ? ''
         : _byDate
-        ? albumMonthLabel(entry.modified)
+        ? albumMonthLabel(context.l10n, entry.modified)
         : albumNameInitial(entry.name);
     return NotificationListener<ScrollMetricsNotification>(
       onNotification: (_) {
@@ -342,7 +349,7 @@ class _AlbumFastScrollState extends State<AlbumFastScroll> {
                               child: _pill(
                                 context,
                                 Text(
-                                  albumDateLabel(entry.modified),
+                                  albumDateLabel(context.l10n, entry.modified),
                                   key: const Key('album-fast-scroll-date'),
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
@@ -452,7 +459,9 @@ class _AlbumFastScrollState extends State<AlbumFastScroll> {
                                   width: 48,
                                   height: _thumbHeight,
                                   child: Semantics(
-                                    label: '快速滚动相册，$label',
+                                    label: context.l10n.albumFastScrollLabel(
+                                      label,
+                                    ),
                                     onIncrease: () => _step(1),
                                     onDecrease: () => _step(-1),
                                     child: GestureDetector(

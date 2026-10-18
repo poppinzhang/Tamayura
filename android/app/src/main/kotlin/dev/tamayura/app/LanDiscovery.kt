@@ -10,7 +10,7 @@ import io.flutter.plugin.common.EventChannel
 import java.util.IdentityHashMap
 
 /** Android 16 NSD with continuously updated service information. */
-internal class LanDiscovery(context: Context) : EventChannel.StreamHandler {
+internal class LanDiscovery(private val context: Context) : EventChannel.StreamHandler {
     private val manager = context.getSystemService(NsdManager::class.java)
     private val executor = context.mainExecutor
     private val main = Handler(Looper.getMainLooper())
@@ -33,8 +33,8 @@ internal class LanDiscovery(context: Context) : EventChannel.StreamHandler {
     override fun onCancel(arguments: Any?) { sink = null }
 
     fun start(id: String, name: String, port: Int) {
-        require(port in 1..65535) { "无效的服务端口" }
-        require(id.matches(Regex("[A-Za-z0-9_-]{1,128}"))) { "无效的设备 ID" }
+        require(port in 1..65535) { AppText.get(context, R.string.error_invalid_port) }
+        require(id.matches(Regex("[A-Za-z0-9_-]{1,128}"))) { AppText.get(context, R.string.error_invalid_device_id) }
         stop()
         selfId = id
         val current = epoch
@@ -159,7 +159,7 @@ internal class LanDiscovery(context: Context) : EventChannel.StreamHandler {
 
     private fun error(stage: String, code: Int, detail: String? = null) {
         sink?.success(mapOf("type" to "error", "stage" to stage, "code" to code,
-            "message" to (detail ?: "局域网发现失败 ($stage: $code)，可使用手动连接")))
+            "message" to (detail ?: AppText.get(context, R.string.discovery_failed, stage, code))))
     }
 
     private fun utf8Prefix(value: String, maxBytes: Int): String {

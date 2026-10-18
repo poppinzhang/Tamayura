@@ -5,8 +5,25 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../app/app_info.dart';
+import '../l10n/app_locale.dart';
 import '../update/update_platform.dart';
 import '../update/update_service.dart';
+
+/// Progress shown on the page, rendered in the current interface language.
+enum _UpdateStatus {
+  checking,
+  upToDate,
+  available,
+  openedDownloadPage,
+  downloading,
+  verifying,
+  preparing,
+  exiting,
+  handedToSystem,
+  downloadCancelled,
+  installed,
+  pendingUserAction,
+}
 
 class UpdatePage extends StatefulWidget {
   const UpdatePage({
@@ -39,7 +56,7 @@ class _UpdatePageState extends State<UpdatePage> with WidgetsBindingObserver {
   bool _exiting = false;
   bool _confirming = false;
   bool _readingStatus = false;
-  String _message = '正在检查更新…';
+  _UpdateStatus _status = _UpdateStatus.checking;
   String? _error;
   int _received = 0, _total = 0;
 
@@ -69,9 +86,9 @@ class _UpdatePageState extends State<UpdatePage> with WidgetsBindingObserver {
   String _describe(Object error) {
     if (error is UpdateException) return error.message;
     if (error is PlatformException) {
-      return error.message ?? '系统无法完成更新，请重试';
+      return error.message ?? context.l10n.updateSystemFailed;
     }
-    return '更新操作失败，请检查网络、磁盘空间及安装权限后重试';
+    return context.l10n.updateFailed;
   }
 
   Future<void> _check() async {
@@ -81,7 +98,7 @@ class _UpdatePageState extends State<UpdatePage> with WidgetsBindingObserver {
     setState(() {
       _busy = true;
       _error = null;
-      _message = '正在检查更新…';
+      _status = _UpdateStatus.checking;
       _release = null;
       _downloaded = null;
     });
@@ -99,7 +116,9 @@ class _UpdatePageState extends State<UpdatePage> with WidgetsBindingObserver {
       setState(() {
         _current = current;
         _release = release;
-        _message = release == null ? '已是最新版本' : '发现新版本 ${release.version}';
+        _status = release == null
+            ? _UpdateStatus.upToDate
+            : _UpdateStatus.available;
       });
     } catch (error) {
       if (mounted) setState(() => _error = _describe(error));
@@ -118,26 +137,29 @@ class _UpdatePageState extends State<UpdatePage> with WidgetsBindingObserver {
     final accepted = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text('更新至 ${release.version}？'),
+        title: Text(context.l10n.updateConfirmTitle(release.version)),
         content: SingleChildScrollView(
           child: Text(
             manual
-                ? '将打开此版本的 GitHub Release 页面，请下载 macOS 安装包并手动完成升级。'
-                : '确认后下载并校验安装包，完成后自动发起安装。更新会中断共享和传输，未完成的下载可在重新打开后重试。'
-                      '\n\nv1.0.0 前不保证旧数据或跨版本互联兼容，请阅读更新说明；必要时需重新选择目录并连接设备。'
-                      '${widget.platform.target == UpdateTarget.android ? '\n\nAndroid 可能要求允许安装此来源的应用，并在系统界面确认。' : '\n\nWindows 将退出并重新启动玉响。'}',
+                ? context.l10n.updateConfirmMac
+                : '${context.l10n.updateConfirmAutomatic}\n\n'
+                      '${widget.platform.target == UpdateTarget.android ? context.l10n.updateConfirmAndroid : context.l10n.updateConfirmWindows}',
           ),
         ),
         actions: [
           TextButton(
             key: const Key('update-decline'),
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('暂不更新'),
+            child: Text(context.l10n.updateDecline),
           ),
           FilledButton(
             key: const Key('update-confirm'),
             onPressed: () => Navigator.pop(context, true),
-            child: Text(manual ? '打开下载页面' : '下载并安装'),
+            child: Text(
+              manual
+                  ? context.l10n.updateOpenDownloadPage
+                  : context.l10n.updateDownloadAndInstall,
+            ),
           ),
         ],
       ),
@@ -157,13 +179,15 @@ class _UpdatePageState extends State<UpdatePage> with WidgetsBindingObserver {
     try {
       if (widget.platform.target == UpdateTarget.macos) {
         await widget.platform.openRelease(release.pageUrl);
-        if (mounted) setState(() => _message = '已打开此版本的下载页面，请手动完成升级');
+        if (mounted) {
+          setState(() => _status = _UpdateStatus.openedDownloadPage);
+        }
         return;
       }
       if (_downloaded == null) {
         final cancellation = UpdateCancellation();
         _cancellation = cancellation;
-        setState(() => _message = '正在下载安装包…');
+        setState(() => _status = _UpdateStatus.downloading);
         final directory = await widget.platform.directory();
         if (!mounted) return;
         _downloaded = await _service.download(
@@ -175,7 +199,7 @@ class _UpdatePageState extends State<UpdatePage> with WidgetsBindingObserver {
             setState(() {
               _received = received;
               _total = total;
-              if (received == total) _message = '正在校验安装包…';
+              if (received == total) _status = _UpdateStatus.verifying;
             });
           },
         );
@@ -184,19 +208,19 @@ class _UpdatePageState extends State<UpdatePage> with WidgetsBindingObserver {
       if (!mounted) return;
       setState(() {
         _installing = true;
-        _message = '正在准备安装…';
+        _status = _UpdateStatus.preparing;
       });
       final result = await widget.platform.install(_downloaded!, release);
       if (!mounted) return;
       if (result == 'readyToExit') {
         setState(() {
           _exiting = true;
-          _message = '正在结束传输，安装后将重新打开玉响…';
+          _status = _UpdateStatus.exiting;
         });
         await widget.shutdown();
         await widget.platform.exitForUpdate();
       } else {
-        setState(() => _message = '已交给系统安装，请完成系统提示');
+        setState(() => _status = _UpdateStatus.handedToSystem);
         _statusTimer?.cancel();
         _statusTimer = Timer.periodic(
           const Duration(seconds: 2),
@@ -204,7 +228,7 @@ class _UpdatePageState extends State<UpdatePage> with WidgetsBindingObserver {
         );
       }
     } on UpdateCancelledException {
-      if (mounted) setState(() => _message = '已取消下载');
+      if (mounted) setState(() => _status = _UpdateStatus.downloadCancelled);
     } catch (error) {
       if (mounted) setState(() => _error = _describe(error));
     } finally {
@@ -228,13 +252,17 @@ class _UpdatePageState extends State<UpdatePage> with WidgetsBindingObserver {
       if (state == 'failed' || state == 'permissionRequired') {
         _statusTimer?.cancel();
         _statusTimer = null;
-        setState(() => _error = status['message'] as String? ?? '安装未完成，请重试');
+        setState(
+          () => _error =
+              status['message'] as String? ??
+              context.l10n.updateInstallIncomplete,
+        );
       } else if (state == 'succeeded') {
         _statusTimer?.cancel();
         _statusTimer = null;
-        setState(() => _message = '安装完成，请重新打开玉响');
+        setState(() => _status = _UpdateStatus.installed);
       } else if (state == 'pendingUserAction') {
-        setState(() => _message = '请在系统安装界面确认更新');
+        setState(() => _status = _UpdateStatus.pendingUserAction);
       }
     } catch (error) {
       _statusTimer?.cancel();
@@ -260,21 +288,41 @@ class _UpdatePageState extends State<UpdatePage> with WidgetsBindingObserver {
     }
   }
 
+  String _statusText(AppLocalizations l10n) => switch (_status) {
+    _UpdateStatus.checking => l10n.updateChecking,
+    _UpdateStatus.upToDate => l10n.updateUpToDate,
+    _UpdateStatus.available => l10n.updateAvailable(_release?.version ?? ''),
+    _UpdateStatus.openedDownloadPage => l10n.updateOpenedDownloadPage,
+    _UpdateStatus.downloading => l10n.updateDownloading,
+    _UpdateStatus.verifying => l10n.updateVerifying,
+    _UpdateStatus.preparing => l10n.updatePreparing,
+    _UpdateStatus.exiting => l10n.updateExiting,
+    _UpdateStatus.handedToSystem => l10n.updateHandedToSystem,
+    _UpdateStatus.downloadCancelled => l10n.updateDownloadCancelled,
+    _UpdateStatus.installed => l10n.updateInstalled,
+    _UpdateStatus.pendingUserAction => l10n.updatePendingUserAction,
+  };
+
   @override
   Widget build(BuildContext context) => PopScope(
     canPop: !_installing && !_exiting,
     child: Scaffold(
-      appBar: AppBar(title: const Text('检查更新')),
+      appBar: AppBar(title: Text(context.l10n.updateTitle)),
       body: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 760),
           child: ListView(
             padding: const EdgeInsets.all(24),
             children: [
-              if (_current != null) Text('当前版本 ${_current!.displayVersion}'),
+              if (_current != null)
+                Text(
+                  context.l10n.updateCurrentVersion(_current!.displayVersion),
+                ),
               const SizedBox(height: 12),
               Text(
-                _error == null ? _message : '更新未完成',
+                _error == null
+                    ? _statusText(context.l10n)
+                    : context.l10n.updateIncomplete,
                 key: const Key('update-status'),
                 style: Theme.of(context).textTheme.titleLarge,
               ),
@@ -297,13 +345,13 @@ class _UpdatePageState extends State<UpdatePage> with WidgetsBindingObserver {
                   TextButton(
                     key: const Key('update-cancel-download'),
                     onPressed: () => _cancellation?.cancel(),
-                    child: const Text('取消下载'),
+                    child: Text(context.l10n.updateCancelDownload),
                   ),
               ],
               if (_error != null)
                 Text(
                   _exiting
-                      ? '$_error\n应用已停止共享和传输，可重试完成安装；如仍失败，请从系统托盘选择「退出玉响」后重新打开。'
+                      ? '$_error\n${context.l10n.updateExitFailedHint}'
                       : _error!,
                   key: const Key('update-error'),
                   style: TextStyle(color: Theme.of(context).colorScheme.error),
@@ -321,10 +369,10 @@ class _UpdatePageState extends State<UpdatePage> with WidgetsBindingObserver {
                           : _confirm,
                       child: Text(
                         widget.platform.target == UpdateTarget.macos
-                            ? '打开下载页面'
+                            ? context.l10n.updateOpenDownloadPage
                             : _downloaded != null
-                            ? '重试安装'
-                            : '下载并安装',
+                            ? context.l10n.updateRetryInstall
+                            : context.l10n.updateDownloadAndInstall,
                       ),
                     ),
                   OutlinedButton.icon(
@@ -333,24 +381,29 @@ class _UpdatePageState extends State<UpdatePage> with WidgetsBindingObserver {
                         ? null
                         : _check,
                     icon: const Icon(Icons.refresh_rounded),
-                    label: const Text('重新检查'),
+                    label: Text(context.l10n.updateCheckAgain),
                   ),
                   if (_exiting && _error != null)
                     FilledButton(
                       key: const Key('update-retry-exit'),
                       onPressed: _retryExit,
-                      child: const Text('完成退出并安装'),
+                      child: Text(context.l10n.updateFinishExit),
                     ),
                 ],
               ),
               const SizedBox(height: 24),
-              const Text('从 GitHub 获取已公开版本（包括预发布），需要互联网连接。'),
+              Text(context.l10n.updateSourceNote),
               if (_release != null) ...[
                 const SizedBox(height: 24),
-                Text('更新说明', style: Theme.of(context).textTheme.titleMedium),
+                Text(
+                  context.l10n.updateReleaseNotes,
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
                 const SizedBox(height: 12),
                 SelectableText(
-                  _release!.notes.isEmpty ? '此版本未提供更新说明。' : _release!.notes,
+                  _release!.notes.isEmpty
+                      ? context.l10n.updateNoReleaseNotes
+                      : _release!.notes,
                   key: const Key('update-release-notes'),
                 ),
               ],

@@ -68,6 +68,9 @@ final class DesktopWindowResidence {
 final class DesktopStatusItem: NSObject, NSWindowDelegate {
   private let residence: DesktopWindowResidence
   private var statusItem: NSStatusItem?
+  private var openItem: NSMenuItem?
+  private var quitItem: NSMenuItem?
+  private var languageObserver: NSObjectProtocol?
 
   init(window: NSWindow) {
     residence = DesktopWindowResidence(window: window) {
@@ -78,25 +81,38 @@ final class DesktopStatusItem: NSObject, NSWindowDelegate {
     window.delegate = self
 
     let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-    let image = NSImage(systemSymbolName: "photo.stack", accessibilityDescription: "玉响")
+    let image = NSImage(systemSymbolName: "photo.stack", accessibilityDescription: nil)
     image?.isTemplate = true
     item.button?.image = image
-    if image == nil { item.button?.title = "玉" }
-    item.button?.toolTip = "玉响 · 关闭窗口后继续在后台运行"
-    item.button?.setAccessibilityLabel("玉响")
 
     let menu = NSMenu()
-    let openItem = NSMenuItem(title: "打开玉响", action: #selector(showWindow), keyEquivalent: "")
+    let openItem = NSMenuItem(title: "", action: #selector(showWindow), keyEquivalent: "")
     openItem.target = self
     menu.addItem(openItem)
     menu.addItem(.separator())
     // Use the standard application termination path, as the main menu/Cmd+Q
     // already do. Window close interception does not intercept termination.
-    let quitItem = NSMenuItem(title: "退出玉响", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+    let quitItem = NSMenuItem(title: "", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
     quitItem.target = NSApp
     menu.addItem(quitItem)
     item.menu = menu
     statusItem = item
+    self.openItem = openItem
+    self.quitItem = quitItem
+    updateText()
+    languageObserver = NotificationCenter.default.addObserver(
+      forName: AppText.didChange, object: nil, queue: .main
+    ) { [weak self] _ in MainActor.assumeIsolated { self?.updateText() } }
+  }
+
+  /// Follow the interface language chosen in the app.
+  func updateText() {
+    guard let button = statusItem?.button else { return }
+    if button.image == nil { button.title = AppText.text(.statusTitle) }
+    button.toolTip = AppText.text(.statusTooltip)
+    button.setAccessibilityLabel(AppText.text(.appName))
+    openItem?.title = AppText.text(.openApp)
+    quitItem?.title = AppText.text(.quitApp)
   }
 
   @objc func showWindow() { residence.showWindow() }
@@ -115,6 +131,8 @@ final class DesktopStatusItem: NSObject, NSWindowDelegate {
   }
 
   func removeStatusItem() {
+    if let languageObserver { NotificationCenter.default.removeObserver(languageObserver) }
+    languageObserver = nil
     if let statusItem { NSStatusBar.system.removeStatusItem(statusItem) }
     statusItem = nil
   }

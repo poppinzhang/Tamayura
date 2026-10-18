@@ -63,6 +63,17 @@ class WindowsSourceTests(unittest.TestCase):
             names = {name.split("/", 1)[1] for name in bundle.namelist()}
             self.assertTrue(set(required).issubset(names))
 
+    def test_localization_sources_are_included(self):
+        required = ("l10n.yaml", "lib/l10n/app_zh.arb", "lib/l10n/app_ja.arb", "lib/l10n/app_en.arb",
+                    "lib/l10n/generated/app_localizations.dart", "windows/runner/app_text.cpp",
+                    "windows/runner/app_text.h", "windows/tests/app_text_test.cpp")
+        for name in required:
+            self.write(name, "source\n")
+        archive, _ = PACKAGE.package_source(self.root)
+        with zipfile.ZipFile(archive) as bundle:
+            names = {name.split("/", 1)[1] for name in bundle.namelist()}
+            self.assertTrue(set(required).issubset(names))
+
     def test_symlink_is_rejected(self):
         target = self.write("private.dart", "LOCAL_ONLY\n")
         try:

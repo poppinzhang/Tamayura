@@ -1,0 +1,3 @@
+/* Shown by macOS when Tamayura first asks for each permission. */
+"NSCameraUsageDescription" = "扫描另一台设备的二维码以连接 Tamayura。";
+"NSLocalNetworkUsageDescription" = "Tamayura 需要访问局域网来发现设备、同步媒体目录和传输媒体文件。";

@@ -9,6 +9,9 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  intl: ^0.20.3
   crypto: ^3.0.7
   grpc: ^4.0.4
   protobuf: ^4.1.0
@@ -29,6 +32,7 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  generate: true
   assets:
     - LICENSE
 

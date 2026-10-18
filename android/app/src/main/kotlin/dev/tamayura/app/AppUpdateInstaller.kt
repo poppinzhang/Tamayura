@@ -32,6 +32,8 @@ internal class AppUpdateInstaller private constructor(private val context: Conte
     private var committedSession: Int? = null
     private var cleanupScheduled = false
 
+    private fun text(id: Int): String = AppText.get(context, id)
+
     fun handle(call: MethodCall, result: MethodChannel.Result) {
         try {
             when (call.method) {
@@ -40,7 +42,7 @@ internal class AppUpdateInstaller private constructor(private val context: Conte
                         val path = directory().absolutePath
                         main.post { result.success(path) }
                     } catch (_: Exception) {
-                        main.post { result.error("UPDATE_STORAGE_FAILED", "无法创建更新下载目录", null) }
+                        main.post { result.error("UPDATE_STORAGE_FAILED", text(R.string.update_error_storage_directory), null) }
                     }
                 }
                 "updateStatus" -> result.success(status())
@@ -48,9 +50,9 @@ internal class AppUpdateInstaller private constructor(private val context: Conte
                 else -> result.notImplemented()
             }
         } catch (error: UpdateException) {
-            result.error(error.code, error.message, null)
+            result.error(error.code, AppText.message(context, error), null)
         } catch (_: Exception) {
-            result.error("UPDATE_FAILED", "无法读取或启动更新安装，请重试", null)
+            result.error("UPDATE_FAILED", text(R.string.update_error_failed), null)
         }
     }
 
@@ -68,7 +70,7 @@ internal class AppUpdateInstaller private constructor(private val context: Conte
         val directory = File(context.cacheDir, "app-updates")
         if ((!directory.exists() && !directory.mkdirs()) ||
             !Files.isDirectory(directory.toPath(), LinkOption.NOFOLLOW_LINKS)) {
-            throw UpdateException("UPDATE_STORAGE_FAILED", "无法创建更新下载目录")
+            throw UpdateException("UPDATE_STORAGE_FAILED", R.string.update_error_storage_directory)
         }
         return directory.canonicalFile
     }
@@ -77,7 +79,7 @@ internal class AppUpdateInstaller private constructor(private val context: Conte
         val file = File(request.path)
         if (!validSourceLocation(file) || !Files.isRegularFile(file.toPath(), LinkOption.NOFOLLOW_LINKS) ||
             file.length() <= 0 || file.extension.lowercase() != "apk") {
-            throw UpdateException("UPDATE_INVALID_PACKAGE", "更新文件无效，请重新下载")
+            throw UpdateException("UPDATE_INVALID_PACKAGE", R.string.update_error_invalid_file)
         }
         val digest = MessageDigest.getInstance("SHA-256")
         file.inputStream().use { input ->
@@ -89,13 +91,13 @@ internal class AppUpdateInstaller private constructor(private val context: Conte
             }
         }
         if (digest.digest().hex() != request.sha256) {
-            throw UpdateException("UPDATE_CHECKSUM_MISMATCH", "更新文件校验失败，请重新下载")
+            throw UpdateException("UPDATE_CHECKSUM_MISMATCH", R.string.update_error_checksum)
         }
         val flags = PackageManager.PackageInfoFlags.of(PackageManager.GET_SIGNING_CERTIFICATES.toLong())
         @Suppress("DEPRECATION")
         val archive = context.packageManager.getPackageArchiveInfo(file.absolutePath,
             PackageManager.GET_SIGNING_CERTIFICATES)
-            ?: throw UpdateException("UPDATE_INVALID_PACKAGE", "无法识别更新安装包")
+            ?: throw UpdateException("UPDATE_INVALID_PACKAGE", R.string.update_error_unrecognized)
         val installed = context.packageManager.getPackageInfo(context.packageName, flags)
         validateIdentity(request, archive, installed)
         return file
@@ -115,7 +117,7 @@ internal class AppUpdateInstaller private constructor(private val context: Conte
     private fun install(request: Request, result: MethodChannel.Result) {
         val state = status()["state"]
         if (preparing || state == "started" || state == "pendingUserAction") {
-            throw UpdateException("UPDATE_IN_PROGRESS", "正在处理安装，请先完成系统安装操作")
+            throw UpdateException("UPDATE_IN_PROGRESS", R.string.update_error_in_progress)
         }
         requireForeground()
         preparing = true
@@ -133,11 +135,11 @@ internal class AppUpdateInstaller private constructor(private val context: Conte
         try {
             val activity = requireForeground()
             if (!context.packageManager.canRequestPackageInstalls()) {
-                setState("permissionRequired", "请允许安装此来源的应用，返回后重试安装")
+                setState("permissionRequired", text(R.string.update_permission_required))
                 activity.startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
                     Uri.parse("package:${context.packageName}")))
                 preparing = false
-                result.error("UPDATE_PERMISSION_REQUIRED", "请允许安装此来源的应用，返回后重试安装", null)
+                result.error("UPDATE_PERMISSION_REQUIRED", text(R.string.update_permission_required), null)
                 return
             }
             worker.execute {
@@ -165,7 +167,7 @@ internal class AppUpdateInstaller private constructor(private val context: Conte
                                 }
                             }
                             if (digest.digest().hex() != request.sha256) {
-                                throw UpdateException("UPDATE_CHECKSUM_MISMATCH", "更新文件已变化，请重新下载")
+                                throw UpdateException("UPDATE_CHECKSUM_MISMATCH", R.string.update_error_file_changed)
                             }
                             session.fsync(output)
                         }
@@ -191,7 +193,7 @@ internal class AppUpdateInstaller private constructor(private val context: Conte
                     .putLong("buildNumber", request.buildNumber).putString("version", request.version)
                     .putString("sourcePath", request.path)
                     .putString("state", "started").commit()) {
-                throw UpdateException("UPDATE_STORAGE_FAILED", "无法保存更新安装状态，请重试")
+                throw UpdateException("UPDATE_STORAGE_FAILED", R.string.update_error_state_storage)
             }
             installer.openSession(sessionId).use { it.commit(callback.intentSender) }
             committedSession = sessionId
@@ -215,19 +217,19 @@ internal class AppUpdateInstaller private constructor(private val context: Conte
                 confirmationLaunched = false
                 if (pendingAction == null) {
                     abandon(preferences.getInt("sessionId", -1))
-                    setState("failed", "系统没有提供安装确认页面，请重试")
+                    setState("failed", text(R.string.update_error_no_confirmation))
                 } else {
-                    setState("pendingUserAction", "请在系统安装页面确认更新")
+                    setState("pendingUserAction", text(R.string.update_pending_user_action))
                     launchPendingAction()
                 }
             }
-            PackageInstaller.STATUS_SUCCESS -> setState("succeeded", "更新已安装，请重新打开应用")
-            PackageInstaller.STATUS_FAILURE_ABORTED -> setState("failed", "已取消安装，可重试更新")
-            PackageInstaller.STATUS_FAILURE_STORAGE -> setState("failed", "安装空间不足，请释放空间后重试")
-            PackageInstaller.STATUS_FAILURE_CONFLICT -> setState("failed", "安装签名或版本冲突，无法覆盖安装")
-            PackageInstaller.STATUS_FAILURE_INCOMPATIBLE -> setState("failed", "此安装包不支持当前设备")
-            PackageInstaller.STATUS_FAILURE_BLOCKED -> setState("failed", "系统阻止了安装，请检查安装授权后重试")
-            else -> setState("failed", "系统未能安装更新，请重试")
+            PackageInstaller.STATUS_SUCCESS -> setState("succeeded", text(R.string.update_installed_reopen))
+            PackageInstaller.STATUS_FAILURE_ABORTED -> setState("failed", text(R.string.update_install_aborted))
+            PackageInstaller.STATUS_FAILURE_STORAGE -> setState("failed", text(R.string.update_install_storage))
+            PackageInstaller.STATUS_FAILURE_CONFLICT -> setState("failed", text(R.string.update_install_conflict))
+            PackageInstaller.STATUS_FAILURE_INCOMPATIBLE -> setState("failed", text(R.string.update_install_incompatible))
+            PackageInstaller.STATUS_FAILURE_BLOCKED -> setState("failed", text(R.string.update_install_blocked))
+            else -> setState("failed", text(R.string.update_install_failed))
         }
         if (preferences.getString("state", null) == "failed") {
             abandon(preferences.getInt("sessionId", -1))
@@ -244,7 +246,7 @@ internal class AppUpdateInstaller private constructor(private val context: Conte
         } catch (_: Exception) {
             pendingAction = null
             abandon(preferences.getInt("sessionId", -1))
-            setState("failed", "无法打开系统安装确认页面，请重试")
+            setState("failed", text(R.string.update_error_confirmation_launch))
         }
     }
 
@@ -257,15 +259,15 @@ internal class AppUpdateInstaller private constructor(private val context: Conte
             val sessionId = preferences.getInt("sessionId", -1)
             val session = installer.getSessionInfo(sessionId)
             if (installed >= expected) {
-                setState("succeeded", "更新已安装")
+                setState("succeeded", text(R.string.update_installed))
             } else if (session == null) {
-                setState("failed", "安装已中断，请重试")
+                setState("failed", text(R.string.update_install_interrupted))
             } else if (!session.isSealed && committedSession != sessionId) {
                 abandon(sessionId)
-                setState("failed", "安装准备已中断，请重试")
+                setState("failed", text(R.string.update_preparation_interrupted))
             } else if (state == "pendingUserAction" && pendingAction == null && !confirmationLaunched) {
                 abandon(preferences.getInt("sessionId", -1))
-                setState("failed", "安装确认已中断，请重试")
+                setState("failed", text(R.string.update_confirmation_interrupted))
             }
         }
         cleanupSuccessfulSource()
@@ -276,7 +278,7 @@ internal class AppUpdateInstaller private constructor(private val context: Conte
     }
 
     private fun requireForeground(): Activity = foreground?.takeUnless { it.isFinishing || it.isDestroyed }
-        ?: throw UpdateException("UPDATE_ACTIVITY_UNAVAILABLE", "请返回应用页面后重试安装")
+        ?: throw UpdateException("UPDATE_ACTIVITY_UNAVAILABLE", R.string.update_error_activity_unavailable)
 
     private fun setState(state: String, message: String) {
         if (state != "pendingUserAction") {
@@ -310,7 +312,7 @@ internal class AppUpdateInstaller private constructor(private val context: Conte
     private fun fail(result: MethodChannel.Result, error: Exception) {
         preparing = false
         val known = error as? UpdateException
-        val message = known?.message ?: "无法准备或启动更新安装，请重试"
+        val message = known?.let { AppText.message(context, it) } ?: text(R.string.update_error_prepare)
         setState("failed", message)
         result.error(known?.code ?: "UPDATE_FAILED", message, null)
     }
@@ -328,7 +330,7 @@ internal class AppUpdateInstaller private constructor(private val context: Conte
                 val buildNumber = call.argument<Number>("buildNumber")?.toLong()
                 if (path.isNullOrBlank() || sha256 == null || !sha256.matches(Regex("[a-f0-9]{64}")) ||
                     version.isNullOrBlank() || buildNumber == null || buildNumber <= 0) {
-                    throw UpdateException("UPDATE_INVALID_ARGUMENT", "更新安装参数无效")
+                    throw UpdateException("UPDATE_INVALID_ARGUMENT", R.string.update_error_invalid_argument)
                 }
                 return Request(path, sha256, version, buildNumber)
             }
@@ -347,16 +349,16 @@ internal class AppUpdateInstaller private constructor(private val context: Conte
 
         fun validateIdentity(request: Request, archive: PackageInfo, installed: PackageInfo) {
             if (archive.packageName != installed.packageName) {
-                throw UpdateException("UPDATE_INVALID_PACKAGE", "更新安装包不属于此应用")
+                throw UpdateException("UPDATE_INVALID_PACKAGE", R.string.update_error_wrong_package)
             }
             if (archive.versionName != request.version || archive.longVersionCode != request.buildNumber ||
                 archive.longVersionCode <= installed.longVersionCode) {
-                throw UpdateException("UPDATE_VERSION_MISMATCH", "更新安装包版本不匹配或未高于当前版本")
+                throw UpdateException("UPDATE_VERSION_MISMATCH", R.string.update_error_version)
             }
             val expected = installed.signingInfo?.apkContentsSigners?.map { it.toCharsString() }?.toSet()
             val actual = archive.signingInfo?.apkContentsSigners?.map { it.toCharsString() }?.toSet()
             if (expected.isNullOrEmpty() || actual.isNullOrEmpty() || expected != actual) {
-                throw UpdateException("UPDATE_SIGNATURE_MISMATCH", "安装包签名与当前应用不同，不能覆盖安装")
+                throw UpdateException("UPDATE_SIGNATURE_MISMATCH", R.string.update_error_signature)
             }
         }
 
@@ -364,7 +366,8 @@ internal class AppUpdateInstaller private constructor(private val context: Conte
     }
 }
 
-internal class UpdateException(val code: String, message: String) : Exception(message)
+/** The code is reported to Dart; the text is resolved in the interface language. */
+internal class UpdateException(val code: String, override val textId: Int) : Exception(code), LocalizedText
 
 class AppUpdateResultReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {

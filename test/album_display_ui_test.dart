@@ -255,7 +255,7 @@ void main() {
       expect(fifth.top - first.bottom, closeTo(2, .01));
       expect(_gridText('photo-1.jpg'), findsNothing);
       expect(_gridText('来源设备'), findsNothing);
-      expect(_gridText('10 月 17 日'), findsNothing);
+      expect(_gridText('10月17日'), findsNothing);
       for (final id in [1, 2]) {
         final thumbnail = tester.widget<Image>(
           find.byKey(ValueKey('cached-album-image-peer/$id')),
@@ -304,7 +304,7 @@ void main() {
       expect(_gridLayout(tester).crossAxisSpacing, 12);
       expect(_gridText('photo-1.jpg'), findsOneWidget);
       expect(_gridText('来源设备'), findsWidgets);
-      expect(_gridText('10 月 17 日'), findsWidgets);
+      expect(_gridText('10月17日'), findsWidgets);
 
       await _openDisplaySetting(tester);
       await _tap(tester, 'album-detailed-mode');
@@ -312,7 +312,7 @@ void main() {
       expect(_gridLayout(tester).crossAxisCount, 4);
       expect(_gridText('photo-1.jpg'), findsNothing);
       expect(_gridText('来源设备'), findsNothing);
-      expect(_gridText('10 月 17 日'), findsNothing);
+      expect(_gridText('10月17日'), findsNothing);
       expect(model.displayRequests, [true, false]);
       expect(model.downloads, isEmpty);
       expect(tester.takeException(), isNull);

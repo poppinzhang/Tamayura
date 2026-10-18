@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:tamayura/l10n/app_locale.dart';
 import 'package:tamayura/app/view_state.dart';
 import 'package:tamayura/ui/transfer_widgets.dart';
 
@@ -20,6 +21,9 @@ void main() {
       var pauses = 0, discards = 0;
       await tester.pumpWidget(
         MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          locale: AppLocale.current,
           home: Scaffold(
             body: TransferControls(
               item: item,
@@ -51,6 +55,9 @@ void main() {
       var discards = 0;
       await tester.pumpWidget(
         MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          locale: AppLocale.current,
           home: Scaffold(
             body: TransferControls(
               item: item,

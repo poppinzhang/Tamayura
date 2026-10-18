@@ -1,5 +1,8 @@
 #include "desktop_tray.h"
 
+#include "app_text.h"
+
+#include <cwchar>
 #include <iostream>
 #include <memory>
 #include <stdexcept>
@@ -16,7 +19,9 @@ struct FakeShell {
   int adds = 0;
   int versions = 0;
   int removes = 0;
+  int modifies = 0;
   NOTIFYICONDATAW last_add{};
+  NOTIFYICONDATAW last_modify{};
 };
 
 FakeShell* current_shell = nullptr;
@@ -33,6 +38,10 @@ BOOL WINAPI NotifyIcon(DWORD operation, PNOTIFYICONDATAW data) {
              !current_shell->fail_version;
     case NIM_DELETE:
       ++current_shell->removes;
+      return TRUE;
+    case NIM_MODIFY:
+      ++current_shell->modifies;
+      current_shell->last_modify = *data;
       return TRUE;
     default:
       return TRUE;
@@ -218,6 +227,24 @@ void TestShutdown() {
   }
 }
 
+void TestLanguage() {
+  FakeShell shell;
+  current_shell = &shell;
+  tamayura::app_text::SetPreference("zh");
+  {
+    TestWindow window;
+    Require(std::wcscmp(shell.last_add.szTip, L"玉响 Tamayura") == 0,
+            "the tooltip uses the interface language");
+    tamayura::app_text::SetPreference("en");
+    window.Send(tamayura::kLanguageChangedMessage);
+    Require(shell.modifies == 1 &&
+                (shell.last_modify.uFlags & NIF_TIP) != 0 &&
+                std::wcscmp(shell.last_modify.szTip, L"Tamayura") == 0,
+            "a language change updates the tooltip");
+  }
+  tamayura::app_text::SetPreference("system");
+}
+
 }  // namespace
 
 int main() {
@@ -233,9 +260,10 @@ int main() {
     TestVersionFailure();
     TestExplorerRestart();
     TestShutdown();
+    TestLanguage();
     Require(UnregisterClassW(window_class.lpszClassName, window_class.hInstance),
             "all test windows destroyed");
-    std::cout << "Desktop tray tests passed (6 groups)\n";
+    std::cout << "Desktop tray tests passed (7 groups)\n";
     return 0;
   } catch (const std::exception& error) {
     std::cerr << error.what() << '\n';

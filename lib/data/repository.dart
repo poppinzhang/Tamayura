@@ -6,6 +6,7 @@ import 'package:uuid/uuid.dart';
 
 import '../core/models.dart';
 import '../core/catalog_repository.dart';
+import '../l10n/app_locale.dart';
 import 'platform_database.dart';
 
 class _MediaReadView {
@@ -627,7 +628,7 @@ class TamayuraRepository implements CatalogRepository {
     int expectedCount,
   ) async {
     if (revision.isEmpty || expectedCount < 0) {
-      throw const FormatException('无效的媒体目录版本');
+      throw FormatException(AppLocale.strings.errorCatalogVersion);
     }
     final token = const Uuid().v4();
     await _database.transaction((txn) async {
@@ -668,7 +669,7 @@ class TamayuraRepository implements CatalogRepository {
       throw ArgumentError('Catalog page exceeds 500 entries');
     }
     if (nextPageToken == '' || metadataComplete && nextPageToken != null) {
-      throw const FormatException('无效的媒体目录分页断点');
+      throw FormatException(AppLocale.strings.errorCatalogCursor);
     }
     return _database.transaction((txn) async {
       final session = await _session(txn, sessionId);
@@ -681,7 +682,7 @@ class TamayuraRepository implements CatalogRepository {
             item.id.isEmpty ||
             item.size < 0 ||
             !ids.add(item.id)) {
-          throw const FormatException('对端媒体目录包含无效或重复的文件');
+          throw FormatException(AppLocale.strings.errorCatalogInvalidEntries);
         }
         final same = <Object?>[
           deviceId,
@@ -722,7 +723,7 @@ class TamayuraRepository implements CatalogRepository {
         await batch.commit(noResult: true);
       } on DatabaseException catch (error) {
         if (error.isUniqueConstraintError()) {
-          throw const FormatException('对端媒体目录包含重复文件，请重试');
+          throw FormatException(AppLocale.strings.errorCatalogDuplicate);
         }
         rethrow;
       }
@@ -735,10 +736,10 @@ class TamayuraRepository implements CatalogRepository {
           ) ??
           0;
       if (count > (session['expected_count']! as int)) {
-        throw const FormatException('对端媒体目录数量不一致，请重试');
+        throw FormatException(AppLocale.strings.errorCatalogCount);
       }
       if (metadataComplete && count != session['expected_count']) {
-        throw const FormatException('媒体目录尚未接收完整，原有离线相册保持不变');
+        throw FormatException(AppLocale.strings.errorCatalogIncomplete);
       }
       await txn.update(
         'sync_sessions',
@@ -768,7 +769,9 @@ class TamayuraRepository implements CatalogRepository {
     String mediaId,
     Uint8List bytes,
   ) async {
-    if (bytes.length > 512 * 1024) throw const FormatException('缩略图超过允许大小');
+    if (bytes.length > 512 * 1024) {
+      throw FormatException(AppLocale.strings.errorThumbnailTooLarge);
+    }
     await _database.transaction((txn) async {
       await _session(txn, sessionId);
       final previous = await txn.query(
@@ -814,7 +817,7 @@ class TamayuraRepository implements CatalogRepository {
       )).single;
       final total = counts['total']! as int;
       if (total != session['expected_count'] || counts['missing'] != 0) {
-        throw const FormatException('媒体目录尚未接收完整，原有离线相册保持不变');
+        throw FormatException(AppLocale.strings.errorCatalogIncomplete);
       }
       final added =
           Sqflite.firstIntValue(
@@ -974,7 +977,9 @@ class TamayuraRepository implements CatalogRepository {
           item.id.isEmpty ||
           item.size < 0 ||
           !ids.add(item.id)) {
-        throw const FormatException('对端媒体目录包含无效或重复的文件，请刷新后重试');
+        throw FormatException(
+          AppLocale.strings.errorCatalogInvalidEntriesRefresh,
+        );
       }
     }
     await _database.transaction((txn) async {

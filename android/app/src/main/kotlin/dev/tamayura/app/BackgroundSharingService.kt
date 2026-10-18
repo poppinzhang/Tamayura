@@ -43,7 +43,7 @@ open class BackgroundSharingService : Service() {
             startRuntime()
             return START_STICKY
         } catch (failure: Exception) {
-            sharing.failedToStart(this, failure.message ?: "后台共享启动失败")
+            sharing.failedToStart(this, failure.message ?: AppText.get(this, R.string.sharing_error_start_failed))
             return START_NOT_STICKY
         }
     }
@@ -52,6 +52,11 @@ open class BackgroundSharingService : Service() {
 
     internal fun showReadyNotification() = bestEffortNotification {
         notify(this, NOTIFICATION_ID, notification(true))
+    }
+
+    internal fun refreshNotification() = bestEffortNotification {
+        createChannel(this)
+        notify(this, NOTIFICATION_ID, notification(sharing.isRunning(this)))
     }
 
     internal fun stopSharing() {
@@ -76,11 +81,13 @@ open class BackgroundSharingService : Service() {
         val stop = PendingIntent.getService(this, NOTIFICATION_ID,
             Intent(this, BackgroundSharingService::class.java).setAction(ACTION_STOP),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        fun text(id: Int) = AppText.get(this, id)
         return notificationBuilder(this)
-            .setContentTitle(if (ready) "玉响 · 后台共享运行中" else "玉响 · 后台共享正在启动")
-            .setContentText(if (ready) "锁屏后继续通过局域网共享媒体，点击停止可恢复省电"
-                else "正在初始化共享服务，请稍候")
-            .addAction(Notification.Action.Builder(null, "停止共享", stop).build())
+            .setContentTitle(text(if (ready) R.string.sharing_notification_running
+                else R.string.sharing_notification_starting))
+            .setContentText(text(if (ready) R.string.sharing_notification_running_text
+                else R.string.sharing_notification_starting_text))
+            .addAction(Notification.Action.Builder(null, text(R.string.sharing_notification_stop), stop).build())
             .setOngoing(true)
             .build()
     }
@@ -91,10 +98,12 @@ open class BackgroundSharingService : Service() {
         internal const val FAILURE_NOTIFICATION_ID = 4204
         internal const val ACTION_STOP = "dev.tamayura.app.STOP_SHARING"
 
-        private fun createChannel(context: Context) {
+        // Recreating an existing channel renames it in the current language.
+        internal fun createChannel(context: Context) {
             context.getSystemService(NotificationManager::class.java).createNotificationChannel(
-                NotificationChannel(CHANNEL, "后台共享", NotificationManager.IMPORTANCE_LOW).apply {
-                    description = "显示此设备的局域网媒体共享状态"
+                NotificationChannel(CHANNEL, AppText.get(context, R.string.sharing_channel_name),
+                    NotificationManager.IMPORTANCE_LOW).apply {
+                    description = AppText.get(context, R.string.sharing_channel_description)
                 })
         }
 
@@ -124,10 +133,11 @@ open class BackgroundSharingService : Service() {
 
         internal fun showFailureNotification(context: Context, message: String) = bestEffortNotification {
             createChannel(context)
+            val text = AppText.get(context, R.string.sharing_notification_failed_text, message)
             notify(context, FAILURE_NOTIFICATION_ID, notificationBuilder(context)
-                .setContentTitle("玉响 · 后台共享启动失败")
-                .setContentText("$message；点击打开应用重试")
-                .setStyle(Notification.BigTextStyle().bigText("$message；点击打开应用重试"))
+                .setContentTitle(AppText.get(context, R.string.sharing_notification_failed))
+                .setContentText(text)
+                .setStyle(Notification.BigTextStyle().bigText(text))
                 .setAutoCancel(true)
                 .build())
         }

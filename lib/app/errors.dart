@@ -1,21 +1,32 @@
 import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:grpc/grpc.dart';
+import '../l10n/app_locale.dart';
 import '../network/downloader.dart' show TransferStalled;
 
 String describeError(Object error) {
-  if (error is TransferStalled) return '对端长时间没有响应，可能已休眠或离开局域网';
+  final text = AppLocale.strings;
+  if (error is TransferStalled) return text.errorPeerStalled;
   if (error is FormatException) return error.message;
-  if (error is PlatformException) return error.message ?? '系统操作失败，请重试';
-  if (error is GrpcError) {
-    if (error.code == StatusCode.notFound) return '对端文件已删除或不可访问，请刷新相册';
-    if (error.code == StatusCode.failedPrecondition) {
-      return '对端共享目录不可用，请在对端重新选择目录并刷新';
-    }
-    if (error.code == StatusCode.dataLoss) return '文件未传输完整，请重试';
-    return '暂时连不上这台设备，请确认两台设备在同一局域网，且对端应用已打开';
+  if (error is PlatformException) {
+    // Codes shared by all platforms read the same in every interface language;
+    // other native messages are already localized by the platform.
+    return switch (error.code) {
+      'DIR_OVERLAP' => text.errorFolderOverlap,
+      'FILE_CHANGED' => text.errorFileChanged,
+      'SCAN_CANCELLED' => text.errorScanCancelled,
+      _ => error.message ?? text.errorSystemOperation,
+    };
   }
-  if (error is SocketException) return '无法连接局域网，请检查 Wi-Fi 后重试';
-  if (error is FileSystemException) return '文件保存失败，请检查剩余空间和目录权限';
-  return '操作未完成，请重试。$error';
+  if (error is GrpcError) {
+    if (error.code == StatusCode.notFound) return text.errorPeerFileMissing;
+    if (error.code == StatusCode.failedPrecondition) {
+      return text.errorPeerFolderUnavailable;
+    }
+    if (error.code == StatusCode.dataLoss) return text.errorTransferIncomplete;
+    return text.errorPeerUnreachable;
+  }
+  if (error is SocketException) return text.errorNetworkUnavailable;
+  if (error is FileSystemException) return text.errorFileSave;
+  return text.errorUnknown('$error');
 }

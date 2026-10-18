@@ -5,6 +5,7 @@ import '../app/errors.dart';
 import '../core/models.dart';
 import '../data/repository.dart';
 import '../data/transfer_store.dart';
+import '../l10n/app_locale.dart';
 import '../network/downloader.dart';
 import '../network/media_rpc.dart';
 import '../platform/platform_bridge.dart';
@@ -79,7 +80,7 @@ class InProcessTransferScheduler implements TransferScheduler {
 
   @override
   Future<void> scheduleTransfer(String taskId) => _command(taskId, () async {
-    if (_closed) throw StateError('应用正在退出，请重新打开后重试下载');
+    if (_closed) throw StateError(AppLocale.strings.errorAppExiting);
     if (_runs.containsKey(taskId)) return;
     final execution = _Execution();
     _runs[taskId] = execution;

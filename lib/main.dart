@@ -50,6 +50,10 @@ class _TamayuraRootState extends State<_TamayuraRoot>
   }
 
   @override
+  void didChangeLocales(List<Locale>? locales) =>
+      controller.systemLocalesChanged();
+
+  @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     controller.dispose();

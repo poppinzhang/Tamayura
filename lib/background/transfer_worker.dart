@@ -7,6 +7,7 @@ import '../core/models.dart';
 import '../core/transfer_task.dart';
 import '../data/repository.dart';
 import '../data/transfer_store.dart';
+import '../l10n/app_locale.dart';
 import '../network/downloader.dart';
 import '../network/media_rpc.dart';
 import '../platform/android_bridge.dart';
@@ -30,8 +31,10 @@ Future<void> runBackgroundTransfer() async {
   int? attempt;
   try {
     final args = await channel.invokeMapMethod<String, dynamic>('ready');
+    // Stored task errors use the interface language saved by the app.
+    AppLocale.language = AppLanguage.parse(args?['language'] as String?);
     final id = args?['taskId'] as String?;
-    if (id == null) throw StateError('下载任务缺少 ID');
+    if (id == null) throw StateError(AppLocale.strings.errorTaskIdMissing);
     taskId = id;
     store = await TransferStore.open();
     attempt = (await store.get(id))?.attempt;
@@ -207,7 +210,7 @@ class TransferRunner {
           try {
             final identity = await client.identity();
             if (identity.id != task.item.deviceId) {
-              throw const FormatException('该地址已属于另一台设备，请重新发现后重试');
+              throw FormatException(AppLocale.strings.errorAddressOwnedByOther);
             }
           } finally {
             cancel.removeListener(stopIdentity);
@@ -312,7 +315,7 @@ class TransferRunner {
           final waiting = await store.update(id, {
             'state': 'queued',
             'received': received,
-            'error': '${describeError(error)}；稍后会自动重试',
+            'error': AppLocale.strings.transferRetryLater(describeError(error)),
             'outage_since_ms': since,
           }, runToken: token);
           return waiting
@@ -337,7 +340,7 @@ class TransferRunner {
       if (available != null && available < needed + transferSpaceReserve) {
         throw PlatformException(
           code: 'NO_SPACE',
-          message: '$location空间不足，请释放空间后重试',
+          message: AppLocale.strings.errorSpaceInsufficient(location),
         );
       }
     }
@@ -350,13 +353,21 @@ class TransferRunner {
       requireSpace(
         available.isEmpty ? null : available.reduce((a, b) => a < b ? a : b),
         remaining + size,
-        '下载所在磁盘',
+        AppLocale.strings.spaceLocationDownloadDisk,
       );
     } else {
       // Providers may not expose a destination volume or its free capacity.
       // Known limits remain useful; actual write errors are still authoritative.
-      requireSpace(space.stagingAvailableBytes, remaining, '下载暂存目录');
-      requireSpace(space.destinationAvailableBytes, size, '接收目录');
+      requireSpace(
+        space.stagingAvailableBytes,
+        remaining,
+        AppLocale.strings.spaceLocationStaging,
+      );
+      requireSpace(
+        space.destinationAvailableBytes,
+        size,
+        AppLocale.strings.spaceLocationDestination,
+      );
     }
   }
 }

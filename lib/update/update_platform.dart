@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/services.dart';
 
+import '../l10n/app_locale.dart';
 import 'update_service.dart';
 
 class UpdatePlatform {
@@ -18,13 +19,13 @@ class UpdatePlatform {
     if (Platform.isAndroid) return UpdateTarget.android;
     if (Platform.isWindows) return UpdateTarget.windows;
     if (Platform.isMacOS) return UpdateTarget.macos;
-    throw const UpdateException('当前平台尚不支持应用更新');
+    throw UpdateException(AppLocale.strings.updateErrorPlatform);
   }
 
   Future<Directory> directory() async {
     final path = await channel.invokeMethod<String>('updateDirectory');
     if (path == null || path.isEmpty) {
-      throw const UpdateException('无法创建更新暂存目录，请检查磁盘空间后重试');
+      throw UpdateException(AppLocale.strings.updateErrorStagingDirectory);
     }
     return Directory(path);
   }
@@ -33,7 +34,7 @@ class UpdatePlatform {
     final asset = release.asset;
     final buildNumber = release.buildNumber;
     if (asset == null || buildNumber == null) {
-      throw const UpdateException('此版本缺少有效的安装信息');
+      throw UpdateException(AppLocale.strings.updateErrorInstallInfo);
     }
     final result = await channel.invokeMethod<String>('installUpdate', {
       'path': file.path,
@@ -45,7 +46,7 @@ class UpdatePlatform {
         ? const ['readyToExit']
         : const ['started', 'pendingUserAction'];
     if (!allowed.contains(result)) {
-      throw const UpdateException('无法确认安装是否已启动，请重试');
+      throw UpdateException(AppLocale.strings.updateErrorInstallStart);
     }
     return result!;
   }
@@ -60,7 +61,7 @@ class UpdatePlatform {
         !RegExp(
           r'^/poppinzhang/Tamayura/releases/tag/v\d+\.\d+\.\d+$',
         ).hasMatch(url.path)) {
-      throw const UpdateException('更新页面地址无效');
+      throw UpdateException(AppLocale.strings.updateErrorReleaseUrl);
     }
     await channel.invokeMethod<void>('openRelease', {'url': url.toString()});
   }

@@ -29,11 +29,11 @@
 		<string>_tamayura._tcp</string>
 	</array>
 	<key>NSCameraUsageDescription</key>
-	<string>扫描另一台设备的二维码以连接 Tamayura。</string>
+	<string>Scan another device's QR code to connect with Tamayura.</string>
 	<key>NSHumanReadableCopyright</key>
 	<string>$(PRODUCT_COPYRIGHT)</string>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>Tamayura 需要访问局域网来发现设备、同步媒体目录和传输媒体文件。</string>
+	<string>Tamayura uses the local network to discover devices, sync media catalogs and transfer media files.</string>
 	<key>NSMainNibFile</key>
 	<string>MainMenu</string>
 	<key>NSPrincipalClass</key>

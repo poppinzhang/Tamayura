@@ -32,6 +32,7 @@ class DesktopTray {
  private:
   bool AddIcon() noexcept;
   void RemoveIcon() noexcept;
+  void UpdateTooltip() noexcept;
   void OpenWindow() noexcept;
   void ShowMenu(POINT position) noexcept;
 

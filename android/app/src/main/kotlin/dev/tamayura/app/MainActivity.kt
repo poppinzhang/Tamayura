@@ -71,12 +71,14 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    private fun text(id: Int): String = AppText.get(this, id)
+
     private fun MethodCall.requiredString(key: String): String = argument<String>(key)
         ?.takeIf { it.isNotBlank() } ?: throw IllegalArgumentException("Missing $key")
 
     @Suppress("DEPRECATION")
     private fun pickDirectory(result: MethodChannel.Result) {
-        check(pickerResult == null) { "目录选择器已打开" }
+        check(pickerResult == null) { text(R.string.error_picker_open) }
         val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION or
                 Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION or Intent.FLAG_GRANT_PREFIX_URI_PERMISSION)
@@ -97,7 +99,9 @@ class MainActivity : FlutterActivity() {
         try {
             val flags = (data?.flags ?: 0) and
                 (Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
-            require(flags and Intent.FLAG_GRANT_READ_URI_PERMISSION != 0) { "目录没有读取权限" }
+            require(flags and Intent.FLAG_GRANT_READ_URI_PERMISSION != 0) {
+                text(R.string.error_directory_unreadable)
+            }
             contentResolver.takePersistableUriPermission(uri, flags)
             runtime.background(result) {
                 mapOf("uri" to uri.toString(), "name" to runtime.media.directoryName(uri))
@@ -110,12 +114,12 @@ class MainActivity : FlutterActivity() {
             try {
                 val uri = Uri.parse(value)
                 require(uri.scheme == "content" && DocumentsContract.isDocumentUri(this, uri)) {
-                    "需要有效的 Android 文档 URI"
+                    text(R.string.error_document_uri)
                 }
                 // A chooser can open even when its URI is stale. Validate before
                 // reporting success so Dart can discard stale download records.
                 val descriptor = contentResolver.openFileDescriptor(uri, "r")
-                    ?: throw java.io.FileNotFoundException("已下载文件已不可用，请重新下载")
+                    ?: throw java.io.FileNotFoundException(text(R.string.error_download_missing))
                 descriptor.use { /* Opening verifies existence and current read permission. */ }
                 val intent = if (share) Intent(Intent.ACTION_SEND).apply {
                     type = mimeType
@@ -126,10 +130,12 @@ class MainActivity : FlutterActivity() {
                 main.post {
                     if (alive) {
                         try {
-                            startActivity(if (share) Intent.createChooser(intent, "分享媒体文件") else intent)
+                            startActivity(if (share) {
+                                Intent.createChooser(intent, text(R.string.share_chooser_title))
+                            } else intent)
                             result.success(null)
                         } catch (error: Exception) { runtime.report(result, error) }
-                    } else result.error("ACTIVITY_CLOSED", "页面已关闭", null)
+                    } else result.error("ACTIVITY_CLOSED", text(R.string.error_activity_closed), null)
                 }
             } catch (error: Exception) {
                 main.post { runtime.report(result, error) }
@@ -140,7 +146,7 @@ class MainActivity : FlutterActivity() {
     override fun onDestroy() {
         alive = false
         AppUpdateInstaller.get(applicationContext).paused(this)
-        pickerResult?.error("ACTIVITY_CLOSED", "页面已关闭", null)
+        pickerResult?.error("ACTIVITY_CLOSED", text(R.string.error_activity_closed), null)
         pickerResult = null
         workers.shutdown()
         // The service can continue using media, discovery and the process-owned engine.

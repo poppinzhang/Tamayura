@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../app/view_state.dart';
+import '../l10n/app_locale.dart';
 
 class DeviceOrderDialog extends StatefulWidget {
   const DeviceOrderDialog({
@@ -40,10 +41,12 @@ class _DeviceOrderDialogState extends State<DeviceOrderDialog> {
       if (saved) {
         Navigator.of(context).pop();
       } else {
-        setState(() => _error = '设备顺序保存失败，请重试。');
+        setState(() => _error = context.l10n.deviceOrderSaveFailed);
       }
     } catch (_) {
-      if (mounted) setState(() => _error = '设备顺序保存失败，请重试。');
+      if (mounted) {
+        setState(() => _error = context.l10n.deviceOrderSaveFailed);
+      }
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -52,6 +55,7 @@ class _DeviceOrderDialogState extends State<DeviceOrderDialog> {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
+    final l10n = context.l10n;
     return PopScope(
       canPop: !_saving,
       child: Dialog(
@@ -77,12 +81,12 @@ class _DeviceOrderDialogState extends State<DeviceOrderDialog> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            '调整设备顺序',
+                            l10n.deviceOrderTitle,
                             style: Theme.of(context).textTheme.titleLarge,
                           ),
                           const SizedBox(height: 8),
                           Text(
-                            '拖动手柄或使用箭头调整，相册中的设备也会按此顺序展示。',
+                            l10n.deviceOrderDescription,
                             style: TextStyle(
                               color: colors.onSurfaceVariant,
                               height: 1.5,
@@ -105,7 +109,7 @@ class _DeviceOrderDialogState extends State<DeviceOrderDialog> {
                                 index: index,
                                 enabled: !_saving,
                                 child: Tooltip(
-                                  message: '拖动 ${device.name}',
+                                  message: l10n.deviceOrderDrag(device.name),
                                   child: SizedBox(
                                     width: 40,
                                     height: 56,
@@ -133,7 +137,9 @@ class _DeviceOrderDialogState extends State<DeviceOrderDialog> {
                                       ),
                                     ),
                                     Text(
-                                      device.online ? '在线' : '离线',
+                                      device.online
+                                          ? l10n.commonOnline
+                                          : l10n.commonOffline,
                                       style: TextStyle(
                                         fontSize: 12,
                                         color: colors.onSurfaceVariant,
@@ -156,7 +162,9 @@ class _DeviceOrderDialogState extends State<DeviceOrderDialog> {
                                 children: [
                                   IconButton(
                                     key: Key('device-order-up-${device.id}'),
-                                    tooltip: '上移 ${device.name}',
+                                    tooltip: l10n.deviceOrderMoveUp(
+                                      device.name,
+                                    ),
                                     onPressed: _saving || index == 0
                                         ? null
                                         : () => _move(index, index - 1),
@@ -166,7 +174,9 @@ class _DeviceOrderDialogState extends State<DeviceOrderDialog> {
                                   ),
                                   IconButton(
                                     key: Key('device-order-down-${device.id}'),
-                                    tooltip: '下移 ${device.name}',
+                                    tooltip: l10n.deviceOrderMoveDown(
+                                      device.name,
+                                    ),
                                     onPressed:
                                         _saving || index == _devices.length - 1
                                         ? null
@@ -205,12 +215,14 @@ class _DeviceOrderDialogState extends State<DeviceOrderDialog> {
                       onPressed: _saving
                           ? null
                           : () => Navigator.of(context).pop(),
-                      child: const Text('取消'),
+                      child: Text(l10n.commonCancel),
                     ),
                     FilledButton(
                       key: const Key('device-order-save'),
                       onPressed: _saving ? null : _save,
-                      child: Text(_saving ? '正在保存…' : '保存'),
+                      child: Text(
+                        _saving ? l10n.commonSaving : l10n.commonSave,
+                      ),
                     ),
                   ],
                 ),

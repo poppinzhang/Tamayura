@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import '../core/models.dart';
+import '../l10n/app_locale.dart';
 
 /// Capacity is advisory: document providers may not expose their backing volume.
 class TransferSpaceInfo {
@@ -31,7 +32,7 @@ class SharingStatus {
         (value['sessionId'] != null && value['sessionId'] is! String) ||
         (value['error'] != null && value['error'] is! String) ||
         (value['starting'] == true && value['running'] == true)) {
-      throw const FormatException('无法读取后台共享状态，请重试');
+      throw FormatException(AppLocale.strings.errorSharingStatus);
     }
     return SharingStatus(
       enabled: value['enabled'] as bool,
@@ -97,6 +98,12 @@ abstract class PlatformBridge {
   Future<void> openBatteryOptimizationSettings() =>
       _methods.invokeMethod<void>('openBatteryOptimizationSettings');
 
+  /// Native notifications, menus, pickers and messages follow the saved
+  /// preference: `system`, `zh`, `ja` or `en`. Native code persists it and
+  /// resolves `system` with the same rule as the Dart interface.
+  Future<void> setLanguage(String language) =>
+      _methods.invokeMethod<void>('setLanguage', {'language': language});
+
   Stream<Map<String, dynamic>> get discoveryEvents => _events
       .receiveBroadcastStream()
       .map((event) => Map<String, dynamic>.from(event as Map));
@@ -148,7 +155,7 @@ abstract class PlatformBridge {
     if (path == null || path.isEmpty) {
       throw PlatformException(
         code: 'STAGING_UNAVAILABLE',
-        message: '下载暂存目录不可用',
+        message: AppLocale.strings.errorStagingUnavailable,
       );
     }
     return path;
@@ -208,7 +215,10 @@ abstract class PlatformBridge {
       'directories': directories,
     });
     if (uri == null || uri.isEmpty) {
-      throw PlatformException(code: 'SAVE_FAILED', message: '未能保存文件');
+      throw PlatformException(
+        code: 'SAVE_FAILED',
+        message: AppLocale.strings.errorSaveFailed,
+      );
     }
     return uri;
   }
@@ -251,7 +261,10 @@ abstract class PlatformBridge {
   Future<String> temporaryDirectory() async {
     final path = await _methods.invokeMethod<String>('temporaryDirectory');
     if (path == null || path.isEmpty) {
-      throw PlatformException(code: 'CACHE_UNAVAILABLE', message: '临时目录不可用');
+      throw PlatformException(
+        code: 'CACHE_UNAVAILABLE',
+        message: AppLocale.strings.errorCacheUnavailable,
+      );
     }
     return path;
   }
@@ -266,7 +279,7 @@ abstract class PlatformBridge {
     if (id == null || !isValidDeviceId(id)) {
       throw PlatformException(
         code: 'DEVICE_ID_UNAVAILABLE',
-        message: '无法读取 $platformName 设备标识，请重启应用后重试',
+        message: AppLocale.strings.errorDeviceId(platformName),
       );
     }
     return id;

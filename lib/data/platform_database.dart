@@ -4,6 +4,8 @@ import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
+import '../l10n/app_locale.dart';
+
 /// sqflite's mobile/Darwin plugin has no Windows implementation. Both databases
 /// use the same FFI factory and a writable per-user directory on Windows.
 Future<DatabaseFactory> platformDatabaseFactory() async {
@@ -20,7 +22,7 @@ Future<DatabaseFactory> configureWindowsDatabase({
   if (directory == null || !p.windows.isAbsolute(directory)) {
     throw PlatformException(
       code: 'DATABASE_UNAVAILABLE',
-      message: '本机数据库目录不可用，请检查用户目录权限后重试',
+      message: AppLocale.strings.errorDatabaseDirectory,
     );
   }
   final selected = factory ?? databaseFactoryFfi;

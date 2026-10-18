@@ -95,6 +95,10 @@ On Android, enable **Settings → Background sharing (后台共享)** to serve f
 
 On macOS and Windows, closing the window keeps Tamayura in the menu bar or system tray. Background sharing follows its setting, and downloads can continue while the app is running and the computer is awake. Quitting the app or putting the computer to sleep interrupts transfers.
 
+### Simplified Chinese, Japanese, and English
+
+The current source code (unreleased; see the [Changelog](CHANGELOG.md#unstaged)) adds Simplified Chinese, Japanese, and English interfaces. Tamayura follows the first supported language in your system's preferences by default, using English for other languages, and you can switch at any time in **Settings → Appearance → Language**. Notifications, the menu bar or system tray menu, and folder pickers follow the same choice. The published 0.8.0 packages are available in Simplified Chinese only.
+
 ### Light, dark, or your system's choice
 
 A quiet black, white, and gray interface, with a saved theme preference across sessions.
@@ -120,6 +124,7 @@ Most detailed documentation is currently in Chinese.
 | [Sync behavior](docs/自动与手动同步.md) | Automatic intervals, manual refresh, and sync status |
 | [New and forgotten devices](docs/新设备确认与忘记设备.md) | Confirming newly discovered devices, retrying when a device comes back, and forgetting devices |
 | [Downloads and storage](docs/下载存储与清理.md) | Resuming downloads, temporary files, and cleanup |
+| [Interface languages](docs/多语言.md) | Language selection, translated content, and limits (current source) |
 | [Background sharing](docs/后台共享.md) | Android background availability and battery settings |
 | [Development guide](AGENTS.md) | Setup, tests, builds, and implementation references |
 

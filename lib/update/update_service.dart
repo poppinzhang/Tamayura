@@ -7,6 +7,7 @@ import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as path;
 
 import '../app/app_info.dart';
+import '../l10n/app_locale.dart';
 
 enum UpdateTarget { android, windows, macos }
 
@@ -49,8 +50,14 @@ class UpdateException implements Exception {
   String toString() => message;
 }
 
-class UpdateCancelledException extends UpdateException {
-  const UpdateCancelledException() : super('已取消更新下载');
+class UpdateCancelledException implements UpdateException {
+  const UpdateCancelledException();
+
+  @override
+  String get message => AppLocale.strings.updateErrorCancelled;
+
+  @override
+  String toString() => message;
 }
 
 class UpdateCancellation {
@@ -141,7 +148,7 @@ class UpdateService {
     final currentVersion = _parseVersion(current.version);
     final currentBuild = int.tryParse(current.buildNumber);
     if (currentVersion == null || currentBuild == null || currentBuild < 1) {
-      throw const UpdateException('无法识别当前应用版本，请重新安装正式发布的安装包');
+      throw UpdateException(AppLocale.strings.updateErrorCurrentVersion);
     }
     final candidates = <_ReleaseCandidate>[];
     var finished = false;
@@ -152,11 +159,11 @@ class UpdateService {
       });
       final payload = await _json(uri, _maximumJsonBytes, cancel);
       if (payload is! List || payload.length > _pageSize) {
-        throw const UpdateException('GitHub 版本列表格式不正确，请稍后重试');
+        throw UpdateException(AppLocale.strings.updateErrorReleaseList);
       }
       for (final entry in payload) {
         if (entry is! Map<String, dynamic> || entry['draft'] is! bool) {
-          throw const UpdateException('GitHub 版本列表格式不正确，请稍后重试');
+          throw UpdateException(AppLocale.strings.updateErrorReleaseList);
         }
         if (entry['draft'] == true) continue;
         final tag = entry['tag_name'];
@@ -170,11 +177,11 @@ class UpdateService {
           '/$_repository/releases/tag/$tag',
         );
         if (entry['html_url'] != pageUrl.toString()) {
-          throw const UpdateException('更新页面地址无效，请稍后重试');
+          throw UpdateException(AppLocale.strings.updateErrorPageUrl);
         }
         final notes = entry['body'];
         if (notes != null && notes is! String) {
-          throw const UpdateException('更新说明格式不正确，请稍后重试');
+          throw UpdateException(AppLocale.strings.updateErrorNotes);
         }
         candidates.add(
           _ReleaseCandidate(
@@ -197,7 +204,7 @@ class UpdateService {
       }
     }
     if (!finished) {
-      throw const UpdateException('版本列表过长，暂时无法确认最新版本，请前往 GitHub 查看');
+      throw UpdateException(AppLocale.strings.updateErrorListTooLong);
     }
     if (candidates.isEmpty) return null;
     candidates.sort(
@@ -212,7 +219,7 @@ class UpdateService {
     if (metadataSize is! int ||
         metadataSize < 1 ||
         metadataSize > _maximumMetadataBytes) {
-      throw const UpdateException('新版本的更新清单无效，暂时无法自动更新');
+      throw UpdateException(AppLocale.strings.updateErrorManifest);
     }
     final metadata = await _json(
       _assetUrl(candidate, metadataAsset, 'release.json'),
@@ -224,11 +231,11 @@ class UpdateService {
         metadata['version'] != candidate.version ||
         metadata['build_number'] is! int ||
         (metadata['build_number'] as int) < 1) {
-      throw const UpdateException('新版本的更新清单与发布版本不一致');
+      throw UpdateException(AppLocale.strings.updateErrorManifestMismatch);
     }
     final buildNumber = metadata['build_number'] as int;
     if (target == UpdateTarget.android && buildNumber <= currentBuild) {
-      throw const UpdateException('新版本的 Android 构建号无效，暂时无法覆盖安装');
+      throw UpdateException(AppLocale.strings.updateErrorAndroidBuild);
     }
     final platforms = metadata['platforms'];
     final platform = platforms is Map<String, dynamic>
@@ -245,7 +252,7 @@ class UpdateService {
         (platform['size_bytes'] as int) > _maximumPackageBytes ||
         platform['sha256'] is! String ||
         !_digestPattern.hasMatch(platform['sha256'] as String)) {
-      throw const UpdateException('新版本缺少有效的对应平台安装包信息');
+      throw UpdateException(AppLocale.strings.updateErrorPackageInfo);
     }
     final architectures = platform['architectures'];
     final expectedArchitectures = target == UpdateTarget.android
@@ -254,11 +261,11 @@ class UpdateService {
     if (architectures is! List ||
         architectures.length != expectedArchitectures.length ||
         !architectures.toSet().containsAll(expectedArchitectures)) {
-      throw const UpdateException('新版本的安装包架构不受支持');
+      throw UpdateException(AppLocale.strings.updateErrorArchitecture);
     }
     final asset = _findAsset(candidate, filename);
     if (asset['size'] != platform['size_bytes']) {
-      throw const UpdateException('新版本的安装包大小与更新清单不一致');
+      throw UpdateException(AppLocale.strings.updateErrorPackageSize);
     }
     return candidate.release(
       buildNumber: buildNumber,
@@ -292,7 +299,7 @@ class UpdateService {
               'github.com',
               '/$_repository/releases/download/v${release.version}/${asset.filename}',
             )) {
-      throw const UpdateException('安装包信息无效，请重新检查更新');
+      throw UpdateException(AppLocale.strings.updateErrorInvalidPackage);
     }
     Directory? staging;
     RandomAccessFile? output;
@@ -308,7 +315,7 @@ class UpdateService {
       final contentLength = response.headers['content-length'];
       if (contentLength != null &&
           int.tryParse(contentLength) != asset.sizeBytes) {
-        throw const UpdateException('安装包下载大小与更新清单不一致，请重试');
+        throw UpdateException(AppLocale.strings.updateErrorDownloadSize);
       }
       final digest = _UpdateDigest();
       final sink = sha256.startChunkedConversion(digest);
@@ -320,7 +327,7 @@ class UpdateService {
         final chunk = iterator.current;
         received += chunk.length;
         if (received > asset.sizeBytes) {
-          throw const UpdateException('安装包下载大小超出更新清单，请重试');
+          throw UpdateException(AppLocale.strings.updateErrorDownloadTooLarge);
         }
         await output.writeFrom(chunk);
         sink.add(chunk);
@@ -330,7 +337,7 @@ class UpdateService {
       sink.close();
       if (received != asset.sizeBytes ||
           digest.value.toString() != asset.sha256.toLowerCase()) {
-        throw const UpdateException('安装包完整性校验失败，请重新下载');
+        throw UpdateException(AppLocale.strings.updateErrorChecksum);
       }
       await output.flush();
       await output.close();
@@ -362,7 +369,7 @@ class UpdateService {
     UpdateCancellation cancellation,
     Future<T> Function(UpdateCancellation) operation,
   ) async {
-    if (_busy) throw const UpdateException('已有更新操作正在进行，请稍候');
+    if (_busy) throw UpdateException(AppLocale.strings.updateErrorBusy);
     _busy = true;
     try {
       cancellation._throwIfCancelled();
@@ -370,15 +377,15 @@ class UpdateService {
     } on UpdateException {
       rethrow;
     } on TimeoutException {
-      throw const UpdateException('连接 GitHub 或下载安装包超时，请检查网络后重试');
+      throw UpdateException(AppLocale.strings.updateErrorTimeout);
     } on SocketException {
-      throw const UpdateException('无法连接 GitHub，请检查网络后重试');
+      throw UpdateException(AppLocale.strings.updateErrorConnect);
     } on HttpException {
-      throw const UpdateException('GitHub 连接中断，请稍后重试');
+      throw UpdateException(AppLocale.strings.updateErrorConnectionLost);
     } on FileSystemException {
-      throw const UpdateException('无法保存更新安装包，请检查可用空间和目录权限后重试');
+      throw UpdateException(AppLocale.strings.updateErrorStorage);
     } on FormatException {
-      throw const UpdateException('更新信息格式不正确，请稍后重试');
+      throw UpdateException(AppLocale.strings.updateErrorFormat);
     } finally {
       _busy = false;
     }
@@ -406,7 +413,7 @@ class UpdateService {
           break;
         }
         if (bytes.length + iterator.current.length > maximumBytes) {
-          throw const UpdateException('更新信息超过允许大小，请稍后重试');
+          throw UpdateException(AppLocale.strings.updateErrorResponseTooLarge);
         }
         bytes.add(iterator.current);
       }
@@ -457,27 +464,27 @@ class UpdateService {
         final location = response.headers['location'];
         response.close();
         if (location == null || redirects == 5) {
-          throw const UpdateException('GitHub 下载地址重定向异常，请稍后重试');
+          throw UpdateException(AppLocale.strings.updateErrorRedirect);
         }
         current = current.resolve(location);
         continue;
       }
       if (response.statusCode == 403 || response.statusCode == 429) {
         response.close();
-        throw const UpdateException('GitHub 拒绝访问或请求过于频繁，请稍后重试');
+        throw UpdateException(AppLocale.strings.updateErrorForbidden);
       }
       if (response.statusCode != 200) {
         response.close();
-        throw const UpdateException('GitHub 更新信息或安装包暂时不可用，请稍后重试');
+        throw UpdateException(AppLocale.strings.updateErrorUnavailable);
       }
       final encoding = response.headers['content-encoding'];
       if (encoding != null && encoding != 'identity') {
         response.close();
-        throw const UpdateException('GitHub 返回了不支持的下载编码，请稍后重试');
+        throw UpdateException(AppLocale.strings.updateErrorEncoding);
       }
       return response;
     }
-    throw const UpdateException('GitHub 下载地址重定向异常，请稍后重试');
+    throw UpdateException(AppLocale.strings.updateErrorRedirect);
   }
 
   static void _validateRequestUrl(Uri uri) {
@@ -495,7 +502,7 @@ class UpdateService {
         uri.pathSegments.any(
           (segment) => segment == '..' || segment.contains('\\'),
         )) {
-      throw const UpdateException('更新下载地址不受信任，已停止更新');
+      throw UpdateException(AppLocale.strings.updateErrorUntrustedUrl);
     }
   }
 
@@ -505,17 +512,17 @@ class UpdateService {
   ) {
     final assets = candidate.assets;
     if (assets is! List) {
-      throw const UpdateException('新版本缺少发布附件，暂时无法自动更新');
+      throw UpdateException(AppLocale.strings.updateErrorNoAssets);
     }
     final matching = assets.where(
       (asset) => asset is Map<String, dynamic> && asset['name'] == filename,
     );
     if (matching.length != 1) {
-      throw const UpdateException('新版本缺少唯一且完整的发布附件，暂时无法自动更新');
+      throw UpdateException(AppLocale.strings.updateErrorAmbiguousAssets);
     }
     final asset = matching.single as Map<String, dynamic>;
     if (asset['state'] != 'uploaded') {
-      throw const UpdateException('新版本的发布附件尚未上传完成，请稍后重试');
+      throw UpdateException(AppLocale.strings.updateErrorAssetsPending);
     }
     return asset;
   }
@@ -530,7 +537,7 @@ class UpdateService {
       '/$_repository/releases/download/v${candidate.version}/$filename',
     );
     if (asset['browser_download_url'] != expected.toString()) {
-      throw const UpdateException('更新附件地址与发布版本不一致');
+      throw UpdateException(AppLocale.strings.updateErrorAssetUrl);
     }
     return expected;
   }

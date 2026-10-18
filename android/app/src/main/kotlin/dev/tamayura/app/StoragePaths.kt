@@ -1,13 +1,26 @@
 package dev.tamayura.app
 
-internal class DirectoryOverlapException : IllegalArgumentException("此目录已共享，或与现有共享目录存在父子关系")
-internal class DirectoryRelationException : IllegalArgumentException("无法确认目录是否重复，请选择能够验证目录层级的本机存储目录")
+internal class DirectoryOverlapException :
+    IllegalArgumentException("The directory repeats or overlaps a shared directory"), LocalizedText {
+    override val textId = R.string.error_directory_overlap
+}
+
+internal class DirectoryRelationException :
+    IllegalArgumentException("Cannot verify the directory hierarchy"), LocalizedText {
+    override val textId = R.string.error_directory_relation
+}
+
+/** An invalid argument whose user-facing text is a string resource. */
+internal class InvalidArgumentException(override val textId: Int, diagnostic: String) :
+    IllegalArgumentException(diagnostic), LocalizedText
 
 /** Rules kept independent of Android so traversal and overlap boundaries are testable. */
 internal object StoragePaths {
     fun requireSegment(value: String): String {
-        require(value.isNotBlank() && value != "." && value != ".." &&
-            value.none { it == '/' || it == '\\' || it.isISOControl() }) { "无效的文件或目录名称" }
+        if (value.isBlank() || value == "." || value == ".." ||
+            value.any { it == '/' || it == '\\' || it.isISOControl() }) {
+            throw InvalidArgumentException(R.string.error_invalid_name, "Invalid file or directory name")
+        }
         return value
     }
 

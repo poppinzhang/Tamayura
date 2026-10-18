@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:tamayura/l10n/app_locale.dart';
 import 'package:tamayura/app/app_info.dart';
 import 'package:tamayura/ui/about_page.dart';
 
@@ -12,7 +13,12 @@ Future<AppVersion> _version() async => const AppVersion('2.3.4', '56');
 
 Future<void> _show(WidgetTester tester, {Widget? child}) async {
   await tester.pumpWidget(
-    MaterialApp(home: child ?? const AboutPage(loadVersion: _version)),
+    MaterialApp(
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      supportedLocales: AppLocalizations.supportedLocales,
+      locale: AppLocale.current,
+      home: child ?? const AboutPage(loadVersion: _version),
+    ),
   );
   await tester.pumpAndSettle();
 }
@@ -102,7 +108,7 @@ void main() {
     await tester.ensureVisible(birthday);
     expect(birthday, findsOneWidget);
     expect(find.textContaining('默认端口 50728'), findsOneWidget);
-    await tester.pageBack();
+    await tester.tap(find.byType(BackButton));
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('about-page')), findsOneWidget);
     expect(tester.takeException(), isNull);
@@ -123,7 +129,7 @@ void main() {
     expect(text, contains('Grant of Patent License'));
     expect(text, contains('END OF TERMS AND CONDITIONS'));
     expect(text.length, greaterThan(10000));
-    await tester.pageBack();
+    await tester.tap(find.byType(BackButton));
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('about-page')), findsOneWidget);
   });
@@ -161,9 +167,9 @@ void main() {
     await tester.tap(find.text('sample_dependency'));
     await tester.pumpAndSettle();
     expect(find.text('Example license'), findsOneWidget);
-    await tester.pageBack();
+    await tester.tap(find.byType(BackButton));
     await tester.pumpAndSettle();
-    await tester.pageBack();
+    await tester.tap(find.byType(BackButton));
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('about-page')), findsOneWidget);
   });
@@ -188,7 +194,7 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
-    await tester.pageBack();
+    await tester.tap(find.byType(BackButton));
     await tester.pumpAndSettle();
     await _tap(tester, 'project-license-entry');
     await tester.runAsync(() => rootBundle.loadString('LICENSE'));

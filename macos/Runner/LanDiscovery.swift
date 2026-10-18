@@ -21,7 +21,7 @@ final class LanDiscovery: NSObject, FlutterStreamHandler, NetServiceBrowserDeleg
 
   func start(id: String, name: String, port: Int) throws {
     guard (1...65535).contains(port), id.range(of: "^[A-Za-z0-9_-]{1,128}$", options: .regularExpression) != nil else {
-      throw PlatformFailure.invalid("无效的设备 ID 或服务端口")
+      throw PlatformFailure.invalid(.invalidDiscoveryArguments)
     }
     stop()
     selfID = id
@@ -126,7 +126,7 @@ final class LanDiscovery: NSObject, FlutterStreamHandler, NetServiceBrowserDeleg
   }
   private func error(_ stage: String, _ info: [String: NSNumber]) {
     sink?(["type": "error", "stage": stage, "code": info[NetService.errorCode]?.intValue ?? -1,
-           "message": "局域网发现失败，请检查系统设置中的本地网络权限；也可使用手动连接"])
+           "message": AppText.text(.discoveryFailed)])
   }
 
   private static func ipv4(_ data: Data) -> String? {

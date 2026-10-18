@@ -15,6 +15,7 @@
 #include <utility>
 #include <vector>
 
+#include "app_text.h"
 #include "discovery_core.h"
 #include "storage_core.h"
 #include "windows_platform.h"
@@ -57,7 +58,7 @@ std::string AddressText(IP4_ADDRESS address) {
 Map ErrorEvent(const char* stage, DWORD status) {
   return {{Value("type"), Value("error")}, {Value("stage"), Value(stage)},
           {Value("code"), Value(static_cast<int64_t>(status))},
-          {Value("message"), Value("局域网发现失败，请检查专用网络、防火墙与 DNS Client 服务；也可使用手动连接")}};
+          {Value("message"), Value(app_text::Utf8(TextId::kDiscoveryFailed))}};
 }
 }  // namespace
 
@@ -319,7 +320,9 @@ LanDiscovery::LanDiscovery(std::shared_ptr<UiDispatcher> dispatcher, Event event
 LanDiscovery::~LanDiscovery() { Stop(); }
 
 void LanDiscovery::Start(const std::string& id, const std::string& name, uint16_t port) {
-  if (!IsPeerId(id) || port == 0) throw StorageError("INVALID_ARGUMENT", "无效的设备 ID 或服务端口");
+  if (!IsPeerId(id) || port == 0) {
+    throw StorageError("INVALID_ARGUMENT", app_text::Utf8(TextId::kInvalidDiscoveryArguments));
+  }
   Stop();
   auto state = std::make_shared<State>();
   state->id = id;
@@ -341,7 +344,7 @@ void LanDiscovery::Start(const std::string& id, const std::string& name, uint16_
       host.c_str(), nullptr, nullptr, port, 0, 0, 3, keys, values);
   if (!registration->request.pServiceInstance) {
     Stop();
-    throw StorageError("DISCOVERY_FAILED", "无法创建 Windows DNS-SD 服务");
+    throw StorageError("DISCOVERY_FAILED", app_text::Utf8(TextId::kDiscoveryServiceFailed));
   }
   registration->request.pRegisterCompletionCallback = Registration::Complete;
   registration->request.pQueryContext = registration.get();
@@ -420,7 +423,7 @@ Map LanDiscovery::LocalInfo() {
         GAA_FLAG_SKIP_DNS_SERVER, nullptr, reinterpret_cast<IP_ADAPTER_ADDRESSES*>(buffer.data()), &length);
   }
   if (status != ERROR_SUCCESS && status != ERROR_NO_DATA) {
-    throw StorageError("NETWORK_UNAVAILABLE", "无法读取 Windows 网络接口");
+    throw StorageError("NETWORK_UNAVAILABLE", app_text::Utf8(TextId::kNetworkInterfacesUnavailable));
   }
   std::set<std::string> hosts;
   if (status == ERROR_SUCCESS) {

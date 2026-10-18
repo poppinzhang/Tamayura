@@ -1,5 +1,7 @@
 import 'dart:typed_data';
 
+import '../l10n/app_locale.dart';
+
 class SharedFolder {
   const SharedFolder({required this.id, required this.uri, required this.name});
 
@@ -19,7 +21,7 @@ class SharedFolder {
         uri.isEmpty ||
         name is! String ||
         name.isEmpty) {
-      throw const FormatException('共享目录配置无效，请重新选择目录');
+      throw FormatException(AppLocale.strings.errorSharedFolderConfig);
     }
     return SharedFolder(id: id, uri: uri, name: name);
   }
@@ -31,13 +33,13 @@ List<String> mediaPathSegments(String relativePath) {
       relativePath.length > 4096 ||
       relativePath.contains('\\') ||
       RegExp(r'^[a-zA-Z]:|[\x00-\x1f\x7f-\x9f]').hasMatch(relativePath)) {
-    throw const FormatException('媒体文件的相对路径无效');
+    throw FormatException(AppLocale.strings.errorMediaPath);
   }
   final segments = relativePath.split('/');
   if (segments.any(
     (segment) => segment.isEmpty || segment == '.' || segment == '..',
   )) {
-    throw const FormatException('媒体文件的相对路径无效');
+    throw FormatException(AppLocale.strings.errorMediaPath);
   }
   return segments;
 }
@@ -48,7 +50,7 @@ void validateMediaLocation(MediaMetadata item) {
       mediaPathSegments(item.sharedFolderId).length != 1 ||
       mediaPathSegments(item.sharedFolderName).length != 1 ||
       mediaPathSegments(item.relativePath).last != item.name) {
-    throw const FormatException('媒体文件的共享目录或相对路径无效');
+    throw FormatException(AppLocale.strings.errorMediaFolderPath);
   }
 }
 
@@ -314,7 +316,7 @@ class SyncResult extends SnapshotCommit {
 class SnapshotConflictException implements Exception {
   const SnapshotConflictException();
   @override
-  String toString() => '媒体目录已更新，请重试同步';
+  String toString() => AppLocale.strings.errorCatalogChanged;
 }
 
 /// Largest original-file range read from a native adapter in one call, and
@@ -342,7 +344,7 @@ abstract class LocalMediaSource {
 class MediaSourceInterrupted implements Exception {
   const MediaSourceInterrupted();
   @override
-  String toString() => '共享目录已更新，请稍后重试';
+  String toString() => AppLocale.strings.errorSharedFoldersChanged;
 }
 
 class DownloadRecord {

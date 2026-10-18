@@ -41,6 +41,8 @@ class BackgroundSharingTest {
         FailingSharingNotificationManager.failNotify = false
         FailingSharingNotificationManager.failChannel = false
         application = RuntimeEnvironment.getApplication()
+        // Assertions use the Simplified Chinese resources.
+        AppText.setLanguage(application, "zh")
         sharing = BackgroundSharing.get(application)
         sharing.setEnabled(false)
         sharing.onListen(null, object : EventChannel.EventSink {

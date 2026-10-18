@@ -8,7 +8,7 @@ import UniformTypeIdentifiers
 enum MediaPreview {
   static func jpeg(file: SafeFile, video: Bool, maximum: Int, mimeType: String = "video/quicktime") throws -> Data {
     guard (1...2560).contains(maximum) else {
-      throw PlatformFailure.invalid("预览尺寸必须在 1 至 2560 之间")
+      throw PlatformFailure.invalid(.previewRange)
     }
     let url = URL(fileURLWithPath: "/dev/fd/\(file.fd)")
     var image: CGImage
@@ -28,7 +28,7 @@ enum MediaPreview {
       image = try withExtendedLifetime(loader) {
         if complete.wait(timeout: .now() + 20) != .success {
           generator.cancelAllCGImageGeneration()
-          throw PlatformFailure(code: "PREVIEW_UNAVAILABLE", message: "视频缩略图生成超时")
+          throw PlatformFailure(code: "PREVIEW_UNAVAILABLE", .videoThumbnailTimeout)
         }
         return try frame.get()
       }
@@ -40,7 +40,7 @@ enum MediaPreview {
               kCGImageSourceThumbnailMaxPixelSize: maximum,
               kCGImageSourceShouldCacheImmediately: true,
             ] as CFDictionary) else {
-        throw PlatformFailure(code: "PREVIEW_UNAVAILABLE", message: "无法解码此媒体文件")
+        throw PlatformFailure(code: "PREVIEW_UNAVAILABLE", .cannotDecode)
       }
       image = decoded
     }
@@ -48,21 +48,21 @@ enum MediaPreview {
     while true {
       let bytes = NSMutableData()
       guard let destination = CGImageDestinationCreateWithData(bytes, UTType.jpeg.identifier as CFString, 1, nil) else {
-        throw PlatformFailure(code: "PREVIEW_UNAVAILABLE", message: "无法生成预览")
+        throw PlatformFailure(code: "PREVIEW_UNAVAILABLE", .cannotCreatePreview)
       }
       CGImageDestinationAddImage(destination, image,
         [kCGImageDestinationLossyCompressionQuality: maximum <= 256 ? 0.8 : 0.88] as CFDictionary)
       guard CGImageDestinationFinalize(destination) else {
-        throw PlatformFailure(code: "PREVIEW_UNAVAILABLE", message: "无法编码预览")
+        throw PlatformFailure(code: "PREVIEW_UNAVAILABLE", .cannotEncodePreview)
       }
       if bytes.length <= 8 * 1024 * 1024 { return bytes as Data }
       let width = max(1, image.width / 2), height = max(1, image.height / 2)
       guard let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
         bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) else {
-        throw PlatformFailure(code: "PREVIEW_UNAVAILABLE", message: "无法缩小预览")
+        throw PlatformFailure(code: "PREVIEW_UNAVAILABLE", .cannotScalePreview)
       }
       context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
-      guard let reduced = context.makeImage() else { throw PlatformFailure.invalid("预览图过大") }
+      guard let reduced = context.makeImage() else { throw PlatformFailure.invalid(.previewTooLarge) }
       image = reduced
     }
   }
@@ -90,7 +90,7 @@ private final class DescriptorVideoLoader: NSObject, AVAssetResourceLoaderDelega
       }
       if let data = request.dataRequest {
         var offset = max(data.requestedOffset, data.currentOffset)
-        guard offset >= 0, offset <= size else { throw PlatformFailure.invalid("无效的视频读取范围") }
+        guard offset >= 0, offset <= size else { throw PlatformFailure.invalid(.invalidVideoRange) }
         let available = size - data.requestedOffset
         let count = data.requestsAllDataToEndOfResource ? available : min(Int64(data.requestedLength), available)
         let end = data.requestedOffset + count
@@ -112,11 +112,11 @@ private final class GeneratedFrame: @unchecked Sendable {
   func set(image: CGImage?, error: Error?) {
     lock.lock(); defer { lock.unlock() }
     if let image { value = .success(image) }
-    else { value = .failure(error ?? PlatformFailure(code: "PREVIEW_UNAVAILABLE", message: "无法读取视频缩略图")) }
+    else { value = .failure(error ?? PlatformFailure(code: "PREVIEW_UNAVAILABLE", .videoThumbnailUnreadable)) }
   }
   func get() throws -> CGImage {
     lock.lock(); defer { lock.unlock() }
-    guard let value else { throw PlatformFailure(code: "PREVIEW_UNAVAILABLE", message: "视频缩略图生成超时") }
+    guard let value else { throw PlatformFailure(code: "PREVIEW_UNAVAILABLE", .videoThumbnailTimeout) }
     return try value.get()
   }
 }

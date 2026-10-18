@@ -1,7 +1,8 @@
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart' show ThemeMode;
+import 'package:flutter/material.dart' show Locale, ThemeMode;
 
 import '../core/models.dart';
+import '../l10n/app_locale.dart';
 export '../core/models.dart'
     show
         SharedFolder,
@@ -97,6 +98,12 @@ class TransferView {
 abstract class TamayuraModel extends ChangeNotifier {
   ThemeMode get themeMode => ThemeMode.system;
   bool get themeModeSaving => false;
+  AppLanguage get language => AppLanguage.system;
+  bool get languageSaving => false;
+
+  /// The interface locale: the saved language, or the first supported
+  /// platform language when following the system.
+  Locale get locale => resolveAppLocale(language, AppLocale.systemLocales());
   bool get albumDetailedMode => false;
   bool get albumDetailedModeSaving => false;
   int get autoSyncIntervalMinutes => 10;
@@ -138,6 +145,14 @@ abstract class TamayuraModel extends ChangeNotifier {
   Future<void> initialize();
   Future<void> shutdownForUpdate() async {}
   Future<void> setThemeMode(ThemeMode mode);
+  Future<void> setLanguage(AppLanguage language) async {}
+
+  /// The platform's preferred languages changed; a model following the
+  /// system language notifies its listeners so the interface can switch.
+  void systemLocalesChanged() {
+    if (language == AppLanguage.system) notifyListeners();
+  }
+
   Future<void> setAlbumDetailedMode(bool enabled) async {}
   Future<void> setAutoSyncIntervalMinutes(int minutes) async {}
   Future<void> setBackgroundSharing(bool enabled) async {}

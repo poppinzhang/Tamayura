@@ -2,9 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../app/app_info.dart';
 import '../app/endpoint.dart';
-
-const _projectName = 'Tamayura · 玉响';
-const _projectSummary = '在局域网设备之间浏览与按需传递照片、视频，让美好的瞬间随手可及。';
+import '../l10n/app_locale.dart';
 
 class AboutPage extends StatefulWidget {
   const AboutPage({super.key, this.loadVersion = AppVersion.load});
@@ -27,7 +25,7 @@ class _AboutPageState extends State<AboutPage> {
   @override
   Widget build(BuildContext context) => _InfoPage(
     pageKey: const Key('about-page'),
-    title: '关于',
+    title: context.l10n.aboutTitle,
     children: [
       const SizedBox(height: 12),
       Icon(
@@ -36,16 +34,16 @@ class _AboutPageState extends State<AboutPage> {
         color: Theme.of(context).colorScheme.primary,
       ),
       const SizedBox(height: 16),
-      const Text(
-        _projectName,
+      Text(
+        context.l10n.appTitle,
         textAlign: TextAlign.center,
-        style: TextStyle(fontSize: 26, fontWeight: FontWeight.w700),
+        style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w700),
       ),
       const SizedBox(height: 12),
-      const Text(
-        _projectSummary,
+      Text(
+        context.l10n.aboutSummary,
         textAlign: TextAlign.center,
-        style: TextStyle(height: 1.7),
+        style: const TextStyle(height: 1.7),
       ),
       const SizedBox(height: 28),
       _InfoCard(
@@ -54,26 +52,29 @@ class _AboutPageState extends State<AboutPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text('版本号', style: TextStyle(fontWeight: FontWeight.w600)),
+              Text(
+                context.l10n.aboutVersion,
+                style: const TextStyle(fontWeight: FontWeight.w600),
+              ),
               const SizedBox(height: 8),
               FutureBuilder<AppVersion>(
                 future: _version,
                 builder: (context, snapshot) {
                   if (snapshot.connectionState != ConnectionState.done) {
-                    return const Text('正在读取版本…');
+                    return Text(context.l10n.aboutReadingVersion);
                   }
                   if (snapshot.hasError || !snapshot.hasData) {
                     return Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text('暂时无法读取版本信息'),
+                        Text(context.l10n.aboutVersionUnavailable),
                         TextButton.icon(
                           key: const Key('retry-app-version'),
                           onPressed: () => setState(() {
                             _version = Future.sync(widget.loadVersion);
                           }),
                           icon: const Icon(Icons.refresh_rounded),
-                          label: const Text('重试'),
+                          label: Text(context.l10n.commonRetry),
                         ),
                       ],
                     );
@@ -93,7 +94,7 @@ class _AboutPageState extends State<AboutPage> {
         child: ListTile(
           key: const Key('project-license-entry'),
           leading: const Icon(Icons.code_rounded),
-          title: const Text('项目开源许可'),
+          title: Text(context.l10n.aboutProjectLicense),
           subtitle: const Text('Apache-2.0'),
           trailing: const Icon(Icons.chevron_right_rounded),
           onTap: () => Navigator.of(context).push<void>(
@@ -106,11 +107,13 @@ class _AboutPageState extends State<AboutPage> {
         child: ListTile(
           key: const Key('dependency-licenses-entry'),
           leading: const Icon(Icons.description_outlined),
-          title: const Text('第三方开源许可'),
-          subtitle: const Text('感谢 Flutter 与开源社区'),
+          title: Text(context.l10n.aboutThirdPartyLicenses),
+          subtitle: Text(context.l10n.aboutThirdPartyLicensesSubtitle),
           trailing: const Icon(Icons.chevron_right_rounded),
-          onTap: () =>
-              showLicensePage(context: context, applicationName: _projectName),
+          onTap: () => showLicensePage(
+            context: context,
+            applicationName: context.l10n.appTitle,
+          ),
         ),
       ),
       const SizedBox(height: 12),
@@ -118,8 +121,8 @@ class _AboutPageState extends State<AboutPage> {
         child: ListTile(
           key: const Key('musings-entry'),
           leading: const Icon(Icons.photo_camera_outlined),
-          title: const Text('碎碎念'),
-          subtitle: const Text('关于名字、摄影，还有一个特别的端口'),
+          title: Text(context.l10n.aboutMusings),
+          subtitle: Text(context.l10n.aboutMusingsSubtitle),
           trailing: const Icon(Icons.chevron_right_rounded),
           onTap: () => Navigator.of(
             context,
@@ -153,22 +156,19 @@ class _ProjectLicensePageState extends State<ProjectLicensePage> {
     pageKey: const Key('project-license-page'),
     title: 'Apache-2.0',
     children: [
-      const Text(
-        'Tamayura 采用 Apache License 2.0 开源许可。以下为完整许可正文。',
-        style: TextStyle(height: 1.7),
-      ),
+      Text(context.l10n.licenseIntro, style: const TextStyle(height: 1.7)),
       const SizedBox(height: 20),
       FutureBuilder<String>(
         future: _license,
         builder: (context, snapshot) {
           if (snapshot.connectionState != ConnectionState.done) {
-            return const Text('正在读取许可…');
+            return Text(context.l10n.licenseReading);
           }
           if (snapshot.hasError || !snapshot.hasData) {
             return Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('暂时无法读取许可正文'),
+                Text(context.l10n.licenseUnavailable),
                 TextButton.icon(
                   key: const Key('retry-project-license'),
                   onPressed: () => setState(() {
@@ -177,7 +177,7 @@ class _ProjectLicensePageState extends State<ProjectLicensePage> {
                     ).loadString('LICENSE', cache: false);
                   }),
                   icon: const Icon(Icons.refresh_rounded),
-                  label: const Text('重试'),
+                  label: Text(context.l10n.commonRetry),
                 ),
               ],
             );
@@ -197,31 +197,21 @@ class MusingsPage extends StatelessWidget {
   const MusingsPage({super.key});
 
   @override
-  Widget build(BuildContext context) => const _InfoPage(
-    pageKey: Key('musings-page'),
-    title: '碎碎念',
+  Widget build(BuildContext context) => _InfoPage(
+    pageKey: const Key('musings-page'),
+    title: context.l10n.aboutMusings,
     children: [
       _StorySection(
-        title: '名字来自《玉响》',
-        text:
-            '项目取名自动画《玉响》（Tamayura / たまゆら）。'
-            '这是一部以摄影为线索、描绘日常与成长的动画：'
-            '喜欢摄影的沢渡楓来到父亲的故乡——广岛县竹原市，'
-            '用相机记录身边的风景，也与朋友们一起寻找生活中的小小幸福。',
+        title: context.l10n.musingNameTitle,
+        text: context.l10n.musingNameText,
       ),
       _StorySection(
-        title: '把美好的瞬间，留在身边',
-        text:
-            '摄影让转瞬即逝的光、风景和笑容有了可以重逢的地方。'
-            '玉响这个项目也是为此而生：让记录下来的美好，在自己的设备之间轻松流动。'
-            '无论照片留在哪一台设备里，都希望你能随时翻到、取回，再分享给在意的人。',
+        title: context.l10n.musingMomentsTitle,
+        text: context.l10n.musingMomentsText,
       ),
       _StorySection(
-        title: '50728，一个小小的纪念',
-        text:
-            '沢渡（さわたり）楓（ふう）的生日是 1995 年 7 月 28 日。'
-            '取年份末位的「5」和月日的「0728」，组成了玉响的默认端口 '
-            '${LanEndpoint.defaultPort}。每一次连接，也藏着对这部动画的一点喜欢。',
+        title: context.l10n.musingPortTitle,
+        text: context.l10n.musingPortText(LanEndpoint.defaultPort),
       ),
     ],
   );

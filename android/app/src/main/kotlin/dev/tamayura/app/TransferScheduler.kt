@@ -24,10 +24,12 @@ internal object TransferScheduler {
     private fun scheduler(context: Context): JobScheduler =
         (context.getSystemService(Context.JOB_SCHEDULER_SERVICE) as JobScheduler).forNamespace(NAMESPACE)
 
+    // Recreating an existing channel renames it in the current language.
     fun ensureNotificationChannel(context: Context) {
         val manager = context.getSystemService(NotificationManager::class.java)
-        manager.createNotificationChannel(NotificationChannel(CHANNEL, "媒体下载", NotificationManager.IMPORTANCE_LOW).apply {
-            description = "局域网媒体下载进度与完成结果"
+        manager.createNotificationChannel(NotificationChannel(CHANNEL,
+            AppText.get(context, R.string.transfer_channel_name), NotificationManager.IMPORTANCE_LOW).apply {
+            description = AppText.get(context, R.string.transfer_channel_description)
         })
     }
 
@@ -45,7 +47,9 @@ internal object TransferScheduler {
         }.toMap()
         val id = TransferPolicy.jobId(taskId, allocated)
         if (allocated[id] != taskId) {
-            check(preferences.edit().putString("job_$id", taskId).commit()) { "无法保存下载调度标识" }
+            check(preferences.edit().putString("job_$id", taskId).commit()) {
+                AppText.get(context, R.string.transfer_error_job_id)
+            }
         }
         return id
     }
@@ -71,7 +75,7 @@ internal object TransferScheduler {
             .setBackoffCriteria(10_000, JobInfo.BACKOFF_POLICY_EXPONENTIAL)
             .build()
         check(scheduler.schedule(job) == JobScheduler.RESULT_SUCCESS) {
-            "系统未接受下载任务，请在应用可见时重试"
+            AppText.get(context, R.string.transfer_error_rejected)
         }
     }
 
@@ -89,7 +93,7 @@ internal object TransferScheduler {
 
     fun directory(context: Context): String {
         val path = File(context.filesDir, "transfer-staging")
-        check(path.isDirectory || path.mkdirs()) { "下载暂存目录不可用" }
+        check(path.isDirectory || path.mkdirs()) { AppText.get(context, R.string.transfer_error_staging) }
         return path.absolutePath
     }
 }

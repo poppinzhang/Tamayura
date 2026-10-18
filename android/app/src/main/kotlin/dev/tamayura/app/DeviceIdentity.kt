@@ -3,7 +3,9 @@ package dev.tamayura.app
 import java.util.Locale
 
 internal class DeviceIdentityUnavailableException(cause: Exception? = null) :
-    IllegalStateException("无法读取 Android 设备标识，请重启应用后重试", cause)
+    IllegalStateException("Cannot read the Android device identifier", cause), LocalizedText {
+    override val textId = R.string.error_device_id
+}
 
 /** The system owns Android identity; app data and display names never determine it. */
 internal object DeviceIdentity {

@@ -50,7 +50,7 @@ final class DirectoryBookmarks: DirectoryAccess {
     let bookmark = (defaults.dictionary(forKey: key) as? [String: Data])?[uri]
     lock.unlock()
     guard let bookmark else {
-      throw PlatformFailure(code: "PERMISSION_LOST", message: "目录授权已失效，请重新选择目录")
+      throw PlatformFailure(code: "PERMISSION_LOST", .permissionLost)
     }
     var stale = false
     let url: URL
@@ -58,7 +58,7 @@ final class DirectoryBookmarks: DirectoryAccess {
       url = try URL(resolvingBookmarkData: bookmark, options: [.withSecurityScope, .withoutUI],
                     relativeTo: nil, bookmarkDataIsStale: &stale)
     } catch {
-      throw PlatformFailure(code: "PERMISSION_LOST", message: "无法恢复目录授权，请重新选择目录")
+      throw PlatformFailure(code: "PERMISSION_LOST", .permissionRestoreFailed)
     }
     let lease = DirectoryLease(url: url.standardizedFileURL)
     if stale {
@@ -110,6 +110,6 @@ final class DirectoryBookmarks: DirectoryAccess {
       } catch { failure = error }
     }
     if let failure { throw failure }
-    throw PlatformFailure(code: "PERMISSION_LOST", message: "文件不在已授权目录中，请重新选择接收目录")
+    throw PlatformFailure(code: "PERMISSION_LOST", .fileOutsideGrant)
   }
 }

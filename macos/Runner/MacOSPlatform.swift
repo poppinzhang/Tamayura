@@ -37,7 +37,7 @@ final class MacOSPlatform: NSObject, NSSharingServicePickerDelegate, NSSharingSe
     let messenger = viewController.engine.binaryMessenger
     let methods = FlutterMethodChannel(name: "tamayura/platform", binaryMessenger: messenger)
     methods.setMethodCallHandler { [weak self] call, result in
-      guard let self else { result(FlutterError(code: "APP_CLOSED", message: "应用已退出", details: nil)); return }
+      guard let self else { result(FlutterError(code: "APP_CLOSED", message: AppText.text(.appClosed), details: nil)); return }
       self.handle(call, result: result)
     }
     let events = FlutterEventChannel(name: "tamayura/discovery", binaryMessenger: messenger)
@@ -48,13 +48,13 @@ final class MacOSPlatform: NSObject, NSSharingServicePickerDelegate, NSSharingSe
     updates.setMethodCallHandler { call, result in
       guard call.method == "openRelease" else { result(FlutterMethodNotImplemented); return }
       guard let args = call.arguments as? [String: Any], let url = args["url"] as? String else {
-        result(FlutterError(code: "INVALID_UPDATE_URL", message: "更新页面地址无效", details: nil)); return
+        result(FlutterError(code: "INVALID_UPDATE_URL", message: AppText.text(.invalidReleaseUrl), details: nil)); return
       }
       do {
         try ReleasePage.open(url)
         result(nil)
       } catch {
-        result(FlutterError(code: "OPEN_RELEASE_FAILED", message: "无法打开更新页面，请检查默认浏览器后重试", details: nil))
+        result(FlutterError(code: "OPEN_RELEASE_FAILED", message: AppText.text(.openReleaseFailed), details: nil))
       }
     }
     channels = [methods, events, sharingEvents, updates]
@@ -63,25 +63,30 @@ final class MacOSPlatform: NSObject, NSSharingServicePickerDelegate, NSSharingSe
   private func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
     let args = call.arguments as? [String: Any] ?? [:]
     func string(_ key: String) throws -> String {
-      guard let value = args[key] as? String, !value.isEmpty else { throw PlatformFailure.invalid("缺少 \(key)") }
+      guard let value = args[key] as? String, !value.isEmpty else { throw PlatformFailure.invalid(AppText.text(.missingArgument, key)) }
       return value
     }
     func strings(_ key: String) throws -> [String] {
-      guard let value = args[key] as? [String] else { throw PlatformFailure.invalid("缺少 \(key)") }
+      guard let value = args[key] as? [String] else { throw PlatformFailure.invalid(AppText.text(.missingArgument, key)) }
       return value
     }
     do {
       switch call.method {
       case "isMainWindowVisible": result(viewController?.view.window?.isVisible ?? false)
+      case "setLanguage":
+        guard AppText.setLanguage(try string("language")) else { throw PlatformFailure.invalid(.invalidLanguage) }
+        // Menus refresh even when following the system, whose language may have changed.
+        NotificationCenter.default.post(name: AppText.didChange, object: nil)
+        result(nil)
       case "pickDirectory": try pickDirectory(result)
       case "validateSharedDirectory":
         let uri = try string("uri"), existing = try strings("existingUris")
         background(result) { try self.media.validate(uri, existing: existing); return nil }
       case "scanDirectoriesMetadata":
-        guard let values = args["directories"] as? [[String: String]] else { throw PlatformFailure.invalid("缺少共享目录") }
+        guard let values = args["directories"] as? [[String: String]] else { throw PlatformFailure.invalid(.missingDirectories) }
         let directories = try values.map { value -> SharedDirectory in
           guard let id = value["id"], let uri = value["uri"], let name = value["name"] else {
-            throw PlatformFailure.invalid("共享目录配置无效")
+            throw PlatformFailure.invalid(.invalidDirectoryConfig)
           }
           return SharedDirectory(id: id, uri: uri, name: name)
         }
@@ -109,7 +114,7 @@ final class MacOSPlatform: NSObject, NSSharingServicePickerDelegate, NSSharingSe
       case "readRange":
         let id = try string("id")
         guard let offset = args["offset"] as? Int64, let length = args["length"] as? Int else {
-          throw PlatformFailure.invalid("缺少文件分块范围")
+          throw PlatformFailure.invalid(.missingRange)
         }
         background(result) { FlutterStandardTypedData(bytes: try self.media.read(id, offset: offset, length: length)) }
       case "readPreview":
@@ -122,7 +127,7 @@ final class MacOSPlatform: NSObject, NSSharingServicePickerDelegate, NSSharingSe
         }
       case "saveDownload":
         let sources = try strings("sourcePaths"), uri = try string("directoryUri"), name = try string("name")
-        guard let expectedSize = args["expectedSize"] as? Int64 else { throw PlatformFailure.invalid("缺少下载大小") }
+        guard let expectedSize = args["expectedSize"] as? Int64 else { throw PlatformFailure.invalid(.missingSize) }
         let directories = try strings("directories")
         background(result) {
           try self.bookmarks.withDirectory(uri) { root in
@@ -161,15 +166,15 @@ final class MacOSPlatform: NSObject, NSSharingServicePickerDelegate, NSSharingSe
       case "localInfo": background(result) { LanDiscovery.localInfo() }
       case "sharingStatus": result(sharing.status)
       case "setBackgroundSharing":
-        guard let enabled = args["enabled"] as? Bool else { throw PlatformFailure.invalid("缺少共享状态") }
+        guard let enabled = args["enabled"] as? Bool else { throw PlatformFailure.invalid(.missingSharingState) }
         sharing.setEnabled(enabled); result(sharing.status)
       case "setTransferActivity":
         let taskID = try string("taskId")
-        guard let active = args["active"] as? Bool else { throw PlatformFailure.invalid("缺少下载活动状态") }
+        guard let active = args["active"] as? Bool else { throw PlatformFailure.invalid(.missingTransferActivity) }
         activity.setTransferActive(taskID, active: active)
         result(nil)
       case "startDiscovery":
-        guard let port = args["port"] as? Int else { throw PlatformFailure.invalid("缺少服务端口") }
+        guard let port = args["port"] as? Int else { throw PlatformFailure.invalid(.missingPort) }
         try discovery.start(id: string("id"), name: string("name"), port: port)
         // Discovery is started/stopped together with the Dart gRPC listener.
         // Protect visible-but-unfocused sharing as well as background sharing.
@@ -199,18 +204,18 @@ final class MacOSPlatform: NSObject, NSSharingServicePickerDelegate, NSSharingSe
   }
 
   private func pickDirectory(_ result: @escaping FlutterResult) throws {
-    guard directoryPicker == nil else { throw PlatformFailure.invalid("目录选择器已打开") }
-    guard let window = viewController?.view.window else { throw PlatformFailure.invalid("请先打开应用窗口") }
+    guard directoryPicker == nil else { throw PlatformFailure.invalid(.pickerOpen) }
+    guard let window = viewController?.view.window else { throw PlatformFailure.invalid(.openWindowFirst) }
     let panel = NSOpenPanel()
     panel.canChooseFiles = false
     panel.canChooseDirectories = true
     panel.allowsMultipleSelection = false
     panel.canCreateDirectories = true
-    panel.prompt = "选择目录"
-    panel.message = "选择要共享或接收媒体文件的目录"
+    panel.prompt = AppText.text(.choosePrompt)
+    panel.message = AppText.text(.chooseMessage)
     directoryPicker = panel
     panel.beginSheetModal(for: window) { [weak self] response in
-      guard let self else { result(FlutterError(code: "APP_CLOSED", message: "应用已退出", details: nil)); return }
+      guard let self else { result(FlutterError(code: "APP_CLOSED", message: AppText.text(.appClosed), details: nil)); return }
       self.directoryPicker = nil
       guard response == .OK, let url = panel.url else { result(nil); return }
       do { result(["uri": try self.bookmarks.remember(url), "name": url.lastPathComponent]) }
@@ -221,8 +226,8 @@ final class MacOSPlatform: NSObject, NSSharingServicePickerDelegate, NSSharingSe
   private func launch(_ uri: String, share: Bool, result: @escaping FlutterResult) throws {
     let access = try bookmarks.fileAccess(uri)
     if share {
-      guard shareAccess == nil else { throw PlatformFailure.invalid("请先完成当前分享") }
-      guard let view = viewController?.view else { throw PlatformFailure.invalid("请先打开应用窗口") }
+      guard shareAccess == nil else { throw PlatformFailure.invalid(.shareInProgress) }
+      guard let view = viewController?.view else { throw PlatformFailure.invalid(.openWindowFirst) }
       let picker = NSSharingServicePicker(items: [access.url])
       shareAccess = access
       sharePicker = picker

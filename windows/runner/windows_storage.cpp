@@ -8,6 +8,8 @@
 #include <atomic>
 #include <utility>
 
+#include "app_text.h"
+
 namespace tamayura {
 namespace {
 using flutter::EncodableList;
@@ -75,7 +77,7 @@ EncodableValue PickDirectory(HWND window) {
   ShellCheck(picker->SetOptions(options | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM |
                                 FOS_PATHMUSTEXIST | FOS_DONTADDTORECENT | FOS_NOCHANGEDIR),
               "Cannot configure directory picker");
-  picker->SetTitle(L"选择要共享或接收媒体文件的目录");
+  picker->SetTitle(app_text::Text(TextId::kChooseFolder));
   const HRESULT shown = picker->Show(window);
   if (shown == HRESULT_FROM_WIN32(ERROR_CANCELLED)) return EncodableValue();
   ShellCheck(shown, "Cannot show directory picker");

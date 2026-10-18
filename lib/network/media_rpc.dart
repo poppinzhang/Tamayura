@@ -9,6 +9,7 @@ import 'package:grpc/grpc.dart';
 
 import '../core/models.dart';
 import '../core/catalog_repository.dart';
+import '../l10n/app_locale.dart';
 import 'generated/media.pbgrpc.dart' as wire;
 
 const mediaProtocolVersion = 4;
@@ -453,10 +454,10 @@ class MediaRpcClient implements MediaTransferClient {
     if (response.protocolVersion != mediaProtocolVersion ||
         response.id.isEmpty ||
         response.name.isEmpty) {
-      throw const FormatException('对端不是兼容的 Tamayura 设备，请确认两端应用版本一致');
+      throw FormatException(AppLocale.strings.errorIncompatiblePeer);
     }
     if (peer.id.isNotEmpty && peer.id != response.id) {
-      throw const FormatException('此 IP 地址已由另一台设备使用，请重新发现设备');
+      throw FormatException(AppLocale.strings.errorAddressInUse);
     }
     return _identity = Peer(
       id: response.id,
@@ -498,7 +499,7 @@ class MediaRpcClient implements MediaTransferClient {
         (!response.notModified &&
             response.items.isEmpty &&
             response.nextPageToken.isNotEmpty)) {
-      throw const FormatException('对端目录分页信息无效，请刷新后重试');
+      throw FormatException(AppLocale.strings.errorPeerPaging);
     }
     final items = response.items
         .map(
@@ -517,7 +518,7 @@ class MediaRpcClient implements MediaTransferClient {
         .toList();
     final ids = <String>{};
     if (items.any((item) => !_validMetadata(item) || !ids.add(item.id))) {
-      throw const FormatException('对端返回的媒体目录无效，请刷新后重试');
+      throw FormatException(AppLocale.strings.errorPeerCatalogInvalid);
     }
     return CatalogPage(
       revision: response.revision,
@@ -539,7 +540,7 @@ class MediaRpcClient implements MediaTransferClient {
     if (response.id != id ||
         response.revision != revision ||
         response.data.length > maxThumbnailBytes) {
-      throw const FormatException('对端缩略图无效，请刷新后重试');
+      throw FormatException(AppLocale.strings.errorPeerThumbnail);
     }
     return Uint8List.fromList(response.data);
   }
@@ -623,7 +624,7 @@ class MediaRpcClient implements MediaTransferClient {
         var metadataComplete = false;
         if (first.notModified) {
           if (checkpoint!.totalCount != total) {
-            throw const FormatException('对端目录数量不一致，请重试');
+            throw FormatException(AppLocale.strings.errorPeerCatalogCount);
           }
           nextToken = checkpoint.nextPageToken;
           metadataComplete = checkpoint.metadataComplete;
@@ -673,13 +674,17 @@ class MediaRpcClient implements MediaTransferClient {
           if (page.revision != revision ||
               page.totalCount != total ||
               page.notModified) {
-            throw const FormatException('对端目录版本发生变化，请重试');
+            throw FormatException(AppLocale.strings.errorPeerCatalogVersion);
           }
           received += page.items.length;
-          if (received > total) throw const FormatException('对端目录数量不一致，请重试');
+          if (received > total) {
+            throw FormatException(AppLocale.strings.errorPeerCatalogCount);
+          }
           final token = page.nextPageToken;
           if (token != null && !tokens.add(token)) {
-            throw const FormatException('对端目录分页重复，请重试');
+            throw FormatException(
+              AppLocale.strings.errorPeerCatalogPageRepeated,
+            );
           }
           final missing = await repository.stageMediaPage(
             stage,
@@ -698,7 +703,7 @@ class MediaRpcClient implements MediaTransferClient {
           );
         }
         if (received != total) {
-          throw const FormatException('媒体目录尚未接收完整，原有离线相册保持不变');
+          throw FormatException(AppLocale.strings.errorCatalogIncomplete);
         }
         report(SyncPhase.committing);
         final committed = await repository.commitPeerSnapshot(stage);
@@ -776,13 +781,13 @@ class MediaRpcClient implements MediaTransferClient {
         if (chunk.offset.toInt() != cursor ||
             chunk.data.isEmpty ||
             chunk.data.length > windowEnd - cursor) {
-          throw const FormatException('收到的文件分片有误，请重新下载');
+          throw FormatException(AppLocale.strings.errorChunkInvalid);
         }
         cursor += chunk.data.length;
         yield Uint8List.fromList(chunk.data);
       }
       if (cursor != windowEnd) {
-        throw const FormatException('文件传输提前结束，请重新下载');
+        throw FormatException(AppLocale.strings.errorTransferEnded);
       }
     } while (cursor < end);
   }

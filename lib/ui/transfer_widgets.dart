@@ -1,17 +1,19 @@
 import 'package:flutter/material.dart';
 
 import '../app/view_state.dart';
+import '../l10n/app_locale.dart';
 import 'desktop_layout.dart';
 
-String transferLabel(TransferStatus status) => switch (status) {
-  TransferStatus.queued => '等待下载',
-  TransferStatus.downloading => '正在下载',
-  TransferStatus.saving => '正在保存到接收目录',
-  TransferStatus.completed => '已保存到本机',
-  TransferStatus.failed => '下载失败',
-  TransferStatus.cancelled => '已暂停',
-  TransferStatus.discarded => '等待清理暂存',
-};
+String transferLabel(AppLocalizations l10n, TransferStatus status) =>
+    switch (status) {
+      TransferStatus.queued => l10n.transferQueued,
+      TransferStatus.downloading => l10n.transferDownloading,
+      TransferStatus.saving => l10n.transferSaving,
+      TransferStatus.completed => l10n.transferCompleted,
+      TransferStatus.failed => l10n.transferFailed,
+      TransferStatus.cancelled => l10n.transferPaused,
+      TransferStatus.discarded => l10n.transferDiscarded,
+    };
 
 String formatMediaBytes(int bytes) {
   if (bytes >= 1024 * 1024 * 1024) {
@@ -44,6 +46,7 @@ class TransferControls extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
+    final l10n = context.l10n;
     final current = transfer;
     final complete = current?.complete ?? false;
     final running = current?.running ?? false;
@@ -73,7 +76,9 @@ class TransferControls extends StatelessWidget {
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  status == null ? '原文件尚未下载' : transferLabel(status),
+                  status == null
+                      ? l10n.transferNotDownloaded
+                      : transferLabel(l10n, status),
                   style: const TextStyle(fontWeight: FontWeight.w600),
                 ),
               ),
@@ -109,7 +114,7 @@ class TransferControls extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.only(top: 5),
               child: Text(
-                '可返回相册或切换应用，接收任务会继续进行。',
+                l10n.transferContinues,
                 style: TextStyle(
                   fontSize: 12,
                   color: colors.onSurfaceVariant,
@@ -130,7 +135,7 @@ class TransferControls extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.only(top: 5),
             child: Text(
-              '已暂存约 ${formatMediaBytes(current.receivedBytes)}，暂停会保留，删除任务可释放空间。',
+              l10n.transferStaged(formatMediaBytes(current.receivedBytes)),
               style: TextStyle(fontSize: 12, color: colors.onSurfaceVariant),
             ),
           ),
@@ -138,7 +143,7 @@ class TransferControls extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.only(top: 5),
             child: Text(
-              '第 ${current!.attempt} 次尝试',
+              l10n.transferAttempt(current!.attempt),
               style: TextStyle(fontSize: 11, color: colors.onSurfaceVariant),
             ),
           ),
@@ -157,7 +162,11 @@ class TransferControls extends StatelessWidget {
                       : Icons.ios_share_rounded,
                   size: 18,
                 ),
-                label: Text(isWindowsDesktop ? '在文件夹中显示' : '分享'),
+                label: Text(
+                  isWindowsDesktop
+                      ? l10n.transferShowInFolder
+                      : l10n.commonShare,
+                ),
               ),
               OutlinedButton.icon(
                 key: Key('open-${item.key}'),
@@ -168,14 +177,16 @@ class TransferControls extends StatelessWidget {
                       : Icons.open_in_new_rounded,
                   size: 18,
                 ),
-                label: Text(item.isVideo ? '播放视频' : '用其他应用打开'),
+                label: Text(
+                  item.isVideo ? l10n.transferPlayVideo : l10n.transferOpenWith,
+                ),
               ),
             ] else if (running)
               OutlinedButton.icon(
                 key: Key('cancel-${item.key}'),
                 onPressed: onCancel,
                 icon: const Icon(Icons.pause_rounded, size: 17),
-                label: const Text('暂停下载'),
+                label: Text(l10n.transferPause),
               )
             else if (status != TransferStatus.discarded)
               FilledButton.icon(
@@ -184,10 +195,10 @@ class TransferControls extends StatelessWidget {
                 icon: const Icon(Icons.download_rounded, size: 18),
                 label: Text(
                   status == TransferStatus.failed
-                      ? '重试下载'
+                      ? l10n.transferRetry
                       : status == TransferStatus.cancelled
-                      ? '继续下载'
-                      : '下载原文件',
+                      ? l10n.transferResume
+                      : l10n.transferDownloadOriginal,
                 ),
               ),
             if (current != null && !complete)
@@ -195,7 +206,11 @@ class TransferControls extends StatelessWidget {
                 key: Key('discard-${item.key}'),
                 onPressed: onDiscard,
                 icon: const Icon(Icons.delete_outline_rounded, size: 18),
-                label: Text(running ? '取消并删除' : '删除任务并释放空间'),
+                label: Text(
+                  running
+                      ? l10n.transferCancelAndDelete
+                      : l10n.transferDeleteTask,
+                ),
               ),
           ],
         ),

@@ -17,12 +17,13 @@ ROOT_FILES = (
     "LICENSE",
     "README.md",
     "analysis_options.yaml",
+    "l10n.yaml",
     "pubspec.yaml",
     "pubspec.lock",
 )
 OPTIONAL_FILES = (".gitignore", ".metadata", ".github/workflows/windows.yml")
 SOURCE_SUFFIXES = {
-    "lib": {".dart"},
+    "lib": {".dart", ".arb"},
     "test": {".dart"},
     "tool": {".dart"},
     "proto": {".proto"},

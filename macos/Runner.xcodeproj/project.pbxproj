@@ -21,6 +21,8 @@
 /* End PBXAggregateTarget section */
 
 /* Begin PBXBuildFile section */
+		AABBCCDD0000000000000109 /* InfoPlist.strings in Resources */ = {isa = PBXBuildFile; fileRef = AABBCCDD0000000000000009 /* InfoPlist.strings */; };
+		AABBCCDD0000000000000108 /* AppText.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCCDD0000000000000008 /* AppText.swift */; };
 		AABBCCDD0000000000000107 /* ReleasePage.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCCDD0000000000000007 /* ReleasePage.swift */; };
 		AABBCCDD0000000000000106 /* DesktopStatusItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCCDD0000000000000006 /* DesktopStatusItem.swift */; };
 		AABBCCDD0000000000000105 /* NetworkActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCCDD0000000000000005 /* NetworkActivity.swift */; };
@@ -69,6 +71,10 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		AABBCCDD000000000000000C /* ja */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ja; path = ja.lproj/InfoPlist.strings; sourceTree = "<group>"; };
+		AABBCCDD000000000000000B /* zh-Hans */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hans"; path = "zh-Hans.lproj/InfoPlist.strings"; sourceTree = "<group>"; };
+		AABBCCDD000000000000000A /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/InfoPlist.strings; sourceTree = "<group>"; };
+		AABBCCDD0000000000000008 /* AppText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppText.swift; sourceTree = "<group>"; };
 		AABBCCDD0000000000000007 /* ReleasePage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReleasePage.swift; sourceTree = "<group>"; };
 		AABBCCDD0000000000000006 /* DesktopStatusItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesktopStatusItem.swift; sourceTree = "<group>"; };
 		AABBCCDD0000000000000005 /* NetworkActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkActivity.swift; sourceTree = "<group>"; };
@@ -162,6 +168,7 @@
 				33CC10F22044A3C60003C045 /* Assets.xcassets */,
 				33CC10F42044A3C60003C045 /* MainMenu.xib */,
 				33CC10F72044A3C60003C045 /* Info.plist */,
+				AABBCCDD0000000000000009 /* InfoPlist.strings */,
 			);
 			name = Resources;
 			path = ..;
@@ -190,6 +197,7 @@
 				AABBCCDD0000000000000005 /* NetworkActivity.swift */,
 				AABBCCDD0000000000000006 /* DesktopStatusItem.swift */,
 				AABBCCDD0000000000000007 /* ReleasePage.swift */,
+				AABBCCDD0000000000000008 /* AppText.swift */,
 				33CC10F02044A3C60003C045 /* AppDelegate.swift */,
 				33CC11122044BFA00003C045 /* MainFlutterWindow.swift */,
 				33E51913231747F40026EE4D /* DebugProfile.entitlements */,
@@ -289,6 +297,8 @@
 			knownRegions = (
 				en,
 				Base,
+				"zh-Hans",
+				ja,
 			);
 			mainGroup = 33CC10E42044A3C60003C045;
 			packageReferences = (
@@ -319,6 +329,7 @@
 			files = (
 				33CC10F32044A3C60003C045 /* Assets.xcassets in Resources */,
 				33CC10F62044A3C60003C045 /* MainMenu.xib in Resources */,
+				AABBCCDD0000000000000109 /* InfoPlist.strings in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -387,6 +398,7 @@
 				AABBCCDD0000000000000105 /* NetworkActivity.swift in Sources */,
 				AABBCCDD0000000000000106 /* DesktopStatusItem.swift in Sources */,
 				AABBCCDD0000000000000107 /* ReleasePage.swift in Sources */,
+				AABBCCDD0000000000000108 /* AppText.swift in Sources */,
 				33CC10F12044A3C60003C045 /* AppDelegate.swift in Sources */,
 				335BBD1B22A9A15E00E9071D /* GeneratedPluginRegistrant.swift in Sources */,
 			);
@@ -414,6 +426,17 @@
 				33CC10F52044A3C60003C045 /* Base */,
 			);
 			name = MainMenu.xib;
+			path = Runner;
+			sourceTree = "<group>";
+		};
+		AABBCCDD0000000000000009 /* InfoPlist.strings */ = {
+			isa = PBXVariantGroup;
+			children = (
+				AABBCCDD000000000000000A /* en */,
+				AABBCCDD000000000000000B /* zh-Hans */,
+				AABBCCDD000000000000000C /* ja */,
+			);
+			name = InfoPlist.strings;
 			path = Runner;
 			sourceTree = "<group>";
 		};

@@ -201,14 +201,14 @@ struct StorageCoreTests {
         try rejects("I/O error \(number)", code: code) {
           _ = try catalog.thumbnail(id) { _, _ in
             errno = number
-            throw PlatformFailure.io("Simulated file operation failure")
+            throw PlatformFailure.io(.cannotAccess)
           }
         }
       }
       for number in [ENOENT, ENOTDIR] {
         let thumbnail = try catalog.thumbnail(id) { _, _ in
           errno = number
-          throw PlatformFailure.io("Missing media path")
+          throw PlatformFailure.io(.mediaMissing)
         }
         try expect(thumbnail.isEmpty, "missing media path still falls back")
       }

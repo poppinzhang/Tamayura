@@ -46,6 +46,8 @@ class TransferNotificationTest(private val access: NotificationAccess) {
 
     @Before fun setUp() {
         application = RuntimeEnvironment.getApplication()
+        // Assertions use the Simplified Chinese resources.
+        AppText.setLanguage(application, "zh")
         notifications = application.getSystemService(NotificationManager::class.java)
         if (access == NotificationAccess.DENIED_PERMISSION) {
             shadowOf(application).denyPermissions(Manifest.permission.POST_NOTIFICATIONS)
@@ -194,7 +196,7 @@ class TransferNotificationTest(private val access: NotificationAccess) {
         assertTrue(jobService.getIsJobFinished())
         assertTrue("A temporarily unreachable peer must use JobScheduler backoff",
             jobService.getIsRescheduleNeeded())
-        assertEquals(BackgroundTransferService.RETRY_TEXT,
+        assertEquals("对端暂时不可用，稍后自动重试",
             jobService.associations.last().notification.extras.getString(Notification.EXTRA_TEXT))
         assertTrue(ReflectionHelpers.getField<Map<Int, Any>>(current, "sessions").isEmpty())
     }

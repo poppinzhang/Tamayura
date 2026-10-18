@@ -24,6 +24,8 @@ internal class BackgroundSharing private constructor(private val context: Contex
     private val waiting = mutableListOf<MethodChannel.Result>()
     private val enabled get() = preferences.getBoolean("enabled", false)
 
+    private fun text(id: Int): String = AppText.get(context, id)
+
     fun status(): Map<String, Any?> = mapOf(
         "enabled" to enabled,
         "running" to running,
@@ -62,14 +64,14 @@ internal class BackgroundSharing private constructor(private val context: Contex
         publish()
         try {
             check(context.startForegroundService(Intent(context, BackgroundSharingService::class.java)) != null) {
-                "系统未接受后台共享服务"
+                text(R.string.sharing_error_rejected)
             }
             main.postDelayed({
                 if (generation == current && starting && service == null) {
-                    fail("后台共享服务启动超时，请重新打开应用后重试")
+                    fail(text(R.string.sharing_error_start_timeout))
                 }
             }, 10_000)
-        } catch (failure: Exception) { fail(failure.message ?: "无法启动后台共享") }
+        } catch (failure: Exception) { fail(failure.message ?: text(R.string.sharing_error_start)) }
     }
 
     /** Restore only while the user has an Activity in the foreground; no boot auto-start. */
@@ -77,6 +79,9 @@ internal class BackgroundSharing private constructor(private val context: Contex
         if (enabled && service == null && !starting) setEnabled(true)
         else publish() // Battery exemption can have changed in system settings.
     }
+
+    /** Show the current service notification in a newly chosen language. */
+    fun refreshNotification() = service?.refreshNotification()
 
     fun canStartService(): Boolean = enabled && !restartSuppressed
     fun isRunning(current: BackgroundSharingService): Boolean = service === current && running
@@ -94,7 +99,7 @@ internal class BackgroundSharing private constructor(private val context: Contex
         clearError()
         main.postDelayed({
             if (generation == currentGeneration && starting && sessionId == session) {
-                fail("后台共享初始化超时，请打开应用后重试")
+                fail(text(R.string.sharing_error_init_timeout))
             }
         }, 120_000)
         publish()
@@ -128,7 +133,7 @@ internal class BackgroundSharing private constructor(private val context: Contex
     fun stopped(current: BackgroundSharingService) {
         if (service !== current) return
         // An ordinary lifecycle teardown may be followed by a system sticky restart.
-        fail("后台共享服务已停止，请打开应用后重试", suppressRestart = false, stopNativeService = false)
+        fail(text(R.string.sharing_error_stopped), suppressRestart = false, stopNativeService = false)
     }
 
     private fun isCurrent(session: String): Boolean =

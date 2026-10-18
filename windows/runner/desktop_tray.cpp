@@ -4,6 +4,8 @@
 
 #include <cwchar>
 
+#include "app_text.h"
+
 namespace tamayura {
 
 DesktopTray::DesktopTray(HWND window, HICON icon, NotifyIcon notify_icon)
@@ -27,7 +29,7 @@ bool DesktopTray::AddIcon() noexcept {
   data.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP | NIF_SHOWTIP;
   data.uCallbackMessage = kCallbackMessage;
   data.hIcon = icon_;
-  wcscpy_s(data.szTip, L"玉响 Tamayura");
+  wcscpy_s(data.szTip, app_text::Text(TextId::kTrayTooltip));
   if (!notify_icon_(NIM_ADD, &data)) return false;
 
   icon_added_ = true;
@@ -50,6 +52,17 @@ void DesktopTray::RemoveIcon() noexcept {
   icon_added_ = false;
 }
 
+void DesktopTray::UpdateTooltip() noexcept {
+  if (!icon_added_) return;
+  NOTIFYICONDATAW data{};
+  data.cbSize = sizeof(data);
+  data.hWnd = window_;
+  data.uID = kIconId;
+  data.uFlags = NIF_TIP | NIF_SHOWTIP;
+  wcscpy_s(data.szTip, app_text::Text(TextId::kTrayTooltip));
+  notify_icon_(NIM_MODIFY, &data);
+}
+
 void DesktopTray::OpenWindow() noexcept {
   // SW_SHOW preserves a maximized window; SW_RESTORE unminimizes one.
   ShowWindow(window_, IsIconic(window_) ? SW_RESTORE : SW_SHOW);
@@ -62,10 +75,14 @@ void DesktopTray::ShowMenu(POINT position) noexcept {
     OpenWindow();
     return;
   }
+  // Built on demand, so the menu always uses the current interface language.
+  const auto language = app_text::Current();
   const bool populated =
-      AppendMenuW(menu, MF_STRING, kOpenCommand, L"打开玉响") &&
+      AppendMenuW(menu, MF_STRING, kOpenCommand,
+                  app_text::Text(TextId::kOpenApp, language)) &&
       AppendMenuW(menu, MF_SEPARATOR, 0, nullptr) &&
-      AppendMenuW(menu, MF_STRING, kQuitCommand, L"退出玉响");
+      AppendMenuW(menu, MF_STRING, kQuitCommand,
+                  app_text::Text(TextId::kQuitApp, language));
   if (!populated) {
     DestroyMenu(menu);
     OpenWindow();
@@ -101,6 +118,10 @@ std::optional<LRESULT> DesktopTray::HandleMessage(
         !IsWindowVisible(window_)) {
       OpenWindow();
     }
+    return 0;
+  }
+  if (message == kLanguageChangedMessage) {
+    UpdateTooltip();
     return 0;
   }
   if (message == kCallbackMessage) {

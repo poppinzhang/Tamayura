@@ -1,0 +1,3 @@
+/* Shown by macOS when Tamayura first asks for each permission. */
+"NSCameraUsageDescription" = "Scan another device's QR code to connect with Tamayura.";
+"NSLocalNetworkUsageDescription" = "Tamayura uses the local network to discover devices, sync media catalogs and transfer media files.";

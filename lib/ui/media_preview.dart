@@ -4,8 +4,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../app/view_state.dart';
+import '../l10n/app_locale.dart';
 import 'transfer_widgets.dart';
 import 'desktop_layout.dart';
+
+/// Why the saved original is not shown; worded when the page is built.
+enum _PreviewProblem { unavailable, readFailed }
 
 /// Preview never owns a download: leaving this route keeps the model's task alive.
 class MediaPreviewPage extends StatefulWidget {
@@ -28,7 +32,7 @@ class _MediaPreviewPageState extends State<MediaPreviewPage> {
   double _drag = 0;
   Uint8List? _fullImage;
   String? _loadedUri;
-  String? _previewError;
+  _PreviewProblem? _previewProblem;
   bool _loadingPreview = false;
   int _previewGeneration = 0;
   bool _deletingLocal = false;
@@ -67,7 +71,7 @@ class _MediaPreviewPageState extends State<MediaPreviewPage> {
       _previewGeneration++;
       _loadedUri = null;
       _fullImage = null;
-      _previewError = null;
+      _previewProblem = null;
       _loadingPreview = false;
     }
     if (!widget.item.isVideo && uri != null && uri != _loadedUri) {
@@ -81,7 +85,7 @@ class _MediaPreviewPageState extends State<MediaPreviewPage> {
     final generation = ++_previewGeneration;
     setState(() {
       _loadingPreview = true;
-      _previewError = null;
+      _previewProblem = null;
     });
     try {
       final bytes = await widget.model.loadPreview(
@@ -96,12 +100,12 @@ class _MediaPreviewPageState extends State<MediaPreviewPage> {
             ? bytes
             : null;
         if (_fullImage == null) {
-          _previewError = '原文件已保存，暂无法在应用内预览。可用其他应用打开。';
+          _previewProblem = _PreviewProblem.unavailable;
         }
       });
     } catch (_) {
       if (!mounted || generation != _previewGeneration) return;
-      setState(() => _previewError = '原文件预览读取失败，可重试或用其他应用打开。');
+      setState(() => _previewProblem = _PreviewProblem.readFailed);
     } finally {
       if (mounted && generation == _previewGeneration) {
         setState(() => _loadingPreview = false);
@@ -116,7 +120,7 @@ class _MediaPreviewPageState extends State<MediaPreviewPage> {
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('操作未完成，请检查网络或文件权限后重试。')));
+      ).showSnackBar(SnackBar(content: Text(context.l10n.previewActionFailed)));
     }
   }
 
@@ -135,8 +139,8 @@ class _MediaPreviewPageState extends State<MediaPreviewPage> {
       SnackBar(
         content: Text(
           deleted
-              ? '已删除本地文件，可重新下载。'
-              : widget.model.error ?? '本地文件未能删除，请检查目录权限后重试。',
+              ? context.l10n.previewLocalDeleted
+              : widget.model.error ?? context.l10n.previewLocalDeleteFailed,
         ),
       ),
     );
@@ -217,81 +221,95 @@ class _MediaPreviewPageState extends State<MediaPreviewPage> {
       useSafeArea: true,
       isScrollControlled: true,
       showDragHandle: true,
-      builder: (context) => FractionallySizedBox(
-        heightFactor: .75,
-        child: SafeArea(
-          top: false,
-          child: Column(
-            key: const Key('media-details-sheet'),
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(24, 0, 12, 8),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        '详细信息',
-                        style: Theme.of(context).textTheme.titleLarge,
-                      ),
-                    ),
-                    IconButton(
-                      key: const Key('close-media-details'),
-                      tooltip: '关闭详细信息',
-                      onPressed: () => Navigator.of(context).pop(),
-                      icon: const Icon(Icons.close_rounded),
-                    ),
-                  ],
-                ),
-              ),
-              Expanded(
-                child: SingleChildScrollView(
-                  key: const Key('media-details-scroll'),
-                  padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
+      builder: (context) {
+        final l10n = context.l10n;
+        return FractionallySizedBox(
+          heightFactor: .75,
+          child: SafeArea(
+            top: false,
+            child: Column(
+              key: const Key('media-details-sheet'),
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(24, 0, 12, 8),
+                  child: Row(
                     children: [
-                      _MediaDetail(label: '文件名', value: item.name),
-                      _MediaDetail(
-                        label: '来源设备',
-                        value: device?.name ?? '已记住的设备',
-                      ),
-                      _MediaDetail(
-                        label: '设备状态',
-                        value: device == null
-                            ? '设备记录不可用'
-                            : device.online
-                            ? '在线'
-                            : '离线',
-                      ),
-                      _MediaDetail(
-                        label: '修改时间（本地）',
-                        value: _formatModified(
-                          item.modified,
-                          includeTime: true,
+                      Expanded(
+                        child: Text(
+                          l10n.previewDetails,
+                          style: Theme.of(context).textTheme.titleLarge,
                         ),
                       ),
-                      _MediaDetail(
-                        label: '类型',
-                        value:
-                            '${item.isVideo ? '视频' : '图片'}${item.mimeType.isEmpty ? '' : ' · ${item.mimeType}'}',
+                      IconButton(
+                        key: const Key('close-media-details'),
+                        tooltip: l10n.previewCloseDetails,
+                        onPressed: () => Navigator.of(context).pop(),
+                        icon: const Icon(Icons.close_rounded),
                       ),
-                      _MediaDetail(
-                        label: '大小',
-                        value:
-                            '${formatMediaBytes(item.size)}（${item.size} 字节）',
-                      ),
-                      if (item.sharedFolderName.isNotEmpty)
-                        _MediaDetail(label: '合集', value: item.sharedFolderName),
-                      if (item.relativePath.isNotEmpty)
-                        _MediaDetail(label: '相对路径', value: item.relativePath),
                     ],
                   ),
                 ),
-              ),
-            ],
+                Expanded(
+                  child: SingleChildScrollView(
+                    key: const Key('media-details-scroll'),
+                    padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        _MediaDetail(
+                          label: l10n.detailFileName,
+                          value: item.name,
+                        ),
+                        _MediaDetail(
+                          label: l10n.detailSourceDevice,
+                          value: device?.name ?? l10n.rememberedDeviceFallback,
+                        ),
+                        _MediaDetail(
+                          label: l10n.detailDeviceStatus,
+                          value: device == null
+                              ? l10n.detailDeviceUnknown
+                              : device.online
+                              ? l10n.commonOnline
+                              : l10n.commonOffline,
+                        ),
+                        _MediaDetail(
+                          label: l10n.detailModified,
+                          value: _formatModified(
+                            item.modified,
+                            includeTime: true,
+                          ),
+                        ),
+                        _MediaDetail(
+                          label: l10n.detailType,
+                          value:
+                              '${item.isVideo ? l10n.commonVideo : l10n.commonImage}${item.mimeType.isEmpty ? '' : ' · ${item.mimeType}'}',
+                        ),
+                        _MediaDetail(
+                          label: l10n.detailSize,
+                          value: l10n.detailSizeValue(
+                            formatMediaBytes(item.size),
+                            item.size,
+                          ),
+                        ),
+                        if (item.sharedFolderName.isNotEmpty)
+                          _MediaDetail(
+                            label: l10n.detailCollection,
+                            value: item.sharedFolderName,
+                          ),
+                        if (item.relativePath.isNotEmpty)
+                          _MediaDetail(
+                            label: l10n.detailRelativePath,
+                            value: item.relativePath,
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 
@@ -325,11 +343,11 @@ class _MediaPreviewPageState extends State<MediaPreviewPage> {
             ),
             fit: BoxFit.contain,
             gaplessPlayback: true,
-            errorBuilder: (_, _, _) => const Center(
+            errorBuilder: (context, _, _) => Center(
               child: Text(
-                '无法显示这张预览图，可下载后用其他应用打开。',
+                context.l10n.previewImageError,
                 textAlign: TextAlign.center,
-                style: TextStyle(color: Colors.white70, height: 1.6),
+                style: const TextStyle(color: Colors.white70, height: 1.6),
               ),
             ),
           );
@@ -355,27 +373,29 @@ class _MediaPreviewPageState extends State<MediaPreviewPage> {
             ),
             leading: IconButton(
               key: const Key('close-preview'),
-              tooltip: '返回相册',
+              tooltip: context.l10n.previewBack,
               onPressed: () => Navigator.of(context).pop(),
               icon: const Icon(Icons.arrow_back_rounded),
             ),
             actions: [
               IconButton(
                 key: const Key('preview-details'),
-                tooltip: '详细信息',
+                tooltip: context.l10n.previewDetails,
                 onPressed: _showDetails,
                 icon: const Icon(Icons.info_outline_rounded),
               ),
               if (transfer?.complete == true)
                 IconButton(
                   key: const Key('preview-delete-local'),
-                  tooltip: '删除本地文件',
+                  tooltip: context.l10n.previewDeleteLocal,
                   onPressed: _deletingLocal ? null : _deleteLocalFile,
                   icon: const Icon(Icons.delete_outline_rounded),
                 ),
               IconButton(
                 key: const Key('preview-zoom'),
-                tooltip: _zoomed ? '还原缩放' : '放大预览',
+                tooltip: _zoomed
+                    ? context.l10n.previewZoomReset
+                    : context.l10n.previewZoomIn,
                 onPressed: _toggleZoom,
                 icon: Icon(
                   _zoomed ? Icons.zoom_out_rounded : Icons.zoom_in_rounded,
@@ -434,14 +454,14 @@ class _MediaPreviewPageState extends State<MediaPreviewPage> {
                       Expanded(
                         child: Text(
                           item.isVideo
-                              ? '视频缩略图 · 下载后可用系统播放器打开'
+                              ? context.l10n.previewVideoHint
                               : _loadingPreview
-                              ? '正在读取本机原图…'
+                              ? context.l10n.previewReadingOriginal
                               : _fullImage != null
                               ? isDesktop
-                                    ? '本机原图 · 双击或滚轮缩放'
-                                    : '本机原图 · 双指缩放'
-                              : '缓存缩略图 · 下载完成后显示原图',
+                                    ? context.l10n.previewOriginalDesktop
+                                    : context.l10n.previewOriginalMobile
+                              : context.l10n.previewCachedThumbnail,
                           style: const TextStyle(
                             fontSize: 11,
                             color: Colors.white70,
@@ -451,10 +471,12 @@ class _MediaPreviewPageState extends State<MediaPreviewPage> {
                       const SizedBox(width: 8),
                       Text(
                         _zoomed
-                            ? '双击还原'
+                            ? isDesktop
+                                  ? context.l10n.previewResetDesktop
+                                  : context.l10n.previewResetMobile
                             : isDesktop
-                            ? '双击放大'
-                            : '下滑返回',
+                            ? context.l10n.previewZoomDesktop
+                            : context.l10n.previewSwipeDown,
                         style: const TextStyle(
                           fontSize: 11,
                           color: Colors.white70,
@@ -482,7 +504,10 @@ class _MediaPreviewPageState extends State<MediaPreviewPage> {
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           Text(
-                            '来自 ${_sourceDevice?.name ?? '已记住的设备'}',
+                            context.l10n.previewSource(
+                              _sourceDevice?.name ??
+                                  context.l10n.rememberedDeviceFallback,
+                            ),
                             key: const Key('preview-source'),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
@@ -493,7 +518,7 @@ class _MediaPreviewPageState extends State<MediaPreviewPage> {
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            '${_formatModified(item.modified)} · ${formatMediaBytes(item.size)} · ${item.isVideo ? '视频' : '图片'}',
+                            '${_formatModified(item.modified)} · ${formatMediaBytes(item.size)} · ${item.isVideo ? context.l10n.commonVideo : context.l10n.commonImage}',
                             key: const Key('preview-metadata'),
                             style: TextStyle(
                               fontSize: 12,
@@ -501,9 +526,14 @@ class _MediaPreviewPageState extends State<MediaPreviewPage> {
                             ),
                           ),
                           const SizedBox(height: 14),
-                          if (_previewError != null) ...[
+                          if (_previewProblem != null) ...[
                             Text(
-                              _previewError!,
+                              switch (_previewProblem!) {
+                                _PreviewProblem.unavailable =>
+                                  context.l10n.previewUnavailable,
+                                _PreviewProblem.readFailed =>
+                                  context.l10n.previewReadFailed,
+                              },
                               style: TextStyle(
                                 fontSize: 12,
                                 height: 1.5,
@@ -512,7 +542,7 @@ class _MediaPreviewPageState extends State<MediaPreviewPage> {
                             ),
                             TextButton(
                               onPressed: _loadingPreview ? null : _loadPreview,
-                              child: const Text('重新读取预览'),
+                              child: Text(context.l10n.previewRetry),
                             ),
                           ],
                           AbsorbPointer(
