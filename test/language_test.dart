@@ -323,6 +323,9 @@ void main() {
     tearDown(() async {
       await model.shutdown();
       await bridge.events.close();
+      // The fixture opens these even when the controller never initializes.
+      await tasks.close();
+      await db.close();
       await temporary.delete(recursive: true);
     });
 
