@@ -39,6 +39,8 @@ It is for browsing and transferring media between your own devices on the same l
 
 Tamayura is in early development. The published **0.8.0** packages for Android, macOS, and Windows are available as a [Pre-release](https://github.com/poppinzhang/Tamayura/releases/tag/v0.8.0). See the [0.8.0 release record](docs/releases/0.8.0.md) for installation and validation scope. Use the **same build** on all devices; compatibility between releases is not guaranteed before v1.0.0, and protocol v4 does not connect to 0.5.0.
 
+**0.9.0 is being prepared** with Simplified Chinese, Japanese, and English interfaces. Its packages are not yet confirmed available; follow the [0.9.0 release record](docs/releases/0.9.0.md) for release status.
+
 **1 · Install and connect.** Choose the package for your platform from the [0.8.0 Pre-release](https://github.com/poppinzhang/Tamayura/releases/tag/v0.8.0), and read the [installation notes](docs/releases/0.8.0.md#安装与数据). To run from source, see the [source build instructions](AGENTS.md#本地开发). Android 0.8.0 keeps the release certificate used since 0.6.1 and can update an app with the same signature. Uninstall a 0.5.0 or earlier trial app with the old signature first; this clears app data and folder permissions. Connect both devices to the same local network and open Tamayura. Allow local network access when prompted; on Windows, allow the app through the firewall on your trusted private network.
 
 **2 · Choose your folders.** In **Settings (设置)**, add the folders you want to share and choose where downloaded files should go. For example, share `DCIM` and receive files in `Pictures/Tamayura`. Subfolders are included automatically. On Android, choose a subfolder rather than the storage root or the `Download` root.
@@ -97,7 +99,9 @@ On macOS and Windows, closing the window keeps Tamayura in the menu bar or syste
 
 ### Simplified Chinese, Japanese, and English
 
-The current source code (unreleased; see the [Changelog](CHANGELOG.md#unstaged)) adds Simplified Chinese, Japanese, and English interfaces. Tamayura follows the first supported language in your system's preferences by default, using English for other languages, and you can switch at any time in **Settings → Appearance → Language**. Notifications, the menu bar or system tray menu, and folder pickers follow the same choice. The published 0.8.0 packages are available in Simplified Chinese only.
+The **0.9.0 source code, pending release**, adds Simplified Chinese, Japanese, and English interfaces. Tamayura follows the first supported language in your system's preferences by default, using English when none is supported. You can switch at any time in **Settings → Appearance → Language**, and your choice is saved. Notification text, menu bar or system tray menus, and folder picker titles follow the same choice. The published 0.8.0 packages are available in Simplified Chinese only.
+
+Existing error messages keep their original language. On Android, downloads already in progress may continue to produce error messages in the previous language. Some system dialogs and buttons follow the operating system's language. See [Interface languages](docs/多语言.md) for the full scope and limitations.
 
 ### Light, dark, or your system's choice
 
@@ -119,8 +123,8 @@ Most detailed documentation is currently in Chinese.
 | :-- | :-- |
 | [Changelog](CHANGELOG.md) | Released and unreleased changes |
 | [GitHub Releases](https://github.com/poppinzhang/Tamayura/releases) | Published packages and checksums |
+| [0.9.0 release record](docs/releases/0.9.0.md) | Language support, installation impact, and pending release status |
 | [0.8.0 release record](docs/releases/0.8.0.md) | Update feature, installation requirements, and validation scope |
-| [0.7.0 release record](docs/releases/0.7.0.md) | Previous release and setting changes |
 | [Sync behavior](docs/自动与手动同步.md) | Automatic intervals, manual refresh, and sync status |
 | [New and forgotten devices](docs/新设备确认与忘记设备.md) | Confirming newly discovered devices, retrying when a device comes back, and forgetting devices |
 | [Downloads and storage](docs/下载存储与清理.md) | Resuming downloads, temporary files, and cleanup |
