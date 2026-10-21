@@ -39,7 +39,7 @@ It is for browsing and transferring media between your own devices on the same l
 
 Tamayura is in early development. The published **0.9.0** packages for Android, macOS, and Windows are available as a [Pre-release](https://github.com/poppinzhang/Tamayura/releases/tag/v0.9.0). See the [0.9.0 release record](docs/releases/0.9.0.md) for installation and validation scope. Use the **same build** on all devices; compatibility between releases is not guaranteed before v1.0.0, and protocol v4 does not connect to 0.5.0.
 
-The current **0.9.5 source** adds 90-degree image rotation, previous/next preview navigation with downloads only for the item you visit, and double-tap navigation to return Albums, Devices, or Settings to the top. It also refreshes interface icons and motion and fixes local previews for some Sony ARW images on macOS. **0.9.5 release validation and packages are still pending**; these changes are not in the published 0.9.0 packages. See the [0.9.5 release record](docs/releases/0.9.5.md) for status and limitations.
+The current **0.9.6 source** adds 90-degree image rotation, previous/next preview navigation with downloads only for the item you visit, and double-tap navigation to return Albums, Devices, or Settings to the top. It also refreshes interface icons and motion and fixes local previews for some Sony ARW images on macOS. **0.9.6 release validation and packages are still pending**; these changes are not in the published 0.9.0 packages. The [0.9.5 release attempt](docs/releases/0.9.5.md) did not produce public packages. See the [0.9.6 release record](docs/releases/0.9.6.md) for current status and limitations.
 
 **1 · Install and connect.** Choose the package for your platform from the [0.9.0 Pre-release](https://github.com/poppinzhang/Tamayura/releases/tag/v0.9.0), and read the [installation notes](docs/releases/0.9.0.md#安装与数据). To run from source, see the [source build instructions](AGENTS.md#本地开发). Android 0.9.0 keeps the release certificate used since 0.6.1 and can update an app with the same signature. Uninstall a 0.5.0 or earlier trial app with the old signature first; this clears app data and folder permissions. Connect both devices to the same local network and open Tamayura. Allow local network access when prompted; on Windows, allow the app through the firewall on your trusted private network.
 
@@ -123,7 +123,8 @@ Most detailed documentation is currently in Chinese.
 | :-- | :-- |
 | [Changelog](CHANGELOG.md) | Released and unreleased changes |
 | [GitHub Releases](https://github.com/poppinzhang/Tamayura/releases) | Published packages and checksums |
-| [0.9.5 release record](docs/releases/0.9.5.md) | Current source: preview rotation and navigation, interface changes; release pending |
+| [0.9.6 release record](docs/releases/0.9.6.md) | Current source: preview rotation and navigation, interface changes; release pending |
+| [0.9.5 release record](docs/releases/0.9.5.md) | Unpublished release attempt |
 | [0.9.0 release record](docs/releases/0.9.0.md) | Language support, installation impact, and validation scope |
 | [0.8.0 release record](docs/releases/0.8.0.md) | Previous release: update feature and installation requirements |
 | [Sync behavior](docs/自动与手动同步.md) | Automatic intervals, manual refresh, and sync status |

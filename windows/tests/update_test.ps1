@@ -34,6 +34,21 @@ function Invoke-Case([string]$Name, [scriptblock]$Action) {
     Write-Host "PASS: $Name"
 }
 
+function Remove-TestDirectory([string]$Path) {
+    $deadline = [DateTime]::UtcNow.AddSeconds(5)
+    while ([IO.Directory]::Exists($Path)) {
+        try {
+            Remove-Item -LiteralPath $Path -Recurse -Force -ErrorAction Stop
+            return
+        } catch {
+            # Windows may briefly retain file or directory handles after exit.
+            # Retry only within this deadline; a permanent error must still fail.
+            if ([DateTime]::UtcNow -ge $deadline) { throw }
+            Start-Sleep -Milliseconds 100
+        }
+    }
+}
+
 function New-Bundle([string]$Name, [bool]$NewVersion = $false) {
     $directory = Join-Path $root $Name
     [IO.Directory]::CreateDirectory((Join-Path $directory 'data/flutter_assets')) | Out-Null
@@ -61,6 +76,7 @@ function New-Zip([string]$Name, [string[]]$Entries, [int]$Attributes = 0) {
     return $archive
 }
 
+$testFailure = $null
 try {
     Invoke-Case 'Load native utility and management commands despite an inherited invalid module path' {
         foreach ($name in @('Get-FileHash', 'ConvertFrom-Json', 'ConvertTo-Json', 'Start-Process', 'Get-ChildItem', 'Add-Type', 'New-Object')) {
@@ -222,10 +238,29 @@ try {
         Copy-Item -LiteralPath $updater -Destination (Join-Path $script:Workspace 'tamayura-update.ps1')
         $running = Start-Process -FilePath (Join-Path $script:Target 'Tamayura.exe') -ArgumentList '--wait' -PassThru
         $previousHelperModulePath = $env:PSModulePath
+        $updateHelper = $null
         try {
             $env:PSModulePath = $unavailableModulePath
             $script:ParentProcessId = $running.Id
             Prepare-Update
+            # ready contains the helper PID. The old fixture is still running,
+            # so the helper is waiting for it and cannot have completed yet.
+            # File existence can precede the writer closing it. Wait for a
+            # complete PID rather than racing the helper's readiness write.
+            $readyDeadline = [DateTime]::UtcNow.AddSeconds(5)
+            [int]$helperProcessId = 0
+            while ($true) {
+                try {
+                    $readyValue = [IO.File]::ReadAllText((Join-Path $script:Workspace 'ready'))
+                    if ([int]::TryParse($readyValue, [ref]$helperProcessId) -and $helperProcessId -gt 0) { break }
+                } catch {
+                    if ([DateTime]::UtcNow -ge $readyDeadline) { throw }
+                }
+                if ([DateTime]::UtcNow -ge $readyDeadline) { throw 'The update helper did not publish a valid process ID within 5 seconds.' }
+                Start-Sleep -Milliseconds 100
+            }
+            $updateHelper = [Diagnostics.Process]::GetProcessById($helperProcessId)
+            $null = $updateHelper.Handle
             $null = Assert-Bundle $script:Target '1.2.3' 4
             $running.Kill()
             $running.WaitForExit()
@@ -246,13 +281,30 @@ try {
                 } catch { Start-Sleep -Milliseconds 100 }
             }
             Assert-True $complete 'The helper did not install the prepared bundle.'
+            # complete is written before cleanup and process exit. Retain the
+            # process handle and wait for exit before removing its working dir.
+            Assert-True ($updateHelper.WaitForExit(30000)) 'The completed update helper did not exit within 30 seconds.'
+            Assert-True ($updateHelper.ExitCode -eq 0) 'The update helper exited unsuccessfully after installing the bundle.'
         } finally {
             $env:PSModulePath = $previousHelperModulePath
-            if (-not $running.HasExited) { $running.Kill(); $running.WaitForExit() }
-            $running.Dispose()
+            try {
+                if (-not $running.HasExited) { $running.Kill(); $running.WaitForExit() }
+            } finally {
+                $running.Dispose()
+                if ($null -ne $updateHelper) { $updateHelper.Dispose() }
+            }
         }
     }
-    Write-Host "$script:caseCount Windows update tests passed."
+} catch {
+    $testFailure = $_
 } finally {
-    if ([IO.Directory]::Exists($root)) { Remove-Item -LiteralPath $root -Recurse -Force }
+    try { Remove-TestDirectory $root }
+    catch {
+        # Preserve the original assertion failure if cleanup also fails, and
+        # emit the cleanup error separately instead of hiding either problem.
+        if ($null -eq $testFailure) { $testFailure = $_ }
+        else { Write-Error -ErrorRecord $_ -ErrorAction Continue }
+    }
 }
+if ($null -ne $testFailure) { throw $testFailure }
+Write-Host "$script:caseCount Windows update tests passed."
