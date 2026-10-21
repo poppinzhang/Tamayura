@@ -1,5 +1,8 @@
-import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:material_ui/material_ui.dart';
+
+import 'app_icons.dart';
+import 'app_motion.dart';
 
 /// Neutral surfaces and monochrome actions, inspired by ChatGPT on Android.
 /// These are Tamayura's own tokens, not an exact copy of a third-party palette.
@@ -98,10 +101,22 @@ abstract final class AppTheme {
       canvasColor: colors.surface,
       dividerColor: colors.outlineVariant,
       disabledColor: colors.onSurface.withValues(alpha: .38),
+      iconButtonTheme: const IconButtonThemeData(
+        variant: StyleVariant.material3,
+      ),
       pageTransitionsTheme: const PageTransitionsTheme(
         builders: {
-          TargetPlatform.android: PredictiveBackPageTransitionsBuilder(),
+          TargetPlatform.android: AppPageTransitionsBuilder(),
+          TargetPlatform.iOS: AppPageTransitionsBuilder(),
+          TargetPlatform.macOS: AppPageTransitionsBuilder(),
+          TargetPlatform.windows: AppPageTransitionsBuilder(),
+          TargetPlatform.linux: AppPageTransitionsBuilder(),
+          TargetPlatform.fuchsia: AppPageTransitionsBuilder(),
         },
+      ),
+      actionIconTheme: ActionIconThemeData(
+        backButtonIconBuilder: (_) => const Icon(AppIcons.back),
+        closeButtonIconBuilder: (_) => const Icon(AppIcons.close),
       ),
       appBarTheme: AppBarTheme(
         backgroundColor: colors.surface,

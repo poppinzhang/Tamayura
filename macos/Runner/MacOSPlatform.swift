@@ -107,7 +107,8 @@ final class MacOSPlatform: NSObject, NSSharingServicePickerDelegate, NSSharingSe
         let id = try string("id")
         background(result) {
           let bytes = try self.media.thumbnail(id) { entry, file in
-            try MediaPreview.jpeg(file: file, video: entry.mimeType.hasPrefix("video/"), maximum: 256, mimeType: entry.mimeType)
+            try MediaPreview.jpeg(file: file, filename: entry.relativePath,
+                                  video: entry.mimeType.hasPrefix("video/"), maximum: 256, mimeType: entry.mimeType)
           }
           return FlutterStandardTypedData(bytes: bytes)
         }
@@ -121,8 +122,9 @@ final class MacOSPlatform: NSObject, NSSharingServicePickerDelegate, NSSharingSe
         let uri = try string("uri")
         let maximum = args["maxDimension"] as? Int ?? 2560
         background(result) {
-          try self.bookmarks.withFile(uri) { _, file in
-            FlutterStandardTypedData(bytes: try MediaPreview.jpeg(file: file, video: false, maximum: maximum))
+          try self.bookmarks.withFile(uri) { url, file in
+            FlutterStandardTypedData(bytes: try MediaPreview.jpeg(file: file, filename: url.lastPathComponent,
+                                                                 video: false, maximum: maximum))
           }
         }
       case "saveDownload":

@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tamayura/ui/app_theme.dart';
 
@@ -20,6 +20,8 @@ void main() {
     final colors = theme.colorScheme;
 
     test('$brightness uses neutral surfaces and readable text', () {
+      expect(theme.useMaterial3, isTrue);
+      expect(theme.iconButtonTheme.variant, StyleVariant.material3);
       expect(theme.brightness, brightness);
       expect(theme.scaffoldBackgroundColor, colors.surface);
       for (final surface in [

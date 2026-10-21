@@ -1,13 +1,16 @@
 import 'dart:async';
 
-import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart' show kDoubleTapTimeout;
 import 'package:flutter/services.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
 import '../app/view_state.dart';
 import '../app/endpoint.dart';
 import '../l10n/app_locale.dart';
+import 'app_icons.dart';
+import 'app_motion.dart';
 import 'about_page.dart';
 import 'album_image.dart';
 import 'album_fast_scroll.dart';
@@ -18,6 +21,7 @@ import 'downloads_page.dart';
 import 'desktop_layout.dart';
 import 'media_preview.dart';
 import 'sync_notices.dart';
+import 'sync_notice_transition.dart';
 import 'update_page.dart';
 
 class TamayuraApp extends StatelessWidget {
@@ -32,7 +36,7 @@ class TamayuraApp extends StatelessWidget {
       onGenerateTitle: (context) => context.l10n.appTitle,
       locale: model.locale,
       supportedLocales: AppLocalizations.supportedLocales,
-      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      localizationsDelegates: AppLocale.localizationsDelegates,
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light,
       darkTheme: AppTheme.dark,
@@ -58,6 +62,10 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
   int _tab = 0;
   bool _connecting = false;
   final _albumScroll = ScrollController();
+  final _devicesScroll = ScrollController();
+  final _settingsScroll = ScrollController();
+  Timer? _navigationTapTimer;
+  int? _lastNavigationTab;
   late SyncNotices _syncNotices;
   AlbumScrollGeometry? _albumGridGeometry;
   bool _requestingMore = false;
@@ -80,6 +88,12 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _syncNotices.setReduceMotion(AppMotion.reduce(context));
+  }
+
+  @override
   void didUpdateWidget(_Home oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.model != model) {
@@ -87,6 +101,7 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
       model.addListener(_promptSyncApproval);
       _syncNotices.dispose();
       _syncNotices = SyncNotices(model: model, vsync: this);
+      _syncNotices.setReduceMotion(AppMotion.reduce(context));
       _promptSyncApproval();
     }
   }
@@ -95,7 +110,10 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
   void dispose() {
     model.removeListener(_promptSyncApproval);
     _syncNotices.dispose();
+    _navigationTapTimer?.cancel();
     _albumScroll.dispose();
+    _devicesScroll.dispose();
+    _settingsScroll.dispose();
     super.dispose();
   }
 
@@ -209,7 +227,7 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Icon(Icons.sort_rounded),
+                  const Icon(AppIcons.sort),
                   const SizedBox(width: 8),
                   Flexible(
                     child: Text(
@@ -226,7 +244,7 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
                     ),
                   ),
                   const SizedBox(width: 4),
-                  const Icon(Icons.expand_more_rounded),
+                  const Icon(AppIcons.expand),
                 ],
               ),
             ),
@@ -244,13 +262,15 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
   };
 
   void _preview(MediaView item) {
+    final sequence = MediaPreviewSequence.album(model);
     final transfer = model.transfers[item.key];
     if (transfer?.complete != true && transfer?.running != true) {
       unawaited(_run(() => model.download(item)));
     }
     Navigator.of(context).push<void>(
       MaterialPageRoute(
-        builder: (_) => MediaPreviewPage(model: model, item: item),
+        builder: (_) =>
+            MediaPreviewPage(model: model, item: item, sequence: sequence),
       ),
     );
   }
@@ -342,7 +362,7 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
           onPressed: _deletingLocal || _selectedLocal.isEmpty
               ? null
               : _deleteSelectedLocalFiles,
-          icon: const Icon(Icons.delete_outline_rounded),
+          icon: const Icon(AppIcons.delete),
           label: Text(
             _deletingLocal
                 ? context.l10n.albumDeleting
@@ -436,9 +456,48 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
   }
 
   void _changeTab(int tab) {
+    _navigationTapTimer?.cancel();
+    _navigationTapTimer = null;
+    _lastNavigationTab = null;
     if (_deletingLocal) return;
     _clearLocalSelection();
     setState(() => _tab = tab);
+  }
+
+  void _onNavigationSelected(int tab) {
+    if (_deletingLocal) return;
+    final doubleTap =
+        _lastNavigationTab == tab && _navigationTapTimer?.isActive == true;
+    // Keep the first activation immediate and retain Material's full hit area.
+    // Keyboard shortcuts use _changeTab directly and reset this tap sequence.
+    _changeTab(tab);
+    if (doubleTap) {
+      final controller = switch (tab) {
+        0 => _albumScroll,
+        1 => _devicesScroll,
+        _ => _settingsScroll,
+      };
+      if (!controller.hasClients) return;
+      final top = controller.position.minScrollExtent;
+      if (controller.offset == top) return;
+      if (AppMotion.reduce(context)) {
+        controller.jumpTo(top);
+      } else {
+        unawaited(
+          controller.animateTo(
+            top,
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeOutCubic,
+          ),
+        );
+      }
+    } else {
+      _lastNavigationTab = tab;
+      _navigationTapTimer = Timer(kDoubleTapTimeout, () {
+        _lastNavigationTab = null;
+        _navigationTapTimer = null;
+      });
+    }
   }
 
   Widget _desktopNavigation(bool extended) => NavigationRail(
@@ -446,30 +505,24 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
     extended: extended,
     minExtendedWidth: 188,
     selectedIndex: _tab,
-    onDestinationSelected: _changeTab,
+    onDestinationSelected: _onNavigationSelected,
     labelType: extended
         ? NavigationRailLabelType.none
         : NavigationRailLabelType.all,
     leading: const SizedBox(height: 12),
     destinations: [
       NavigationRailDestination(
-        icon: const Icon(Icons.photo_library_outlined, key: Key('album-tab')),
-        selectedIcon: const Icon(
-          Icons.photo_library_rounded,
-          key: Key('album-tab'),
-        ),
+        icon: const Icon(AppIcons.album, key: Key('album-tab')),
+        selectedIcon: const Icon(AppIcons.album, key: Key('album-tab')),
         label: Text(context.l10n.navAlbum),
       ),
       NavigationRailDestination(
-        icon: const Icon(Icons.devices_outlined, key: Key('devices-tab')),
-        selectedIcon: const Icon(
-          Icons.devices_rounded,
-          key: Key('devices-tab'),
-        ),
+        icon: const Icon(AppIcons.devices, key: Key('devices-tab')),
+        selectedIcon: const Icon(AppIcons.devices, key: Key('devices-tab')),
         label: Text(context.l10n.navDevices),
       ),
       NavigationRailDestination(
-        icon: const Icon(Icons.tune_rounded, key: Key('settings-tab')),
+        icon: const Icon(AppIcons.settings, key: Key('settings-tab')),
         label: Text(context.l10n.navSettings),
       ),
     ],
@@ -539,7 +592,7 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Icon(
-                        Icons.blur_circular_rounded,
+                        AppIcons.logo,
                         color: Theme.of(context).colorScheme.primary,
                         size: 28,
                       ),
@@ -579,14 +632,14 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
                         isLabelVisible: model.transfers.values.any(
                           (task) => task.running,
                         ),
-                        child: const Icon(Icons.downloading_rounded),
+                        child: const Icon(AppIcons.downloads),
                       ),
                     ),
                     IconButton(
                       key: const Key('refresh'),
                       tooltip: context.l10n.homeRefreshTooltip,
                       onPressed: model.busy ? null : () => _run(model.refresh),
-                      icon: const Icon(Icons.refresh_rounded),
+                      icon: const Icon(AppIcons.refresh),
                     ),
                     const SizedBox(width: 8),
                   ],
@@ -630,7 +683,7 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
                                         ],
                                       ),
                                     )
-                                  : IndexedStack(
+                                  : AppTabTransition(
                                       index: _tab,
                                       children: [
                                         DesktopContent(
@@ -652,25 +705,23 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
                     ? null
                     : NavigationBar(
                         selectedIndex: _tab,
-                        onDestinationSelected: _changeTab,
+                        onDestinationSelected: _onNavigationSelected,
                         destinations: [
                           NavigationDestination(
                             key: const Key('album-tab'),
-                            icon: const Icon(Icons.photo_library_outlined),
-                            selectedIcon: const Icon(
-                              Icons.photo_library_rounded,
-                            ),
+                            icon: const Icon(AppIcons.album),
+                            selectedIcon: const Icon(AppIcons.album),
                             label: context.l10n.navAlbum,
                           ),
                           NavigationDestination(
                             key: const Key('devices-tab'),
-                            icon: const Icon(Icons.devices_outlined),
-                            selectedIcon: const Icon(Icons.devices_rounded),
+                            icon: const Icon(AppIcons.devices),
+                            selectedIcon: const Icon(AppIcons.devices),
                             label: context.l10n.navDevices,
                           ),
                           NavigationDestination(
                             key: const Key('settings-tab'),
-                            icon: const Icon(Icons.tune_rounded),
+                            icon: const Icon(AppIcons.settings),
                             label: context.l10n.navSettings,
                           ),
                         ],
@@ -759,24 +810,19 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
                       syncDeviceId == null ||
                       notice.progress.peerId == syncDeviceId,
                 ))
-                  SizeTransition(
+                  SyncNoticeTransition(
                     key: ObjectKey(notice),
-                    sizeFactor: notice.animation,
-                    alignment: Alignment.topCenter,
-                    child: FadeTransition(
-                      key: Key('sync-notice-fade-${notice.progress.peerId}'),
-                      opacity: notice.animation,
-                      child: Padding(
-                        padding: const EdgeInsets.only(bottom: 16),
-                        child: _SyncProgressCard(
-                          progress: notice.progress,
-                          onDismiss: notice.dismiss,
-                          onRetry: model.busy
-                              ? null
-                              : () => _run(
-                                  () => model.retrySync(notice.progress.peerId),
-                                ),
-                        ),
+                    notice: notice,
+                    child: Padding(
+                      padding: const EdgeInsets.only(bottom: 16),
+                      child: _SyncProgressCard(
+                        progress: notice.progress,
+                        onDismiss: notice.dismiss,
+                        onRetry: model.busy
+                            ? null
+                            : () => _run(
+                                () => model.retrySync(notice.progress.peerId),
+                              ),
                       ),
                     ),
                   ),
@@ -784,7 +830,7 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
                   TextButton.icon(
                     key: const Key('back-to-collections'),
                     onPressed: () => _selectCollection(null),
-                    icon: const Icon(Icons.arrow_back_rounded),
+                    icon: const Icon(AppIcons.back),
                     label: Text(context.l10n.albumAllCollections),
                   ),
                   const SizedBox(height: 8),
@@ -817,7 +863,7 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
                                     )
                                 ? () => setState(() => _selectingLocal = true)
                                 : null,
-                            icon: const Icon(Icons.delete_outline_rounded),
+                            icon: const Icon(AppIcons.delete),
                             label: Text(context.l10n.albumDeleteLocalFiles),
                           ),
                       ],
@@ -871,7 +917,7 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
             child: Padding(
               padding: const EdgeInsets.fromLTRB(28, 36, 28, 40),
               child: _EmptyState(
-                icon: Icons.photo_library_outlined,
+                icon: AppIcons.album,
                 title: syncing
                     ? context.l10n.albumReceivingTitle
                     : syncFailed
@@ -893,8 +939,8 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
                 action: syncing || syncFailed
                     ? null
                     : TextButton.icon(
-                        onPressed: () => setState(() => _tab = 1),
-                        icon: const Icon(Icons.add_rounded),
+                        onPressed: () => _changeTab(1),
+                        icon: const Icon(AppIcons.add),
                         label: Text(context.l10n.albumConnectDevice),
                       ),
               ),
@@ -1046,7 +1092,7 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
                     TextButton.icon(
                       key: const Key('load-more-media'),
                       onPressed: _loadMore,
-                      icon: const Icon(Icons.expand_more_rounded),
+                      icon: const Icon(AppIcons.expand),
                       label: Text(
                         _loadMoreFailed
                             ? context.l10n.albumRetryLoad
@@ -1092,13 +1138,13 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
     child: Center(
       child: model.error == null
           ? Icon(
-              Icons.image_outlined,
+              AppIcons.image,
               color: Theme.of(context).colorScheme.onSurfaceVariant,
               semanticLabel: context.l10n.albumLoadingThumbnail,
             )
           : IconButton(
               tooltip: context.l10n.albumRetryThumbnail,
-              icon: const Icon(Icons.refresh_rounded),
+              icon: const Icon(AppIcons.refresh),
               onPressed: () =>
                   _run(() => model.ensureMediaScrollRange(index, index)),
             ),
@@ -1112,13 +1158,16 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
       selected: model.selectedDeviceId == id,
       showCheckmark: false,
       avatar: online == null
-          ? const Icon(Icons.grid_view_rounded, size: 16)
-          : Icon(
-              Icons.circle,
-              size: 8,
-              color: online
-                  ? Theme.of(context).colorScheme.primary
-                  : Theme.of(context).colorScheme.outline,
+          ? const Icon(AppIcons.grid, size: 16)
+          : Container(
+              width: 8,
+              height: 8,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: online
+                    ? Theme.of(context).colorScheme.primary
+                    : Theme.of(context).colorScheme.outline,
+              ),
             ),
       onSelected: (_) => _selectDevice(id),
     ),
@@ -1136,7 +1185,7 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
       children: [
         Row(
           children: [
-            const Icon(Icons.folder_open_rounded, size: 20),
+            const Icon(AppIcons.folder, size: 20),
             const SizedBox(width: 8),
             Expanded(
               child: Text(
@@ -1165,7 +1214,7 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
                 onPressed: model.busy
                     ? null
                     : () => _run(model.chooseSharedFolder),
-                icon: const Icon(Icons.add_rounded, size: 18),
+                icon: const Icon(AppIcons.add, size: 18),
                 label: Text(context.l10n.setupShareFolder),
               ),
             if (model.downloadFolder == null)
@@ -1174,7 +1223,7 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
                 onPressed: model.busy
                     ? null
                     : () => _run(model.chooseDownloadFolder),
-                icon: const Icon(Icons.download_rounded, size: 18),
+                icon: const Icon(AppIcons.download, size: 18),
                 label: Text(context.l10n.setupDownloadFolder),
               ),
           ],
@@ -1205,7 +1254,7 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
             leading: CircleAvatar(
               backgroundColor: colors.surfaceContainerHighest,
               child: Icon(
-                Icons.devices_rounded,
+                AppIcons.devices,
                 color: device.online ? colors.primary : colors.onSurfaceVariant,
               ),
             ),
@@ -1228,7 +1277,7 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
                       dimension: 20,
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
-                  : const Icon(Icons.more_vert_rounded),
+                  : const Icon(AppIcons.more),
               onSelected: (action) => switch (action) {
                 _DeviceAction.enableSync => _enableDeviceSync(device),
                 _DeviceAction.forget => _forgetDevice(device),
@@ -1249,7 +1298,7 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
             ),
             onTap: () {
               _selectDevice(device.id);
-              setState(() => _tab = 0);
+              _changeTab(0);
             },
           ),
           if (!device.syncEnabled)
@@ -1258,7 +1307,7 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
               child: FilledButton.tonalIcon(
                 key: Key('device-start-sync-${device.id}'),
                 onPressed: forgetting ? null : () => _enableDeviceSync(device),
-                icon: const Icon(Icons.sync_rounded, size: 18),
+                icon: const Icon(AppIcons.sync, size: 18),
                 label: Text(l10n.deviceStartSync),
               ),
             ),
@@ -1322,6 +1371,7 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
 
   Widget _devices() => ListView(
     key: const PageStorageKey('devices-scroll'),
+    controller: _devicesScroll,
     physics: const AlwaysScrollableScrollPhysics(),
     padding: const EdgeInsets.fromLTRB(22, 20, 22, 30),
     children: [
@@ -1342,7 +1392,7 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
             Row(
               children: [
                 Icon(
-                  Icons.wifi_rounded,
+                  AppIcons.wifi,
                   color: Theme.of(context).colorScheme.onSurfaceVariant,
                   size: 22,
                 ),
@@ -1390,7 +1440,7 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
                 ).colorScheme.onSurface.withValues(alpha: .38),
                 side: BorderSide(color: Theme.of(context).colorScheme.outline),
               ),
-              icon: const Icon(Icons.qr_code_rounded, size: 18),
+              icon: const Icon(AppIcons.qrCode, size: 18),
               label: Text(context.l10n.devicesShowQr),
             ),
           ],
@@ -1404,13 +1454,13 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
           FilledButton.icon(
             key: const Key('connect-manual'),
             onPressed: _connecting || model.busy ? null : _manualConnect,
-            icon: const Icon(Icons.add_link_rounded, size: 20),
+            icon: const Icon(AppIcons.connect, size: 20),
             label: Text(context.l10n.devicesConnectByIp),
           ),
           if (!isWindowsDesktop)
             OutlinedButton.icon(
               onPressed: _connecting || model.busy ? null : _scan,
-              icon: const Icon(Icons.qr_code_scanner_rounded, size: 20),
+              icon: const Icon(AppIcons.scanQr, size: 20),
               label: Text(context.l10n.devicesScan),
             ),
         ],
@@ -1451,7 +1501,7 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
           child: TextButton.icon(
             key: const Key('edit-device-order'),
             onPressed: model.deviceOrderSaving ? null : _editDeviceOrder,
-            icon: const Icon(Icons.swap_vert_rounded, size: 20),
+            icon: const Icon(AppIcons.reorder, size: 20),
             label: Text(context.l10n.devicesReorder),
           ),
         ),
@@ -1460,7 +1510,7 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
         Padding(
           padding: const EdgeInsets.symmetric(vertical: 22),
           child: _EmptyState(
-            icon: Icons.radar_rounded,
+            icon: AppIcons.discover,
             title: context.l10n.devicesEmptyTitle,
             description: context.l10n.devicesEmptyDescription,
           ),
@@ -1514,7 +1564,7 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
           ),
           enabled: enabled,
           leading: Icon(
-            Icons.translate_rounded,
+            AppIcons.language,
             color: Theme.of(context).colorScheme.primary,
           ),
           title: Text(l10n.settingsLanguage),
@@ -1530,7 +1580,7 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
               style: const TextStyle(height: 1.6),
             ),
           ),
-          trailing: const Icon(Icons.expand_more_rounded),
+          trailing: const Icon(AppIcons.expand),
         ),
       ),
     );
@@ -1538,6 +1588,7 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
 
   Widget _settings() => ListView(
     key: const PageStorageKey('settings-scroll'),
+    controller: _settingsScroll,
     padding: const EdgeInsets.fromLTRB(22, 20, 22, 30),
     children: [
       _PageHeading(
@@ -1682,7 +1733,7 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
               style: const TextStyle(height: 1.6),
             ),
           ),
-          trailing: const Icon(Icons.edit_outlined),
+          trailing: const Icon(AppIcons.edit),
           enabled: !model.loading && !model.autoSyncIntervalSaving,
           onTap: model.loading || model.autoSyncIntervalSaving
               ? null
@@ -1722,7 +1773,7 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
                 ListTile(
                   key: Key('shared-folder-${folder.id}'),
                   contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.folder_shared_outlined),
+                  leading: const Icon(AppIcons.sharedFolder),
                   title: Text(folder.name),
                   subtitle: Text(
                     folder.uri,
@@ -1737,7 +1788,7 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
                     onPressed: model.loading || model.busy
                         ? null
                         : () => _run(() => model.removeSharedFolder(folder.id)),
-                    icon: const Icon(Icons.remove_circle_outline_rounded),
+                    icon: const Icon(AppIcons.remove),
                   ),
                 ),
               const SizedBox(height: 12),
@@ -1746,7 +1797,7 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
                 onPressed: model.loading || model.busy
                     ? null
                     : () => _run(model.chooseSharedFolder),
-                icon: const Icon(Icons.add_rounded),
+                icon: const Icon(AppIcons.add),
                 label: Text(context.l10n.settingsAddSharedFolder),
               ),
             ],
@@ -1837,7 +1888,7 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
                       onPressed: model.loading
                           ? null
                           : () => _run(() => model.setBackgroundSharing(true)),
-                      icon: const Icon(Icons.refresh_rounded),
+                      icon: const Icon(AppIcons.refresh),
                       label: Text(context.l10n.backgroundSharingRetry),
                     ),
                   ],
@@ -1859,7 +1910,7 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
                       onPressed: model.loading || model.backgroundSharingSaving
                           ? null
                           : () => _run(model.openBatteryOptimizationSettings),
-                      icon: const Icon(Icons.battery_saver_outlined),
+                      icon: const Icon(AppIcons.battery),
                       label: Text(
                         context.l10n.backgroundSharingBatterySettings,
                       ),
@@ -1876,7 +1927,7 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
         title: context.l10n.settingsDownloadFolder,
         subtitle:
             model.downloadFolder ?? context.l10n.settingsDownloadFolderEmpty,
-        icon: Icons.save_alt_rounded,
+        icon: AppIcons.save,
         onTap: model.loading || model.busy
             ? null
             : () => _run(model.chooseDownloadFolder),
@@ -1935,50 +1986,50 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
       const SizedBox(height: 28),
       _SectionLabel(context.l10n.settingsTips),
       _Tip(
-        icon: Icons.wifi_rounded,
+        icon: AppIcons.wifi,
         title: context.l10n.tipNetworkTitle,
         description: context.l10n.tipNetworkDescription,
       ),
       if (isWindowsDesktop) ...[
         _Tip(
-          icon: Icons.desktop_windows_rounded,
+          icon: AppIcons.desktop,
           title: context.l10n.tipWindowsTitle,
           description: context.l10n.tipWindowsDescription,
         ),
         _Tip(
-          icon: Icons.downloading_rounded,
+          icon: AppIcons.downloads,
           title: context.l10n.tipBackgroundReceiveTitle,
           description: context.l10n.tipBackgroundReceiveWindows,
         ),
         _Tip(
-          icon: Icons.keyboard_rounded,
+          icon: AppIcons.keyboard,
           title: context.l10n.tipKeyboardTitle,
           description: context.l10n.tipKeyboardWindows,
         ),
       ] else if (isMacDesktop) ...[
         _Tip(
-          icon: Icons.desktop_mac_rounded,
+          icon: AppIcons.desktop,
           title: context.l10n.tipMacTitle,
           description: context.l10n.tipMacDescription,
         ),
         _Tip(
-          icon: Icons.downloading_rounded,
+          icon: AppIcons.downloads,
           title: context.l10n.tipBackgroundReceiveTitle,
           description: context.l10n.tipBackgroundReceiveMac,
         ),
         _Tip(
-          icon: Icons.keyboard_rounded,
+          icon: AppIcons.keyboard,
           title: context.l10n.tipKeyboardTitle,
           description: context.l10n.tipKeyboardMac,
         ),
       ] else
         _Tip(
-          icon: Icons.phone_android_rounded,
+          icon: AppIcons.mobile,
           title: context.l10n.tipAndroidTitle,
           description: context.l10n.tipAndroidDescription,
         ),
       _Tip(
-        icon: Icons.touch_app_outlined,
+        icon: AppIcons.touch,
         title: isWindowsDesktop
             ? context.l10n.tipOpenTitle
             : context.l10n.tipShareTitle,
@@ -1996,12 +2047,12 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
             vertical: 8,
           ),
           leading: Icon(
-            Icons.system_update_alt_rounded,
+            AppIcons.update,
             color: Theme.of(context).colorScheme.primary,
           ),
           title: Text(context.l10n.settingsCheckUpdates),
           subtitle: Text(context.l10n.settingsCheckUpdatesSubtitle),
-          trailing: const Icon(Icons.chevron_right_rounded),
+          trailing: const Icon(AppIcons.next),
           onTap: () => Navigator.of(context).push<void>(
             MaterialPageRoute(
               builder: (_) => UpdatePage(shutdown: model.shutdownForUpdate),
@@ -2018,12 +2069,12 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
             vertical: 8,
           ),
           leading: Icon(
-            Icons.info_outline_rounded,
+            AppIcons.info,
             color: Theme.of(context).colorScheme.primary,
           ),
           title: Text(context.l10n.settingsAbout),
           subtitle: Text(context.l10n.settingsAboutSubtitle),
-          trailing: const Icon(Icons.chevron_right_rounded),
+          trailing: const Icon(AppIcons.next),
           onTap: () => Navigator.of(
             context,
           ).push<void>(MaterialPageRoute(builder: (_) => const AboutPage())),
@@ -2112,10 +2163,10 @@ class _SyncProgressCard extends StatelessWidget {
               children: [
                 Icon(
                   failed
-                      ? Icons.info_outline_rounded
+                      ? AppIcons.info
                       : completed
-                      ? Icons.check_circle_outline_rounded
-                      : Icons.sync_rounded,
+                      ? AppIcons.success
+                      : AppIcons.sync,
                   size: 20,
                   color: failed ? colors.onErrorContainer : colors.primary,
                 ),
@@ -2139,7 +2190,7 @@ class _SyncProgressCard extends StatelessWidget {
                     minHeight: 32,
                   ),
                   padding: EdgeInsets.zero,
-                  icon: const Icon(Icons.close_rounded, size: 20),
+                  icon: const Icon(AppIcons.close, size: 20),
                   color: failed
                       ? colors.onErrorContainer
                       : colors.onSurfaceVariant,
@@ -2177,7 +2228,7 @@ class _SyncProgressCard extends StatelessWidget {
               TextButton.icon(
                 key: Key('retry-sync-${progress.peerId}'),
                 onPressed: onRetry,
-                icon: const Icon(Icons.refresh_rounded),
+                icon: const Icon(AppIcons.refresh),
                 label: Text(l10n.syncContinue),
               ),
             ],
@@ -2327,7 +2378,7 @@ class _MediaCard extends StatelessWidget {
         child: Stack(
           fit: StackFit.expand,
           children: [
-            Hero(
+            AppHero(
               tag: 'media-${item.key}',
               transitionOnUserGestures: true,
               child: AlbumImage(
@@ -2341,12 +2392,9 @@ class _MediaCard extends StatelessWidget {
                 top: detailed ? 8 : 4,
                 left: detailed ? 8 : 4,
                 child: detailed
-                    ? _ImageBadge(
-                        icon: Icons.videocam_rounded,
-                        label: l10n.commonVideo,
-                      )
+                    ? _ImageBadge(icon: AppIcons.video, label: l10n.commonVideo)
                     : _CompactImageBadge(
-                        icon: Icons.videocam_rounded,
+                        icon: AppIcons.video,
                         label: l10n.commonVideo,
                       ),
               ),
@@ -2356,10 +2404,10 @@ class _MediaCard extends StatelessWidget {
                 left: 8,
                 child: _ImageBadge(
                   icon: complete
-                      ? Icons.check_circle_rounded
+                      ? AppIcons.success
                       : online
-                      ? Icons.download_rounded
-                      : Icons.cloud_off_rounded,
+                      ? AppIcons.download
+                      : AppIcons.offline,
                   label: complete
                       ? l10n.mediaStateSaved
                       : online
@@ -2375,10 +2423,10 @@ class _MediaCard extends StatelessWidget {
                 right: 4,
                 child: _CompactImageBadge(
                   icon: complete
-                      ? Icons.check_circle_rounded
+                      ? AppIcons.success
                       : transfer?.error != null
-                      ? Icons.error_outline_rounded
-                      : Icons.cloud_off_rounded,
+                      ? AppIcons.error
+                      : AppIcons.offline,
                   label: complete
                       ? l10n.mediaStateSaved
                       : transfer?.error != null
@@ -2496,7 +2544,7 @@ class _MediaCard extends StatelessWidget {
                 ? TextButton.icon(
                     key: Key('share-${item.key}'),
                     onPressed: onShare,
-                    icon: const Icon(Icons.ios_share_rounded, size: 14),
+                    icon: const Icon(AppIcons.share, size: 14),
                     label: Text(
                       l10n.commonShare,
                       style: const TextStyle(fontSize: 12),
@@ -2506,7 +2554,7 @@ class _MediaCard extends StatelessWidget {
                 ? TextButton.icon(
                     key: Key('retry-${item.key}'),
                     onPressed: onDownload,
-                    icon: const Icon(Icons.refresh_rounded, size: 14),
+                    icon: const Icon(AppIcons.refresh, size: 14),
                     label: Text(
                       l10n.mediaDownloadFailedRetry,
                       style: const TextStyle(fontSize: 11),
@@ -2555,7 +2603,7 @@ class _MissingThumbnail extends StatelessWidget {
     color: Theme.of(context).colorScheme.surfaceContainerHighest,
     child: Center(
       child: Icon(
-        Icons.image_outlined,
+        AppIcons.image,
         size: 32,
         color: Theme.of(context).colorScheme.onSurfaceVariant,
       ),
@@ -2718,7 +2766,7 @@ class _FolderTile extends StatelessWidget {
           style: const TextStyle(fontSize: 12, height: 1.6),
         ),
       ),
-      trailing: const Icon(Icons.chevron_right_rounded),
+      trailing: const Icon(AppIcons.next),
       onTap: onTap,
     ),
   );
@@ -2801,7 +2849,7 @@ class _ErrorNotice extends StatelessWidget {
           Padding(
             padding: EdgeInsets.only(top: 5),
             child: Icon(
-              Icons.info_outline_rounded,
+              AppIcons.info,
               size: 19,
               color: Theme.of(context).colorScheme.onErrorContainer,
             ),
@@ -2831,7 +2879,7 @@ class _ErrorNotice extends StatelessWidget {
           IconButton(
             tooltip: context.l10n.homeErrorDismiss,
             onPressed: onDismiss,
-            icon: const Icon(Icons.close_rounded, size: 18),
+            icon: const Icon(AppIcons.close, size: 18),
           ),
         ],
       ),
@@ -3204,7 +3252,7 @@ class _ScannerPageState extends State<_ScannerPage> {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         const Icon(
-                          Icons.no_photography_outlined,
+                          AppIcons.cameraUnavailable,
                           color: Colors.white,
                           size: 40,
                         ),

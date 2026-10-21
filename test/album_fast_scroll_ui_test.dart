@@ -1,10 +1,11 @@
 import 'dart:io';
 import 'dart:ui' as ui;
 
-import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:tamayura/app/view_state.dart';
 import 'package:tamayura/ui/app.dart';
 
@@ -237,10 +238,20 @@ ScrollController _controller(WidgetTester tester) =>
 
 double _opacity(WidgetTester tester) {
   final finder = find.byKey(const Key('album-fast-scroll-opacity'));
-  return finder.evaluate().isEmpty
-      ? 0
-      : tester.widget<AnimatedOpacity>(finder).opacity;
+  if (finder.evaluate().isEmpty) return 0;
+  final animation = tester.widget<Animate>(finder);
+  return animation.target ?? animation.value!;
 }
+
+double _paintedOpacity(WidgetTester tester) => tester
+    .widget<FadeTransition>(
+      find.descendant(
+        of: find.byKey(const Key('album-fast-scroll-opacity')),
+        matching: find.byType(FadeTransition),
+      ),
+    )
+    .opacity
+    .value;
 
 Future<void> _scrollDown(WidgetTester tester, {double distance = 400}) async {
   await tester.drag(_scroll, Offset(0, -distance));
@@ -287,6 +298,55 @@ String _fullDate(DateTime date) =>
     '周${const ['一', '二', '三', '四', '五', '六', '日'][date.weekday - 1]}';
 
 void main() {
+  testWidgets('scroll updates preserve the current fade progress', (
+    tester,
+  ) async {
+    await _show(tester, _Model());
+    final controller = _controller(tester);
+    controller.jumpTo(100);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 150));
+    final halfway = _paintedOpacity(tester);
+    expect(halfway, greaterThan(0));
+    expect(halfway, lessThan(1));
+
+    controller.jumpTo(200);
+    await tester.pump();
+    expect(_paintedOpacity(tester), closeTo(halfway, .01));
+    await tester.pump(const Duration(milliseconds: 150));
+    expect(_paintedOpacity(tester), 1);
+    controller.jumpTo(300);
+    await tester.pump();
+    expect(_paintedOpacity(tester), 1);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  for (final features in [
+    const FakeAccessibilityFeatures(disableAnimations: true),
+    const FakeAccessibilityFeatures(accessibleNavigation: true),
+  ]) {
+    testWidgets(
+      'reduced motion preserves the 3-second handle hold: $features',
+      (tester) async {
+        tester.platformDispatcher.accessibilityFeaturesTestValue = features;
+        addTearDown(
+          tester.platformDispatcher.clearAccessibilityFeaturesTestValue,
+        );
+        await _show(tester, _Model());
+        expect(_paintedOpacity(tester), 0);
+        _controller(tester).jumpTo(100);
+        await tester.pump();
+        expect(_paintedOpacity(tester), 1);
+        expect(_thumb.hitTestable(), findsOneWidget);
+        await tester.pump(const Duration(milliseconds: 2999));
+        expect(_paintedOpacity(tester), 1);
+        await tester.pump(const Duration(milliseconds: 2));
+        expect(_paintedOpacity(tester), 0);
+        expect(_thumb.hitTestable(), findsNothing);
+      },
+    );
+  }
+
   testWidgets(
     'mobile album reveals the handle while scrolling and fades after 3 seconds',
     (tester) async {
@@ -710,6 +770,12 @@ void main() {
     ) async {
       final thumbnails = <Uint8List>[];
       await tester.runAsync(() async {
+        await (FontLoader('packages/lucide_icons_flutter/Lucide')..addFont(
+              rootBundle.load(
+                'packages/lucide_icons_flutter/assets/lucide.ttf',
+              ),
+            ))
+            .load();
         const fontPath = String.fromEnvironment('TAMAYURA_SCREENSHOT_FONT');
         final font = ByteData.sublistView(await File(fontPath).readAsBytes());
         for (final family in ['Roboto', '.SF UI Text', '.SF UI Display']) {

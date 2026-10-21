@@ -1,9 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:flutter/material.dart' show ThemeMode;
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:material_ui/material_ui.dart' show ThemeMode;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:tamayura/app/app_controller.dart';
 import 'package:tamayura/core/models.dart';

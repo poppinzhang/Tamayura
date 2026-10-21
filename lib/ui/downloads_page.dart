@@ -1,7 +1,8 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import '../app/view_state.dart';
 import '../l10n/app_locale.dart';
+import 'app_icons.dart';
 import 'media_preview.dart';
 import 'desktop_layout.dart';
 import 'transfer_widgets.dart';
@@ -38,6 +39,9 @@ class _DownloadsPageState extends State<DownloadsPage> {
               (b.value.running ? 1 : 0).compareTo(a.value.running ? 1 : 0),
         );
       final active = tasks.where((entry) => entry.value.running).length;
+      MediaView? taskItem(MapEntry<String, TransferView> entry) =>
+          entry.value.item ??
+          widget.model.media.where((item) => item.key == entry.key).firstOrNull;
       return Scaffold(
         key: const Key('downloads-page'),
         appBar: AppBar(title: Text(l10n.downloadsTitle)),
@@ -54,7 +58,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
                             radius: 38,
                             backgroundColor: colors.surfaceContainerHighest,
                             child: Icon(
-                              Icons.download_for_offline_outlined,
+                              AppIcons.downloads,
                               size: 34,
                               color: colors.primary,
                             ),
@@ -126,11 +130,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
                       }
                       final entry = tasks[index - 1];
                       final transfer = entry.value;
-                      final item =
-                          transfer.item ??
-                          widget.model.media
-                              .where((item) => item.key == entry.key)
-                              .firstOrNull;
+                      final item = taskItem(entry);
                       return Container(
                         key: Key('task-${entry.key}'),
                         padding: const EdgeInsets.all(17),
@@ -151,6 +151,9 @@ class _DownloadsPageState extends State<DownloadsPage> {
                                         builder: (_) => MediaPreviewPage(
                                           model: widget.model,
                                           item: item,
+                                          sequence: MediaPreviewSequence.items(
+                                            tasks.map(taskItem).nonNulls,
+                                          ),
                                         ),
                                       ),
                                     ),
@@ -208,7 +211,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
                                     ),
                                     if (item != null)
                                       Icon(
-                                        Icons.chevron_right_rounded,
+                                        AppIcons.next,
                                         color: colors.onSurfaceVariant,
                                       ),
                                   ],
@@ -254,7 +257,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
   Widget _placeholder(bool video) => ColoredBox(
     color: Theme.of(context).colorScheme.surfaceContainerHighest,
     child: Icon(
-      video ? Icons.videocam_outlined : Icons.photo_outlined,
+      video ? AppIcons.video : AppIcons.image,
       color: Theme.of(context).colorScheme.onSurfaceVariant,
     ),
   );

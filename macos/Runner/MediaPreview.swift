@@ -6,11 +6,12 @@ import UniformTypeIdentifiers
 // Decode directly from an already validated descriptor, keeping the directory
 // security scope and descriptor alive until ImageIO / AVFoundation finishes.
 enum MediaPreview {
-  static func jpeg(file: SafeFile, video: Bool, maximum: Int, mimeType: String = "video/quicktime") throws -> Data {
+  static func jpeg(file: SafeFile, filename: String, video: Bool, maximum: Int,
+                   mimeType: String = "video/quicktime",
+                   createImageSource: (CFURL, CFDictionary?) -> CGImageSource? = CGImageSourceCreateWithURL) throws -> Data {
     guard (1...2560).contains(maximum) else {
       throw PlatformFailure.invalid(.previewRange)
     }
-    let url = URL(fileURLWithPath: "/dev/fd/\(file.fd)")
     var image: CGImage
     if video {
       let loader = try DescriptorVideoLoader(file: file, mimeType: mimeType)
@@ -33,7 +34,16 @@ enum MediaPreview {
         return try frame.get()
       }
     } else {
-      guard let source = CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary),
+      var options: [CFString: Any] = [kCGImageSourceShouldCache: false]
+      // /dev/fd has no extension: without a hint, TIFF-based RAW files such as
+      // Sony ARW can be mistaken for ordinary TIFF. The name supplies only type
+      // information; all bytes still come from the already validated descriptor.
+      if let type = UTType(filenameExtension: (filename as NSString).pathExtension),
+         type.conforms(to: .image) {
+        options[kCGImageSourceTypeIdentifierHint] = type.identifier
+      }
+      let url = URL(fileURLWithPath: "/dev/fd/\(file.fd)")
+      guard let source = createImageSource(url as CFURL, options as CFDictionary),
             let decoded = CGImageSourceCreateThumbnailAtIndex(source, 0, [
               kCGImageSourceCreateThumbnailFromImageAlways: true,
               kCGImageSourceCreateThumbnailWithTransform: true,

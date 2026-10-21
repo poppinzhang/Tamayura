@@ -2,11 +2,11 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:tamayura/l10n/app_locale.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:tamayura/app/app_info.dart';
+import 'package:tamayura/l10n/app_locale.dart';
 import 'package:tamayura/ui/about_page.dart';
 
 Future<AppVersion> _version() async => const AppVersion('2.3.4', '56');
@@ -14,7 +14,7 @@ Future<AppVersion> _version() async => const AppVersion('2.3.4', '56');
 Future<void> _show(WidgetTester tester, {Widget? child}) async {
   await tester.pumpWidget(
     MaterialApp(
-      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      localizationsDelegates: AppLocale.localizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
       locale: AppLocale.current,
       home: child ?? const AboutPage(loadVersion: _version),

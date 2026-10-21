@@ -1,7 +1,8 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import '../app/view_state.dart';
 import '../l10n/app_locale.dart';
+import 'app_icons.dart';
 
 class DeviceOrderDialog extends StatefulWidget {
   const DeviceOrderDialog({
@@ -114,7 +115,7 @@ class _DeviceOrderDialogState extends State<DeviceOrderDialog> {
                                     width: 40,
                                     height: 56,
                                     child: Icon(
-                                      Icons.drag_handle_rounded,
+                                      AppIcons.dragHandle,
                                       color: _saving
                                           ? colors.onSurface.withValues(
                                               alpha: .38,
@@ -168,9 +169,7 @@ class _DeviceOrderDialogState extends State<DeviceOrderDialog> {
                                     onPressed: _saving || index == 0
                                         ? null
                                         : () => _move(index, index - 1),
-                                    icon: const Icon(
-                                      Icons.arrow_upward_rounded,
-                                    ),
+                                    icon: const Icon(AppIcons.moveUp),
                                   ),
                                   IconButton(
                                     key: Key('device-order-down-${device.id}'),
@@ -181,9 +180,7 @@ class _DeviceOrderDialogState extends State<DeviceOrderDialog> {
                                         _saving || index == _devices.length - 1
                                         ? null
                                         : () => _move(index, index + 1),
-                                    icon: const Icon(
-                                      Icons.arrow_downward_rounded,
-                                    ),
+                                    icon: const Icon(AppIcons.moveDown),
                                   ),
                                 ],
                               ),

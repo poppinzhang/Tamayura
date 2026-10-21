@@ -1,7 +1,8 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import '../app/view_state.dart';
 import '../l10n/app_locale.dart';
+import 'app_icons.dart';
 import 'desktop_layout.dart';
 
 String transferLabel(AppLocalizations l10n, TransferStatus status) =>
@@ -62,12 +63,12 @@ class TransferControls extends StatelessWidget {
             children: [
               Icon(
                 complete
-                    ? Icons.check_circle_outline_rounded
+                    ? AppIcons.success
                     : status == TransferStatus.failed
-                    ? Icons.error_outline_rounded
+                    ? AppIcons.error
                     : status == TransferStatus.cancelled
-                    ? Icons.pause_circle_outline_rounded
-                    : Icons.downloading_rounded,
+                    ? AppIcons.paused
+                    : AppIcons.downloads,
                 size: 19,
                 color: status == TransferStatus.failed
                     ? colors.error
@@ -157,9 +158,7 @@ class TransferControls extends StatelessWidget {
                 key: Key('share-${item.key}'),
                 onPressed: onShare,
                 icon: Icon(
-                  isWindowsDesktop
-                      ? Icons.folder_open_rounded
-                      : Icons.ios_share_rounded,
+                  isWindowsDesktop ? AppIcons.folder : AppIcons.share,
                   size: 18,
                 ),
                 label: Text(
@@ -172,9 +171,7 @@ class TransferControls extends StatelessWidget {
                 key: Key('open-${item.key}'),
                 onPressed: onOpen,
                 icon: Icon(
-                  item.isVideo
-                      ? Icons.play_arrow_rounded
-                      : Icons.open_in_new_rounded,
+                  item.isVideo ? AppIcons.play : AppIcons.open,
                   size: 18,
                 ),
                 label: Text(
@@ -185,14 +182,14 @@ class TransferControls extends StatelessWidget {
               OutlinedButton.icon(
                 key: Key('cancel-${item.key}'),
                 onPressed: onCancel,
-                icon: const Icon(Icons.pause_rounded, size: 17),
+                icon: const Icon(AppIcons.pause, size: 17),
                 label: Text(l10n.transferPause),
               )
             else if (status != TransferStatus.discarded)
               FilledButton.icon(
                 key: Key('retry-${item.key}'),
                 onPressed: onDownload,
-                icon: const Icon(Icons.download_rounded, size: 18),
+                icon: const Icon(AppIcons.download, size: 18),
                 label: Text(
                   status == TransferStatus.failed
                       ? l10n.transferRetry
@@ -205,7 +202,7 @@ class TransferControls extends StatelessWidget {
               TextButton.icon(
                 key: Key('discard-${item.key}'),
                 onPressed: onDiscard,
-                icon: const Icon(Icons.delete_outline_rounded, size: 18),
+                icon: const Icon(AppIcons.delete, size: 18),
                 label: Text(
                   running
                       ? l10n.transferCancelAndDelete

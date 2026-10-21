@@ -2,8 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:flutter/material.dart' show ThemeMode;
 import 'package:flutter/services.dart';
+import 'package:material_ui/material_ui.dart' show ThemeMode;
 import 'package:uuid/uuid.dart';
 
 import '../core/models.dart';
@@ -268,6 +268,63 @@ class AppController extends TamayuraModel {
 
   @override
   List<MediaView> get media => _items.values.map(_view).toList();
+
+  @override
+  Future<MediaView?> resolvePreviewMedia(
+    String deviceId,
+    String mediaId,
+  ) async {
+    final repository = _repository;
+    if (_disposed || repository == null) return null;
+    final key = '$deviceId/$mediaId';
+    try {
+      while (!_disposed) {
+        if (_deletingLocalFiles.contains(key)) return null;
+        final localFileRevision = _localFileRevision;
+        final item = await repository.getMedia(deviceId, mediaId);
+        if (_disposed) return null;
+        final task = item == null || !_transfers.containsKey(key)
+            ? await _taskStore?.forMedia(deviceId, mediaId)
+            : null;
+        if (_disposed) return null;
+        final view = item != null
+            ? _view(item)
+            : task != null
+            ? _view(task.item)
+            : _transfers[key]?.item;
+        if (view == null) return null;
+        final saved = _transfers.containsKey(key)
+            ? null
+            : await repository.getDownload(deviceId, mediaId);
+        if (_disposed || _deletingLocalFiles.contains(key)) return null;
+        // A read started before local deletion must not restore its saved URI.
+        // Retry against the current records if deletion completed meanwhile.
+        if (localFileRevision != _localFileRevision) continue;
+        final uri = saved?.uri ?? task?.savedUri;
+        if (!_transfers.containsKey(key) && uri != null) {
+          _transfers[key] = TransferView(
+            progress: 1,
+            savedUri: uri,
+            status: TransferStatus.completed,
+            item: view,
+            receivedBytes: view.size,
+            totalBytes: view.size,
+          );
+          _notify();
+        }
+        // Keep the result owned by the preview; visiting identities must not
+        // grow the album's bounded thumbnail caches or change its pagination.
+        return view;
+      }
+    } catch (error) {
+      if (!_disposed) {
+        _error = describeError(error);
+        _notify();
+      }
+    }
+    return null;
+  }
+
   @override
   List<MediaScrollEntry> get mediaScrollEntries => _mediaScrollEntries;
   @override

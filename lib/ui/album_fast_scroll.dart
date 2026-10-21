@@ -1,11 +1,14 @@
 import 'dart:async';
 import 'dart:math' as math;
 
-import 'package:flutter/material.dart';
+import 'package:flutter_animate/flutter_animate.dart';
+import 'package:material_ui/material_ui.dart';
 
 import '../app/view_state.dart';
 import '../l10n/app_locale.dart';
 import 'album_scroll_geometry.dart';
+import 'app_icons.dart';
+import 'app_motion.dart';
 
 /// An overlay for a single, uniformly laid out album grid. Geometry comes from
 /// the sliver's actual layout, so headers, text scaling and rotation are included.
@@ -311,6 +314,8 @@ class _AlbumFastScrollState extends State<AlbumFastScroll> {
         widget.entries.length > 1 &&
         _maxScroll > 0 &&
         gridHeight > _viewport;
+    final opacity = enabled && _visible ? 1.0 : 0.0;
+    final reduceMotion = AppMotion.reduce(context);
     final entry = widget.entries.isEmpty
         ? null
         : widget.entries[_center.clamp(0, widget.entries.length - 1)];
@@ -333,10 +338,12 @@ class _AlbumFastScrollState extends State<AlbumFastScroll> {
             Positioned.fill(
               child: IgnorePointer(
                 ignoring: !enabled || !_visible,
-                child: AnimatedOpacity(
+                child: Animate(
                   key: const Key('album-fast-scroll-opacity'),
-                  opacity: enabled && _visible ? 1 : 0,
-                  duration: _fade,
+                  autoPlay: false,
+                  target: reduceMotion ? null : opacity,
+                  value: reduceMotion ? opacity : null,
+                  effects: const [FadeEffect(duration: _fade)],
                   child: Stack(
                     children: [
                       if (_byDate && entry != null)
@@ -499,7 +506,7 @@ class _AlbumFastScrollState extends State<AlbumFastScroll> {
                                             ),
                                           ),
                                           child: Icon(
-                                            Icons.unfold_more_rounded,
+                                            AppIcons.fastScroll,
                                             color: Theme.of(
                                               context,
                                             ).colorScheme.onPrimaryContainer,

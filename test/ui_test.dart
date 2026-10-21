@@ -2,9 +2,9 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:tamayura/app/view_state.dart';
 import 'package:tamayura/ui/app.dart';
 
@@ -2133,6 +2133,80 @@ void main() {
       expect(model.transfers.values.single.running, isTrue);
     },
   );
+
+  testWidgets('album preview browses only the opened collection in order', (
+    tester,
+  ) async {
+    final model = _withPhoto();
+    final first = model.items.single;
+    final second = _photo(id: 'second');
+    final other = _photo(id: 'other', deviceId: 'another-peer');
+    model.items.addAll([second, other]);
+    await _pump(tester, model);
+    await tester.tap(find.byKey(Key('media-${first.key}')));
+    await tester.pumpAndSettle();
+    expect(model.downloadCalls, 1);
+    await tester.tap(find.byKey(const Key('preview-next')));
+    await tester.pumpAndSettle();
+    expect(model.downloadCalls, 2);
+    expect(model.transfers[second.key]?.running, isTrue);
+    expect(model.transfers[other.key], isNull);
+    expect(
+      tester
+          .widget<IconButton>(find.byKey(const Key('preview-next')))
+          .onPressed,
+      isNull,
+    );
+    await tester.tap(find.byKey(const Key('preview-previous')));
+    await tester.pumpAndSettle();
+    expect(model.downloadCalls, 2);
+    expect(model.cancelCalls, 0);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('downloads preview freezes task order while transfers update', (
+    tester,
+  ) async {
+    final model = _FakeModel();
+    final first = _photo(id: 'first');
+    final second = _photo(id: 'second');
+    final third = _photo(id: 'third');
+    for (final item in [first, second, third]) {
+      model.transfers[item.key] = TransferView(
+        progress: 0,
+        item: item,
+        status: TransferStatus.cancelled,
+      );
+    }
+    await _pump(tester, model);
+    await tester.tap(find.byKey(const Key('downloads-entry')));
+    await tester.pumpAndSettle();
+    // The task list initially displays newest entries first.
+    await tester.tap(
+      find
+          .descendant(
+            of: find.byKey(Key('task-${third.key}')),
+            matching: find.byType(InkWell),
+          )
+          .first,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('preview-next')));
+    await tester.pumpAndSettle();
+    expect(model.transfers[second.key]?.running, isTrue);
+    await tester.tap(find.byKey(const Key('preview-next')));
+    await tester.pumpAndSettle();
+    expect(model.transfers[first.key]?.running, isTrue);
+    expect(model.downloadCalls, 2);
+    expect(
+      tester
+          .widget<IconButton>(find.byKey(const Key('preview-next')))
+          .onPressed,
+      isNull,
+    );
+    expect(model.cancelCalls, 0);
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets('zooming prevents downward pan from dismissing the preview', (
     tester,

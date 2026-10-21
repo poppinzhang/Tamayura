@@ -162,7 +162,9 @@ struct StorageCoreTests {
       try bytes.write(to: photo)
       let valid = try catalog.thumbnail(id) { _, _ in Data([3, 4]) }
       try expect(valid == Data([3, 4]), "other usable previews are preserved")
-      let damaged = try catalog.thumbnail(id) { _, file in try MediaPreview.jpeg(file: file, video: false, maximum: 256) }
+      let damaged = try catalog.thumbnail(id) { entry, file in
+        try MediaPreview.jpeg(file: file, filename: entry.relativePath, video: false, maximum: 256)
+      }
       try expect(damaged.isEmpty, "damaged image has an empty thumbnail")
       try fm.removeItem(at: photo)
       let rescanned = try catalog.scan([shared], expected: catalog.beginScan([shared]))
@@ -412,28 +414,104 @@ struct StorageCoreTests {
       }
     }
     try test("real image preview through validated descriptor is bounded") {
-      let context = CGContext(data: nil, width: 800, height: 400, bitsPerComponent: 8, bytesPerRow: 0,
-        space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)!
-      context.setFillColor(CGColor(red: 0.2, green: 0.4, blue: 0.8, alpha: 1))
-      context.fill(CGRect(x: 0, y: 0, width: 800, height: 400))
-      let target = root.appendingPathComponent("real.png")
-      let writer = CGImageDestinationCreateWithURL(target as CFURL, "public.png" as CFString, 1, nil)!
-      CGImageDestinationAddImage(writer, context.makeImage()!, nil)
-      try expect(CGImageDestinationFinalize(writer), "write fixture")
-      let file = try SafeFile.directory(root).file(["real.png"])
-      let jpeg = try MediaPreview.jpeg(file: file, video: false, maximum: 256)
+      for (filename, type) in [("real.png", "public.png"), ("real.JPG", "public.jpeg")] {
+        let target = root.appendingPathComponent(filename)
+        try createImage(target, type: type, width: 3200, height: 1600)
+        let file = try SafeFile.directory(root).file([filename])
+        for maximum in [256, 1024, 2560] {
+          let jpeg = try MediaPreview.jpeg(file: file, filename: filename, video: false, maximum: maximum)
+          let image = CGImageSourceCreateWithData(jpeg as CFData, nil)!
+          let props = CGImageSourceCopyPropertiesAtIndex(image, 0, nil)! as NSDictionary
+          try expect(CGImageSourceGetType(image) as String? == "public.jpeg", "preview is JPEG")
+          try expect(props[kCGImagePropertyPixelWidth] as? Int == maximum, "\(filename) preview width at \(maximum)")
+          try expect(props[kCGImagePropertyPixelHeight] as? Int == maximum / 2, "preview aspect ratio")
+          try expect(jpeg.count <= 8 * 1024 * 1024, "channel payload limit")
+        }
+        try rejects("invalid preview bound", code: "INVALID_ARGUMENT") {
+          _ = try MediaPreview.jpeg(file: file, filename: filename, video: false, maximum: 3000)
+        }
+      }
+      try rejects("invalid media") {
+        _ = try MediaPreview.jpeg(file: SafeFile.directory(root).file(["旅行", "a.jpg"]), filename: "a.jpg", video: false, maximum: 256)
+      }
+    }
+    try test("image source receives original filename type hints while reading the validated descriptor") {
+      let target = temporary.appendingPathComponent("hint-fixture.png")
+      try createImage(target)
+      let file = try SafeFile.directory(temporary).file([target.lastPathComponent])
+      let cases: [(String, String?)] = [
+        ("旅行/IMG.ARW", "com.sony.arw-raw-image"),
+        ("IMG.arw", "com.sony.arw-raw-image"),
+        ("album.JPG/IMG.ArW", "com.sony.arw-raw-image"),
+        ("photo.JPG", "public.jpeg"), ("photo.png", "public.png"),
+        ("folder.ARW/photo", nil), ("photo.tamayura-unknown", nil), ("photo.txt", nil),
+      ]
+      for (filename, expectedHint) in cases {
+        var sourceURL: URL?, sourceOptions: NSDictionary?, sourceCalls = 0
+        // The generated PNG exercises the real decoding pipeline. It is not a
+        // RAW fixture: these assertions cover the hint passed to ImageIO.
+        let jpeg = try MediaPreview.jpeg(file: file, filename: filename, video: false, maximum: 256,
+          createImageSource: { url, options in
+            sourceCalls += 1
+            sourceURL = url as URL
+            sourceOptions = options as NSDictionary?
+            return CGImageSourceCreateWithURL(url, options)
+          })
+        try expect(sourceCalls == 1, "one image source for \(filename)")
+        try expect(sourceURL?.isFileURL == true && sourceURL?.path == "/dev/fd/\(file.fd)", "decode the validated descriptor")
+        try expect(sourceOptions?[kCGImageSourceTypeIdentifierHint] as? String == expectedHint, "original filename hint for \(filename)")
+        try expect(sourceOptions?[kCGImageSourceShouldCache] as? Bool == false, "avoid eagerly caching the full source")
+        let decoded = CGImageSourceCreateWithData(jpeg as CFData, nil)
+        try expect(decoded.flatMap { CGImageSourceGetType($0) } as String? == "public.jpeg", "hint remains advisory for readable bytes")
+      }
+    }
+    try test("preview keeps reading the open image after the original pathname is replaced") {
+      let folder = try directory("descriptor-preview")
+      let target = folder.appendingPathComponent("image.ARW")
+      try createImage(target)
+      let file = try SafeFile.directory(folder).file([target.lastPathComponent])
+      try fm.moveItem(at: target, to: folder.appendingPathComponent("original.png"))
+      let replacement = Data("damaged replacement".utf8)
+      try replacement.write(to: target)
+      let jpeg = try MediaPreview.jpeg(file: file, filename: target.path, video: false, maximum: 256)
       let image = CGImageSourceCreateWithData(jpeg as CFData, nil)!
       let props = CGImageSourceCopyPropertiesAtIndex(image, 0, nil)! as NSDictionary
-      try expect(props[kCGImagePropertyPixelWidth] as? Int == 256, "thumbnail width")
-      try expect(props[kCGImagePropertyPixelHeight] as? Int == 128, "aspect ratio")
-      try rejects("invalid preview bound", code: "INVALID_ARGUMENT") { _ = try MediaPreview.jpeg(file: file, video: false, maximum: 3000) }
-      try rejects("invalid media") { _ = try MediaPreview.jpeg(file: SafeFile.directory(root).file(["旅行", "a.jpg"]), video: false, maximum: 256) }
+      try expect(props[kCGImagePropertyPixelWidth] as? Int == 256, "original open image remains readable")
+      try expect(Data(contentsOf: target) == replacement, "preview does not reopen or change the replacement")
+    }
+    try test("damaged ARW preview fails without disabling original reads or hiding permission errors") {
+      let folder = try directory("damaged-raw")
+      let target = folder.appendingPathComponent("damaged.ARW")
+      let damaged = Data("invalid RAW image bytes".utf8)
+      try damaged.write(to: target)
+      let rawAccess = TestAccess(); rawAccess.roots["raw"] = folder
+      let rawCatalog = MediaCatalog(access: rawAccess)
+      let rawDirectory = SharedDirectory(id: "raw-folder", uri: "raw", name: "RAW")
+      let entries = try rawCatalog.scan([rawDirectory], expected: rawCatalog.clear())
+      try expect(entries.count == 1, "ARW is cataloged as media")
+      let rawID = entries[0]["id"] as! String
+      try rejects("damaged ARW preview", code: "PREVIEW_UNAVAILABLE") {
+        _ = try rawCatalog.withMedia(rawID) { entry, file in
+          try MediaPreview.jpeg(file: file, filename: entry.relativePath, video: false, maximum: 2560)
+        }
+      }
+      let thumbnail = try rawCatalog.thumbnail(rawID) { entry, file in
+        try MediaPreview.jpeg(file: file, filename: entry.relativePath, video: false, maximum: 256)
+      }
+      try expect(thumbnail.isEmpty, "undecodable ARW has an empty thumbnail")
+      try expect(rawCatalog.read(rawID, offset: 0, length: damaged.count) == damaged, "preview failure preserves original bytes")
+      rawAccess.roots.removeValue(forKey: "raw")
+      try rejects("revoked ARW thumbnail", code: "PERMISSION_LOST") {
+        _ = try rawCatalog.thumbnail(rawID) { entry, file in
+          try MediaPreview.jpeg(file: file, filename: entry.relativePath, video: false, maximum: 256)
+        }
+      }
     }
     try test("real video thumbnail through validated descriptor") {
       let video = root.appendingPathComponent("sample.mov")
       try createVideo(video)
       let file = try SafeFile.directory(root).file(["sample.mov"])
-      let jpeg = try MediaPreview.jpeg(file: file, video: true, maximum: 64)
+      let jpeg = try MediaPreview.jpeg(file: file, filename: video.lastPathComponent, video: true, maximum: 64)
       let image = CGImageSourceCreateWithData(jpeg as CFData, nil)
       try expect(image != nil, "video frame is JPEG")
       let props = CGImageSourceCopyPropertiesAtIndex(image!, 0, nil)! as NSDictionary
@@ -443,10 +521,20 @@ struct StorageCoreTests {
       let video = root.appendingPathComponent("sample.mp4")
       try createVideo(video, fileType: .mp4, codec: .h264)
       let file = try SafeFile.directory(root).file(["sample.mp4"])
-      let jpeg = try MediaPreview.jpeg(file: file, video: true, maximum: 64, mimeType: "video/mp4")
+      let jpeg = try MediaPreview.jpeg(file: file, filename: video.lastPathComponent, video: true, maximum: 64, mimeType: "video/mp4")
       try expect(CGImageSourceCreateWithData(jpeg as CFData, nil) != nil, "MP4 frame is JPEG")
     }
     print("\(passed) macOS native tests passed")
+  }
+
+  private static func createImage(_ url: URL, type: String = "public.png", width: Int = 800, height: Int = 400) throws {
+    let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+      space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)!
+    context.setFillColor(CGColor(red: 0.2, green: 0.4, blue: 0.8, alpha: 1))
+    context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+    let writer = CGImageDestinationCreateWithURL(url as CFURL, type as CFString, 1, nil)!
+    CGImageDestinationAddImage(writer, context.makeImage()!, nil)
+    try expect(CGImageDestinationFinalize(writer), "write generated image fixture")
   }
 
   private static func createVideo(_ url: URL, fileType: AVFileType = .mov, codec: AVVideoCodecType = .jpeg) throws {

@@ -1,5 +1,5 @@
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 bool get isMacDesktop => defaultTargetPlatform == TargetPlatform.macOS;
 bool get isWindowsDesktop => defaultTargetPlatform == TargetPlatform.windows;

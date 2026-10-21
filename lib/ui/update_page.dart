@@ -1,13 +1,14 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:material_ui/material_ui.dart';
 
 import '../app/app_info.dart';
 import '../l10n/app_locale.dart';
 import '../update/update_platform.dart';
 import '../update/update_service.dart';
+import 'app_icons.dart';
 
 /// Progress shown on the page, rendered in the current interface language.
 enum _UpdateStatus {
@@ -380,7 +381,7 @@ class _UpdatePageState extends State<UpdatePage> with WidgetsBindingObserver {
                     onPressed: _busy || _exiting || _statusTimer != null
                         ? null
                         : _check,
-                    icon: const Icon(Icons.refresh_rounded),
+                    icon: const Icon(AppIcons.refresh),
                     label: Text(context.l10n.updateCheckAgain),
                   ),
                   if (_exiting && _error != null)

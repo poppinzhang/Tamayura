@@ -1618,6 +1618,42 @@ abstract class AppLocalizations {
   /// **'放大预览'**
   String get previewZoomIn;
 
+  /// No description provided for @previewRotateClockwise.
+  ///
+  /// In zh, this message translates to:
+  /// **'顺时针旋转'**
+  String get previewRotateClockwise;
+
+  /// No description provided for @previewRotateCounterclockwise.
+  ///
+  /// In zh, this message translates to:
+  /// **'逆时针旋转'**
+  String get previewRotateCounterclockwise;
+
+  /// No description provided for @previewPrevious.
+  ///
+  /// In zh, this message translates to:
+  /// **'上一个媒体文件'**
+  String get previewPrevious;
+
+  /// No description provided for @previewNext.
+  ///
+  /// In zh, this message translates to:
+  /// **'下一个媒体文件'**
+  String get previewNext;
+
+  /// No description provided for @previewPosition.
+  ///
+  /// In zh, this message translates to:
+  /// **'第 {current} / {total} 项'**
+  String previewPosition(int current, int total);
+
+  /// No description provided for @previewSwipeHorizontal.
+  ///
+  /// In zh, this message translates to:
+  /// **'左右滑动查看前后媒体'**
+  String get previewSwipeHorizontal;
+
   /// No description provided for @previewVideoHint.
   ///
   /// In zh, this message translates to:

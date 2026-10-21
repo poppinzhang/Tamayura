@@ -565,6 +565,22 @@
   "previewDeleteLocal": "删除本地文件",
   "previewZoomReset": "还原缩放",
   "previewZoomIn": "放大预览",
+  "previewRotateClockwise": "顺时针旋转",
+  "previewRotateCounterclockwise": "逆时针旋转",
+  "previewPrevious": "上一个媒体文件",
+  "previewNext": "下一个媒体文件",
+  "previewPosition": "第 {current} / {total} 项",
+  "@previewPosition": {
+    "placeholders": {
+      "current": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "previewSwipeHorizontal": "左右滑动查看前后媒体",
   "previewVideoHint": "视频缩略图 · 下载后可用系统播放器打开",
   "previewReadingOriginal": "正在读取本机原图…",
   "previewOriginalDesktop": "本机原图 · 双击或滚轮缩放",

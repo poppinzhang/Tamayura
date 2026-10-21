@@ -871,6 +871,26 @@ class AppLocalizationsZh extends AppLocalizations {
   String get previewZoomIn => '放大预览';
 
   @override
+  String get previewRotateClockwise => '顺时针旋转';
+
+  @override
+  String get previewRotateCounterclockwise => '逆时针旋转';
+
+  @override
+  String get previewPrevious => '上一个媒体文件';
+
+  @override
+  String get previewNext => '下一个媒体文件';
+
+  @override
+  String previewPosition(int current, int total) {
+    return '第 $current / $total 项';
+  }
+
+  @override
+  String get previewSwipeHorizontal => '左右滑动查看前后媒体';
+
+  @override
   String get previewVideoHint => '视频缩略图 · 下载后可用系统播放器打开';
 
   @override

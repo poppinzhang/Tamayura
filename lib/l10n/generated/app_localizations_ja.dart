@@ -889,6 +889,26 @@ class AppLocalizationsJa extends AppLocalizations {
   String get previewZoomIn => '拡大';
 
   @override
+  String get previewRotateClockwise => '右に回転';
+
+  @override
+  String get previewRotateCounterclockwise => '左に回転';
+
+  @override
+  String get previewPrevious => '前のメディア';
+
+  @override
+  String get previewNext => '次のメディア';
+
+  @override
+  String previewPosition(int current, int total) {
+    return '$current / $total 件目';
+  }
+
+  @override
+  String get previewSwipeHorizontal => '左右にスワイプして前後のメディアを表示';
+
+  @override
   String get previewVideoHint => '動画のサムネイル · ダウンロード後にシステムのプレーヤーで開けます';
 
   @override

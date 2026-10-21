@@ -1,9 +1,9 @@
 import 'dart:typed_data';
 
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:tamayura/l10n/app_locale.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:tamayura/app/view_state.dart';
+import 'package:tamayura/l10n/app_locale.dart';
 import 'package:tamayura/ui/media_preview.dart';
 
 class _Model extends TamayuraModel {
@@ -54,7 +54,7 @@ Future<void> _show(
   addTearDown(tester.view.resetDevicePixelRatio);
   await tester.pumpWidget(
     MaterialApp(
-      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      localizationsDelegates: AppLocale.localizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
       locale: AppLocale.current,
       builder: (context, child) => MediaQuery(

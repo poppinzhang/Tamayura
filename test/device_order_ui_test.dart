@@ -1,7 +1,7 @@
 import 'dart:async';
 
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:tamayura/app/view_state.dart';
 import 'package:tamayura/ui/app.dart';
 import 'package:tamayura/ui/device_order_dialog.dart';

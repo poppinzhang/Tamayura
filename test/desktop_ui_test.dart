@@ -1,10 +1,10 @@
 import 'dart:io';
 import 'dart:ui' as ui;
 
-import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:tamayura/app/view_state.dart';
 import 'package:tamayura/ui/app.dart';
@@ -475,6 +475,12 @@ void main() {
   if (screenshot.isNotEmpty) {
     _desktopTest('render Mac prototype with fictional albums', (tester) async {
       await tester.runAsync(() async {
+        await (FontLoader('packages/lucide_icons_flutter/Lucide')..addFont(
+              rootBundle.load(
+                'packages/lucide_icons_flutter/assets/lucide.ttf',
+              ),
+            ))
+            .load();
         const fontPath = String.fromEnvironment('TAMAYURA_SCREENSHOT_FONT');
         final bytes = ByteData.sublistView(await File(fontPath).readAsBytes());
         for (final family in [

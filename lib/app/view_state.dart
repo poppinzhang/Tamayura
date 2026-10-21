@@ -1,5 +1,5 @@
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart' show Locale, ThemeMode;
+import 'package:material_ui/material_ui.dart' show Locale, ThemeMode;
 
 import '../core/models.dart';
 import '../l10n/app_locale.dart';
@@ -130,6 +130,18 @@ abstract class TamayuraModel extends ChangeNotifier {
   List<MediaCollection> get collections;
   String? get selectedCollectionKey;
   List<MediaView> get media;
+
+  /// Resolve a preview identity without moving the album's filter or visible
+  /// window. Implementations may fetch metadata outside the loaded pages.
+  Future<MediaView?> resolvePreviewMedia(
+    String deviceId,
+    String mediaId,
+  ) async {
+    final key = '$deviceId/$mediaId';
+    return media.where((item) => item.key == key).firstOrNull ??
+        transfers[key]?.item;
+  }
+
   List<MediaScrollEntry> get mediaScrollEntries => const [];
   MediaView? mediaAtScrollIndex(int index) => null;
 

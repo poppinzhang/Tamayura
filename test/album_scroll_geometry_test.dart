@@ -1,7 +1,7 @@
 import 'dart:ui';
 
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:material_ui/material_ui.dart' show GlobalMaterialLocalizations;
 import 'package:tamayura/l10n/app_locale.dart';
 import 'package:tamayura/ui/album_scroll_geometry.dart';
 

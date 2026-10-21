@@ -1,7 +1,7 @@
 name: tamayura
 description: 局域网中的随身相册。Android、macOS 与 Windows 媒体共享应用。
 publish_to: none
-version: 0.9.0+13
+version: 0.9.5+14
 
 environment:
   sdk: '>=3.8.0 <4.0.0'
@@ -23,6 +23,10 @@ dependencies:
   qr_flutter: ^4.1.0
   mobile_scanner: ^7.0.1
   package_info_plus: ^9.0.1
+  lucide_icons_flutter: ^4.0.1
+  flutter_animate: ^4.5.2
+  material_ui: ^1.8.0
+  animations: ^3.0.0
 
 dev_dependencies:
   flutter_test:

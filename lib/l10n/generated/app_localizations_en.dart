@@ -955,6 +955,26 @@ class AppLocalizationsEn extends AppLocalizations {
   String get previewZoomIn => 'Zoom in';
 
   @override
+  String get previewRotateClockwise => 'Rotate clockwise';
+
+  @override
+  String get previewRotateCounterclockwise => 'Rotate counterclockwise';
+
+  @override
+  String get previewPrevious => 'Previous media';
+
+  @override
+  String get previewNext => 'Next media';
+
+  @override
+  String previewPosition(int current, int total) {
+    return '$current of $total';
+  }
+
+  @override
+  String get previewSwipeHorizontal => 'Swipe left or right to browse media';
+
+  @override
   String get previewVideoHint =>
       'Video thumbnail · Open with the system player after downloading';
 

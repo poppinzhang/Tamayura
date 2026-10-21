@@ -1,6 +1,7 @@
 import 'dart:ui' show Locale, PlatformDispatcher;
 
-import 'package:flutter/widgets.dart' show BuildContext;
+import 'package:flutter/widgets.dart' show BuildContext, LocalizationsDelegate;
+import 'package:material_ui/material_ui.dart' show GlobalMaterialLocalizations;
 
 import 'generated/app_localizations.dart';
 
@@ -48,6 +49,13 @@ Locale resolveAppLocale(AppLanguage language, Iterable<Locale> systemLocales) {
 /// controller keeps [language] in sync with the saved preference; widgets
 /// read [BuildContext.l10n] so they rebuild when the language changes.
 abstract final class AppLocale {
+  // gen-l10n's aggregate still uses SDK Material types. Combine only the app
+  // delegate with the standalone Material/Cupertino delegates used at runtime.
+  static const List<LocalizationsDelegate<dynamic>> localizationsDelegates = [
+    AppLocalizations.delegate,
+    ...GlobalMaterialLocalizations.delegates,
+  ];
+
   static AppLanguage language = AppLanguage.system;
 
   /// The platform's preferred locales, most preferred first.

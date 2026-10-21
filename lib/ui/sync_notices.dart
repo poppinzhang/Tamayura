@@ -22,9 +22,19 @@ class SyncNotices extends ChangeNotifier {
   final TamayuraModel _model;
   final TickerProvider _vsync;
   final Map<Object, SyncNotice> _notices = {};
+  bool _reduceMotion = false;
 
   Iterable<SyncNotice> get visible =>
       _notices.values.where((notice) => !notice.hidden);
+
+  /// Change presentation without restarting the notices' retention timers.
+  void setReduceMotion(bool value) {
+    if (_reduceMotion == value) return;
+    _reduceMotion = value;
+    for (final notice in _notices.values) {
+      notice._setReduceMotion(value);
+    }
+  }
 
   void _update() {
     final progress = _model.syncProgress;
@@ -45,7 +55,12 @@ class SyncNotices extends ChangeNotifier {
       if (notice == null) {
         // Restored failures and old completions are not new notifications.
         if (_isActive(item)) {
-          _notices[key] = SyncNotice._(item, _vsync, notifyListeners);
+          _notices[key] = SyncNotice._(
+            item,
+            _vsync,
+            notifyListeners,
+            _reduceMotion,
+          );
         }
       } else {
         notice._update(item);
@@ -65,11 +80,17 @@ class SyncNotices extends ChangeNotifier {
 }
 
 class SyncNotice {
-  SyncNotice._(this.progress, TickerProvider vsync, this._changed)
-    : _animation = AnimationController(
+  SyncNotice._(
+    this.progress,
+    TickerProvider vsync,
+    this._changed,
+    this._reduceMotion,
+  ) : _animation = AnimationController(
         vsync: vsync,
         value: 1,
-        duration: const Duration(milliseconds: 300),
+        duration: fadeDuration,
+        // Reduced motion is applied explicitly, including changes mid-fade.
+        animationBehavior: AnimationBehavior.preserve,
       ) {
     _animation.addStatusListener((status) {
       if (status == AnimationStatus.dismissed) dismiss();
@@ -77,7 +98,9 @@ class SyncNotice {
   }
 
   SyncProgress progress;
+  static const fadeDuration = Duration(milliseconds: 300);
   bool hidden = false;
+  bool _reduceMotion;
   final VoidCallback _changed;
   final AnimationController _animation;
   Timer? _holdTimer;
@@ -88,8 +111,19 @@ class SyncNotice {
     final ended = _isActive(progress) && !_isActive(next);
     progress = next;
     if (ended && !hidden) {
-      _holdTimer = Timer(const Duration(seconds: 5), _animation.reverse);
+      _holdTimer = Timer(const Duration(seconds: 5), () {
+        if (_reduceMotion) {
+          dismiss();
+        } else {
+          _animation.reverse();
+        }
+      });
     }
+  }
+
+  void _setReduceMotion(bool value) {
+    _reduceMotion = value;
+    if (value && _animation.status == AnimationStatus.reverse) dismiss();
   }
 
   void dismiss() {

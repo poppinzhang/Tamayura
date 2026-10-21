@@ -1,8 +1,9 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import '../app/app_info.dart';
 import '../app/endpoint.dart';
 import '../l10n/app_locale.dart';
+import 'app_icons.dart';
 
 class AboutPage extends StatefulWidget {
   const AboutPage({super.key, this.loadVersion = AppVersion.load});
@@ -29,7 +30,7 @@ class _AboutPageState extends State<AboutPage> {
     children: [
       const SizedBox(height: 12),
       Icon(
-        Icons.blur_circular_rounded,
+        AppIcons.logo,
         size: 64,
         color: Theme.of(context).colorScheme.primary,
       ),
@@ -73,7 +74,7 @@ class _AboutPageState extends State<AboutPage> {
                           onPressed: () => setState(() {
                             _version = Future.sync(widget.loadVersion);
                           }),
-                          icon: const Icon(Icons.refresh_rounded),
+                          icon: const Icon(AppIcons.refresh),
                           label: Text(context.l10n.commonRetry),
                         ),
                       ],
@@ -93,10 +94,10 @@ class _AboutPageState extends State<AboutPage> {
       _InfoCard(
         child: ListTile(
           key: const Key('project-license-entry'),
-          leading: const Icon(Icons.code_rounded),
+          leading: const Icon(AppIcons.code),
           title: Text(context.l10n.aboutProjectLicense),
           subtitle: const Text('Apache-2.0'),
-          trailing: const Icon(Icons.chevron_right_rounded),
+          trailing: const Icon(AppIcons.next),
           onTap: () => Navigator.of(context).push<void>(
             MaterialPageRoute(builder: (_) => const ProjectLicensePage()),
           ),
@@ -106,10 +107,10 @@ class _AboutPageState extends State<AboutPage> {
       _InfoCard(
         child: ListTile(
           key: const Key('dependency-licenses-entry'),
-          leading: const Icon(Icons.description_outlined),
+          leading: const Icon(AppIcons.license),
           title: Text(context.l10n.aboutThirdPartyLicenses),
           subtitle: Text(context.l10n.aboutThirdPartyLicensesSubtitle),
-          trailing: const Icon(Icons.chevron_right_rounded),
+          trailing: const Icon(AppIcons.next),
           onTap: () => showLicensePage(
             context: context,
             applicationName: context.l10n.appTitle,
@@ -120,10 +121,10 @@ class _AboutPageState extends State<AboutPage> {
       _InfoCard(
         child: ListTile(
           key: const Key('musings-entry'),
-          leading: const Icon(Icons.photo_camera_outlined),
+          leading: const Icon(AppIcons.camera),
           title: Text(context.l10n.aboutMusings),
           subtitle: Text(context.l10n.aboutMusingsSubtitle),
-          trailing: const Icon(Icons.chevron_right_rounded),
+          trailing: const Icon(AppIcons.next),
           onTap: () => Navigator.of(
             context,
           ).push<void>(MaterialPageRoute(builder: (_) => const MusingsPage())),
@@ -176,7 +177,7 @@ class _ProjectLicensePageState extends State<ProjectLicensePage> {
                       context,
                     ).loadString('LICENSE', cache: false);
                   }),
-                  icon: const Icon(Icons.refresh_rounded),
+                  icon: const Icon(AppIcons.refresh),
                   label: Text(context.l10n.commonRetry),
                 ),
               ],
