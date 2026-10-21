@@ -37,11 +37,11 @@ It is for browsing and transferring media between your own devices on the same l
 
 ## Quick start
 
-Tamayura is in early development. The published **0.9.0** packages for Android, macOS, and Windows are available as a [Pre-release](https://github.com/poppinzhang/Tamayura/releases/tag/v0.9.0). See the [0.9.0 release record](docs/releases/0.9.0.md) for installation and validation scope. Use the **same build** on all devices; compatibility between releases is not guaranteed before v1.0.0, and protocol v4 does not connect to 0.5.0.
+Tamayura is in early development. The published **0.9.6** packages for Android, macOS, and Windows are available as a [Pre-release](https://github.com/poppinzhang/Tamayura/releases/tag/v0.9.6). See the [0.9.6 release record](docs/releases/0.9.6.md) for installation and validation scope. Use the **same build** on all devices; compatibility between releases is not guaranteed before v1.0.0, and protocol v4 does not connect to 0.5.0.
 
-The current **0.9.6 source** adds 90-degree image rotation, previous/next preview navigation with downloads only for the item you visit, and double-tap navigation to return Albums, Devices, or Settings to the top. It also refreshes interface icons and motion and fixes local previews for some Sony ARW images on macOS. **0.9.6 release validation and packages are still pending**; these changes are not in the published 0.9.0 packages. The [0.9.5 release attempt](docs/releases/0.9.5.md) did not produce public packages. See the [0.9.6 release record](docs/releases/0.9.6.md) for current status and limitations.
+**0.9.6** adds 90-degree image rotation, previous/next preview navigation with downloads only for the item you visit, and double-tap navigation to return Albums, Devices, or Settings to the top. It also refreshes interface icons and motion and fixes local previews for some Sony ARW images on macOS. These features are included in the published 0.9.6 packages; the [0.9.5 release attempt](docs/releases/0.9.5.md) did not produce public packages.
 
-**1 · Install and connect.** Choose the package for your platform from the [0.9.0 Pre-release](https://github.com/poppinzhang/Tamayura/releases/tag/v0.9.0), and read the [installation notes](docs/releases/0.9.0.md#安装与数据). To run from source, see the [source build instructions](AGENTS.md#本地开发). Android 0.9.0 keeps the release certificate used since 0.6.1 and can update an app with the same signature. Uninstall a 0.5.0 or earlier trial app with the old signature first; this clears app data and folder permissions. Connect both devices to the same local network and open Tamayura. Allow local network access when prompted; on Windows, allow the app through the firewall on your trusted private network.
+**1 · Install and connect.** Choose the package for your platform from the [0.9.6 Pre-release](https://github.com/poppinzhang/Tamayura/releases/tag/v0.9.6), and read the [installation notes](docs/releases/0.9.6.md#安装与数据). To run from source, see the [source build instructions](AGENTS.md#本地开发). Android 0.9.6 keeps the release certificate used since 0.6.1 and can update an app with the same signature. Uninstall a 0.5.0 or earlier trial app with the old signature first; this clears app data and folder permissions. Connect both devices to the same local network and open Tamayura. Allow local network access when prompted; on Windows, allow the app through the firewall on your trusted private network.
 
 **2 · Choose your folders.** In **Settings (设置)**, add the folders you want to share and choose where downloaded files should go. For example, share `DCIM` and receive files in `Pictures/Tamayura`. Subfolders are included automatically. On Android, choose a subfolder rather than the storage root or the `Download` root.
 
@@ -53,7 +53,7 @@ The current **0.9.6 source** adds 90-degree image rotation, previous/next previe
 
 Open **Settings → Check for updates** to check GitHub Releases, including pre-releases. Tamayura asks for your confirmation before proceeding. Android downloads and verifies the APK, then opens the system installation flow; allow this installation source when prompted and confirm the update. Windows downloads and verifies the full ZIP, replaces the complete application folder, and restarts. It requires a complete release bundle in a dedicated writable local folder whose parent is also writable; it does not provide a separate installer or automatically request administrator access. macOS opens the selected release page for you to download and install the update yourself.
 
-If you already have 0.8.0 installed, use Check for updates to find 0.9.0. Users of 0.7.0 or earlier need to install 0.9.0 manually. Checking and downloading updates requires internet access. Updating interrupts sharing and transfers; interrupted media downloads can be retried after reopening the app. See the [0.9.0 release record](docs/releases/0.9.0.md) for limitations and the remaining device acceptance work.
+If you have 0.8.0 or a later release installed, use Check for updates to find 0.9.6. Users of 0.7.0 or earlier need to install 0.9.6 manually. Checking and downloading updates requires internet access. Updating interrupts sharing and transfers; interrupted media downloads can be retried after reopening the app. See the [0.9.6 release record](docs/releases/0.9.6.md) for limitations and the remaining device acceptance work.
 
 ## Supported platforms
 
@@ -63,7 +63,7 @@ If you already have 0.8.0 installed, use Check for updates to find 0.9.0. Users 
 | macOS | macOS Sequoia 15.0+, including Tahoe 26 and later | Universal app for Apple silicon and Intel |
 | Windows | Windows 10 1809+ / Windows 11 · x64 | ZIP; Visual C++ x64 runtime required |
 
-The macOS Pre-release app uses ad-hoc signing and is not notarized; the Windows ZIP is unsigned. Installation details and validation limits are in the [0.9.0 release record](docs/releases/0.9.0.md). iOS and Linux are planned but do not yet have runnable or downloadable builds.
+The macOS Pre-release app uses ad-hoc signing and is not notarized; the Windows ZIP is unsigned. Installation details and validation limits are in the [0.9.6 release record](docs/releases/0.9.6.md). iOS and Linux are planned but do not yet have runnable or downloadable builds.
 
 Windows can display a connection QR code, open downloaded files in the default app, and reveal them in Explorer. Camera scanning and the system share sheet are available on Android and macOS.
 
@@ -123,9 +123,9 @@ Most detailed documentation is currently in Chinese.
 | :-- | :-- |
 | [Changelog](CHANGELOG.md) | Released and unreleased changes |
 | [GitHub Releases](https://github.com/poppinzhang/Tamayura/releases) | Published packages and checksums |
-| [0.9.6 release record](docs/releases/0.9.6.md) | Current source: preview rotation and navigation, interface changes; release pending |
+| [0.9.6 release record](docs/releases/0.9.6.md) | Preview rotation and navigation, installation impact, and validation scope |
 | [0.9.5 release record](docs/releases/0.9.5.md) | Unpublished release attempt |
-| [0.9.0 release record](docs/releases/0.9.0.md) | Language support, installation impact, and validation scope |
+| [0.9.0 release record](docs/releases/0.9.0.md) | Previous release: interface languages |
 | [0.8.0 release record](docs/releases/0.8.0.md) | Previous release: update feature and installation requirements |
 | [Sync behavior](docs/自动与手动同步.md) | Automatic intervals, manual refresh, and sync status |
 | [New and forgotten devices](docs/新设备确认与忘记设备.md) | Confirming newly discovered devices, retrying when a device comes back, and forgetting devices |
