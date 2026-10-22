@@ -16,8 +16,8 @@ if ! xcodebuild -version >/dev/null 2>&1; then
   exit 1
 fi
 
-# Local preview only: the Xcode project uses ad-hoc signing. Public distribution
-# requires the owner's Developer ID and notarization as documented in docs/发布.md.
+# GitHub releases use disclosed ad-hoc signing without notarization.
+# Certificate-backed distribution requires a separate signing/notarization flow.
 export FLUTTER_SWIFT_PACKAGE_MANAGER=true
 app_version=$(awk '/^version: / { print $2 }' pubspec.yaml)
 if [[ ! "$app_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+\+[0-9]+$ ]]; then
@@ -42,13 +42,13 @@ if [[ "$minimum" != '15.0' ]]; then
 fi
 codesign --verify --deep --strict --all-architectures "$app_path"
 # Swift plugin debug symbols can retain local source paths in a Release binary.
-# Only rewrite this script's ad-hoc preview signatures; never replace a
+# Only rewrite this script's ad-hoc signatures; never replace a
 # Developer ID or other certificate-backed signature with an ad-hoc signature.
 architectures=$(lipo -archs "$app_path/Contents/MacOS/Tamayura")
 for architecture in $architectures; do
   signature=$(codesign --display --arch "$architecture" --verbose=4 "$app_path" 2>&1)
   if ! grep -Fxq 'Signature=adhoc' <<< "$signature"; then
-    echo '仅支持处理 ad-hoc 本地试用签名；拒绝修改其他类型的应用签名。' >&2
+    echo '仅支持处理 ad-hoc 签名；拒绝修改其他类型的应用签名。' >&2
     exit 1
   fi
 done
@@ -100,4 +100,4 @@ done
   shasum -a 256 "$archive_name" > SHA256SUMS-macos
   shasum -a 256 -c SHA256SUMS-macos
 )
-echo "本地试用版已打包：${output_dir}/${archive_name}（未公证）"
+echo "macOS 发行包已打包：${output_dir}/${archive_name}（未公证）"

@@ -169,14 +169,14 @@ scripts/generate-proto.sh
 仅讨论或维护流程时不执行发布；已授权发布时由 Agent 连续执行上述步骤并等待结束，无需人工下载、逐步确认或重复申请批准。首次配置完成后沿用当前签名 Secrets 与工作流 `GITHUB_TOKEN`，不将 Chrome 下载、`gh`、个人 API 令牌或新 OAuth 授权设为每次发布前提。实际失败时停在失败步骤处理，可在不覆盖公开版本、不移动 Tag 的条件下自动安全重试；发现遗漏、版本冲突或缺少必要条件时如实说明，不跳过检查。自 v1.0.0 起发布正式 Release 并标记 Latest，既有历史 Pre-release 保持原状；保留 macOS 未公证、Windows 与 Linux 未签名和真机验收范围的说明。发布后实际结果补充到对应版本记录，不回改已发布 Tag。
 
 * Android：配置专用 release 签名后执行 `scripts/package-android.sh`，运行公共与原生检查、Release 构建及版本、系统、架构、签名和对齐核验，输出 APK 与独立校验和。按需生成 `flutter build apk --release --split-per-abi` 或 `flutter build appbundle --release`。缺失 release 签名配置时不得回退到 debug 签名。CI 签名通过 Actions Secrets 临时配置，详情见 `docs/发布.md`。
-* macOS：执行 `scripts/package-macos.sh`，脚本运行公共检查、原生测试与 Release 构建，核验最低系统、版本、Universal 架构和签名，输出 `dist/<version>/Tamayura-<version>-macos.zip` 及 `SHA256SUMS-macos`。完整 Xcode 位于标准位置时可由脚本自动选择；非标准位置用 `DEVELOPER_DIR`，不修改系统全局开发目录。当前流程用于 ad-hoc 本地试用签名；公开发行需独立的 Developer ID 签名与公证流程，不能覆盖已有正式签名。
+* macOS：执行 `scripts/package-macos.sh`，脚本运行公共检查、原生测试与 Release 构建，核验最低系统、版本、Universal 架构和签名，输出 `dist/<version>/Tamayura-<version>-macos.zip` 及 `SHA256SUMS-macos`。完整 Xcode 位于标准位置时可由脚本自动选择；非标准位置用 `DEVELOPER_DIR`，不修改系统全局开发目录。当前 GitHub 正式分发沿用 ad-hoc 签名并明确披露未公证；若启用 Developer ID 与公证，须单独配置和验证，不能覆盖已有证书签名。
 * Windows：在 x64 Windows 主机执行 `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\package-windows.ps1`，脚本运行公共检查、原生 CTest、Release 构建与完整目录归档核验，输出 `dist/<version>/Tamayura-<version>-windows-x64.zip` 及 `SHA256SUMS-windows`。必须分发完整 Release 目录，不能只发送 EXE；保留 SQLite、插件 DLL、Flutter 引擎和 `data`，排除测试专用且含本机路径的根 `native_assets.json`。
 * Linux：在对应架构的 Linux 主机执行 `scripts/package-linux.sh`。脚本把已跟踪及未忽略的源码复制到中性临时目录，在其中运行公共与原生检查、Release 构建，核验版本、架构、glibc / libstdc++ 符号版本、库搜索路径、归档内容与构建机路径，并在有 Xvfb 时启动解压后的应用确认加载包内 SQLite，输出 `dist/<version>/Tamayura-<version>-linux-<arch>.tar.gz` 及 `SHA256SUMS-linux-<arch>`。必须分发完整目录；包内 `install-desktop-entry.sh` 只写当前用户的应用菜单入口。
 * 非 Windows 主机可执行 `python3 scripts/package-windows-source.py` 制作 Windows 构建输入。源码 ZIP 不能代替 Windows 可执行包或完成发布的证明。
 
 打包脚本独立调用时会执行其完整检查。各平台可执行包（Linux 含 x64 与 arm64）全部完成构建、验证后才能标记全平台交付完成；联合校验和、`release.json` 与实际文件保持一致，各平台重打包不得覆盖其他平台的校验记录。构建及归档不得泄漏环境隐私，发布前核验归档及解压内容。签名配置和私钥不提交、不打印、不放入分发目录。
 
-本地生成安装包不等于已创建 Git tag、上传远端 Release 或上架应用商店；发布渠道与交付状态以实际执行结果为准。正式公开发布还需真实跨设备验收及干净环境或 CI 重建。
+本地生成安装包不等于已创建 Git tag、上传远端 Release 或上架应用商店；发布渠道与交付状态以实际执行结果为准。GitHub 正式发布必须完成干净环境或 CI 重建；真实跨设备验收按实际完成范围披露，未执行场景不得记为通过。沿用当前 macOS 未公证、Windows/Linux 未签名的分发方式，不将正式 Release 标签等同于平台签名或公证。
 
 ## 实现约束与平台边界
 
