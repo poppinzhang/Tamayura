@@ -10,6 +10,7 @@ add_executable(${BINARY_NAME} WIN32
   "flutter_window.cpp"
   "app_text.cpp"
   "desktop_tray.cpp"
+  "single_instance.cpp"
   "main.cpp"
   "utils.cpp"
   "win32_window.cpp"

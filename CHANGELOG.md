@@ -2,6 +2,9 @@
 
 ## unstaged
 
+- Windows 新增单实例启动：同一用户、同一登录会话中再次打开玉响，会唤回已有窗口并结束后启动的进程；托盘隐藏和最小化窗口可恢复，最大化状态保留。并发启动共用原生互斥锁，启动未完成时暂存激活请求；无法唤醒时显示三语原生错误，不绕过互斥启动第二个实例。Windows 限制前台焦点时显示窗口并闪烁任务栏提示。
+- Windows 单实例机制不修改数据库、配置或通信协议；旧版进程未参与该机制，首次使用更新后的程序前须先退出旧版。此项为未发布源码改动，Windows 原生运行与真实桌面焦点行为仍待验证，详见 `docs/桌面托盘与窗口生命周期.md`。
+
 ## 1.0.0
 
 版本日期：2026-10-22。Android、macOS、Windows 与 Linux 统一使用 `1.0.0+16`，Windows 数字文件版本为 `1.0.0.16`。本版为首个正式版本，GitHub Release 不再标记 Pre-release，并标记为 Latest；今后版本均按正式发布与兼容升级规则维护，既有历史 Tag 与预发布保留原状。计划提供 Android APK、macOS Universal ZIP、Windows x64 ZIP、Linux x64 / arm64 tar.gz，以及 `SHA256SUMS`、`release.json` 共七个附件。准备提交时，本次完整测试、打包、四平台分支 CI 和 Tag 发布仍待完成；实际结果见 `docs/releases/1.0.0.md`。

@@ -27,6 +27,7 @@ const Table kChinese = {
     L"无法保存 Windows 应用设置",
     L"无法创建 Windows 设备标识",
     L"无法读取 Windows 设备标识",
+    L"无法启动或唤回玉响。如果玉响正在启动或退出，请稍后重试；如果已运行，请从托盘打开，并确认两次启动使用相同的用户和权限。",
     L"Windows 操作失败",
 };
 
@@ -46,6 +47,7 @@ const Table kJapanese = {
     L"Windows のアプリ設定を保存できません",
     L"Windows のデバイス識別子を作成できません",
     L"Windows のデバイス識別子を読み込めません",
+    L"Tamayura を起動または再表示できません。起動中または終了中の場合は、しばらくしてから再試行してください。実行中の場合はトレイから開き、同じユーザーと権限で起動していることを確認してください。",
     L"Windows の操作に失敗しました",
 };
 
@@ -65,6 +67,7 @@ const Table kEnglish = {
     L"Can't save the Windows app settings",
     L"Can't create the Windows device identifier",
     L"Can't read the Windows device identifier",
+    L"Can't start or reopen Tamayura. If it is starting or exiting, try again shortly. If it is already running, open it from the tray and check that both launches use the same user and privileges.",
     L"The Windows operation failed",
 };
 

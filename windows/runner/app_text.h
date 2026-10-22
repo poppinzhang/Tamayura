@@ -28,6 +28,7 @@ enum class TextId {
   kSettingsUnavailable,
   kDeviceIdCreateFailed,
   kDeviceIdReadFailed,
+  kSingleInstanceFailed,
   kOperationFailed,
 };
 

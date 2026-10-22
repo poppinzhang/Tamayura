@@ -5,8 +5,9 @@
 #include "flutter/generated_plugin_registrant.h"
 #include "resource.h"
 
-FlutterWindow::FlutterWindow(const flutter::DartProject& project)
-    : project_(project) {}
+FlutterWindow::FlutterWindow(const flutter::DartProject& project,
+                             tamayura::SingleInstance& single_instance)
+    : project_(project), single_instance_(single_instance) {}
 
 FlutterWindow::~FlutterWindow() {}
 
@@ -38,6 +39,7 @@ bool FlutterWindow::OnCreate() {
 
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
     this->Show();
+    single_instance_.SetWindow(GetHandle());
   });
 
   // Flutter can complete the first frame before the "show window" callback is
@@ -49,6 +51,9 @@ bool FlutterWindow::OnCreate() {
 }
 
 void FlutterWindow::OnDestroy() {
+  // Create() calls Destroy() before constructing the first window. Only stop
+  // activation when an actual Flutter host is being torn down.
+  if (flutter_controller_) single_instance_.StopActivation();
   desktop_tray_.reset();
   KillTimer(GetHandle(), 1);
   platform_.reset();

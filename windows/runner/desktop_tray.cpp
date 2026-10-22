@@ -5,6 +5,7 @@
 #include <cwchar>
 
 #include "app_text.h"
+#include "single_instance.h"
 
 namespace tamayura {
 
@@ -64,9 +65,7 @@ void DesktopTray::UpdateTooltip() noexcept {
 }
 
 void DesktopTray::OpenWindow() noexcept {
-  // SW_SHOW preserves a maximized window; SW_RESTORE unminimizes one.
-  ShowWindow(window_, IsIconic(window_) ? SW_RESTORE : SW_SHOW);
-  SetForegroundWindow(window_);
+  ShowAndActivateWindow(window_);
 }
 
 void DesktopTray::ShowMenu(POINT position) noexcept {

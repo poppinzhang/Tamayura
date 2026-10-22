@@ -7,6 +7,7 @@
 #include <memory>
 
 #include "desktop_tray.h"
+#include "single_instance.h"
 #include "win32_window.h"
 #include "windows_platform.h"
 
@@ -14,7 +15,8 @@
 class FlutterWindow : public Win32Window {
  public:
   // Creates a new FlutterWindow hosting a Flutter view running |project|.
-  explicit FlutterWindow(const flutter::DartProject& project);
+  FlutterWindow(const flutter::DartProject& project,
+                tamayura::SingleInstance& single_instance);
   virtual ~FlutterWindow();
 
  protected:
@@ -27,6 +29,7 @@ class FlutterWindow : public Win32Window {
  private:
   // The project to run.
   flutter::DartProject project_;
+  tamayura::SingleInstance& single_instance_;
 
   // The Flutter instance hosted by this window.
   std::unique_ptr<flutter::FlutterViewController> flutter_controller_;
