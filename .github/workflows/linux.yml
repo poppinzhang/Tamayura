@@ -1,4 +1,4 @@
-name: Linux preview
+name: Linux validation
 on:
   push:
     branches: ['**']

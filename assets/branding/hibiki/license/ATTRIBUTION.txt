@@ -1,0 +1,10 @@
+「響」（U+97FF）图标由用户提供：
+hibiki-black.svg、hibiki-white.svg、hibiki-macos-cutout.svg。
+SVG 原文件保存于 ../source/ 目录，字形已转为路径，不依赖系统字体。
+
+SVG 来源说明标明字形取自 Nagino Medium。
+Nagino 官方项目：https://github.com/amazusa/Nagino
+Nagino 许可证：https://github.com/amazusa/Nagino/blob/main/OFL.txt
+Nagino 的汉字沿用 ZEN 丸ゴシック Medium；官方许可证包含其版权声明。
+本目录保留上游 SIL Open Font License 1.1 原文 Nagino-OFL.txt。
+PNG 从原 SVG 按目标尺寸直接渲染；macOS 使用原始透明镂空 SVG。

@@ -1401,6 +1401,10 @@ class AppLocalizationsZh extends AppLocalizations {
   String get errorDatabaseDirectory => '本机数据库目录不可用，请检查用户目录权限后重试';
 
   @override
+  String get errorDatabaseVersionUnsupported =>
+      '数据库格式与此应用版本不兼容。原有数据已保留，请使用支持该数据格式的应用版本';
+
+  @override
   String get errorTransferTarget => '媒体所属设备或共享目录无效，请刷新相册';
 
   @override

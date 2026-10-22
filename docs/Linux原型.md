@@ -1,6 +1,6 @@
 # Linux 实现与本机调试
 
-Linux 桌面版属于当前 `unstaged` 源码，已发布的 0.9.6 及更早安装包不包含 Linux 程序；变更记录见 `CHANGELOG.md` 的 `unstaged`。目标系统为 **Ubuntu 24.04 LTS 同代或更新的桌面发行版（glibc 2.39+、GTK 3.24），x64 与 arm64**。发行形式为完整目录的 `tar.gz`，未签名；当前不提供 deb、rpm、Flatpak、Snap、AppImage 或软件商店版本，也不支持 32 位系统。
+Linux 桌面版纳入 1.0.0 源码与发布范围，0.9.6 及更早安装包不包含 Linux 程序；本次安装包与验证的实际状态见 [1.0.0 发布记录](releases/1.0.0.md)。目标系统为 **Ubuntu 24.04 LTS 同代或更新的桌面发行版（glibc 2.39+、GTK 3.24），x64 与 arm64**。发行形式为完整目录的 `tar.gz`，未签名；当前不提供 deb、rpm、Flatpak、Snap、AppImage 或软件商店版本，也不支持 32 位系统。
 
 ## 初始实现验证记录
 
@@ -11,7 +11,7 @@ Linux 桌面版属于当前 `unstaged` 源码，已发布的 0.9.6 及更早安�
 - Ubuntu 24.04 x64 容器（Apple 芯片上的 QEMU 用户态仿真，按 CI 的依赖清单安装）：在 `TAMAYURA_SANITIZE=OFF` 且未启动 avahi-daemon 的条件下完整运行 `scripts/package-linux.sh` 通过。Flutter 全量 **1019 项**测试通过，原生 CTest 7 项通过，Avahi 发现测试按设计跳过；x64 Release 构建、ELF（x86-64）与 glibc / libstdc++ 符号版本核验、归档与构建机路径扫描均通过，解压后的应用启动并加载包内 SQLite。仿真环境不支持 AddressSanitizer，Avahi 也识别不到网卡，x64 的 sanitizer 与发现测试由 CI 的 x64 runner 执行。
 - 两个 arm64 容器通过 mDNS 自动发现、确认并同步相册：JPEG、带透明通道的 PNG、视频经系统缩略图程序均生成缩略图，随机数据显示占位；单流下载与 60 MiB 文件的四路并发下载完成后 SHA-256 与源文件一致，暂存分片按时清理；接收端本地原图预览正常。
 - 没有文件管理器或默认应用时，「在文件夹中显示」「用其他应用打开」分别给出失败提示，不再误报成功；没有状态托盘时 Ctrl+Q 和窗口关闭请求均正常退出；Release 构建第二次启动会显示已运行窗口后立即退出。
-尚未验证：Linux CI 与 Tag 发布工作流的远端运行、x64 真实环境中的 sanitizer 与 Avahi 测试、真实 GNOME / KDE / Xfce 桌面与 Wayland 会话、真实托盘宿主交互、与 Android / macOS / Windows 真机互传、断网和睡眠恢复、HiDPI 与屏幕阅读器。容器内的回环与双容器测试不能替代真机验收。
+初始实现阶段尚未验证：Linux CI 与 Tag 发布工作流的远端运行、x64 真实环境中的 sanitizer 与 Avahi 测试、真实 GNOME / KDE / Xfce 桌面与 Wayland 会话、真实托盘宿主交互、与 Android / macOS / Windows 真机互传、断网和睡眠恢复、HiDPI 与屏幕阅读器。容器内的回环与双容器测试不能替代真机验收。
 
 ## 审查修复与回归验证
 
@@ -162,6 +162,6 @@ cd Tamayura-<version>-linux-x64
 flutter run -d linux -v 2>&1 | tee linux-debug.log
 ```
 
-日志可能包含本地路径和局域网地址，提交问题前先移除不希望公开的内容。历史数据不兼容时按 v1.0.0 前策略清空上述数据目录或重新配置，不要求旧数据库迁移。
+日志可能包含本地路径和局域网地址，提交问题前先移除不希望公开的内容。遇到数据库版本不兼容时保留上述数据目录并报告问题，按 [兼容与升级](兼容与升级.md) 处理；不能将删除数据目录作为正式版常规升级步骤。
 
 平台依据：[Flutter Linux 开发环境](https://docs.flutter.dev/platform-integration/linux/setup)、[Desktop Entry 规范](https://specifications.freedesktop.org/desktop-entry-spec/latest/)、[StatusNotifierItem](https://www.freedesktop.org/wiki/Specifications/StatusNotifierItem/)、[Avahi 客户端 API](https://avahi.org/doxygen/html/)、[freedesktop 缩略图规范](https://specifications.freedesktop.org/thumbnail-spec/latest/)。

@@ -55,6 +55,8 @@ class FakeGitHub(PUBLISH.GitHubClient):
             return copy.deepcopy(self.release)
         if method == "GET" and endpoint == "releases/10":
             return copy.deepcopy(self.release)
+        if method == "GET" and endpoint == "releases/latest":
+            return copy.deepcopy(self.release)
         if method == "PATCH" and endpoint == "releases/10":
             self.release.update(payload)
             return copy.deepcopy(self.release)
@@ -91,8 +93,9 @@ class PublishTests(unittest.TestCase):
         for name in ["Tamayura-0.6.0-android.apk", "Tamayura-0.6.0-macos.zip", "Tamayura-0.6.0-windows-x64.zip",
                      "Tamayura-0.6.0-linux-x64.tar.gz", "Tamayura-0.6.0-linux-arm64.tar.gz", "SHA256SUMS", "release.json"]:
             (self.assets / name).write_bytes(f"test data for {name}\n".encode())
+        (self.assets / "release.json").write_text(json.dumps({"tag": TAG, "version": TAG[1:], "release_type": "release"}), encoding="utf-8")
         self.notes = self.root / "notes.md"
-        self.notes.write_text("# Preview\n\nChanges and known limitations.\n", encoding="utf-8")
+        self.notes.write_text("# Release\n\nChanges and known limitations.\n", encoding="utf-8")
 
     def publish(self, client):
         return PUBLISH.publish(client, TAG, self.assets, self.notes, SHA)
@@ -100,16 +103,90 @@ class PublishTests(unittest.TestCase):
     def assert_not_published(self, client):
         self.assertFalse(any(payload is not None and payload.get("draft") is False for _, _, payload in client.calls))
 
-    def test_creates_draft_uploads_all_assets_then_publishes_preview(self):
+    def test_creates_stable_draft_uploads_all_assets_then_publishes_as_latest(self):
         client = FakeGitHub()
         result = self.publish(client)
         self.assertIs(result["draft"], False)
-        self.assertIs(result["prerelease"], True)
-        self.assertEqual(result["make_latest"], "false")
+        self.assertIs(result["prerelease"], False)
+        self.assertEqual(result["make_latest"], "true")
         self.assertEqual(result["body"], self.notes.read_text())
         self.assertEqual({asset["name"] for asset in client.assets}, {path.name for path in self.assets.iterdir()})
         self.assertEqual(client.tag_checks, 2)
-        self.assertEqual(client.calls[-1], ("PATCH", "releases/10", {"draft": False, "prerelease": True, "make_latest": "false"}))
+        self.assertEqual(client.calls[-2], ("PATCH", "releases/10", {"draft": False, "prerelease": False, "make_latest": "true"}))
+        self.assertEqual(client.calls[-1], ("GET", "releases/latest", None))
+        metadata = next(payload for method, endpoint, payload in client.calls if method == "POST" and endpoint == "releases")
+        self.assertIs(metadata["draft"], True)
+        self.assertIs(metadata["prerelease"], False)
+        self.assertEqual(metadata["make_latest"], "false")
+
+    def test_existing_preview_draft_becomes_stable_before_publication(self):
+        client = FakeGitHub(draft())
+        self.publish(client)
+        updates = [payload for method, _, payload in client.calls if method == "PATCH"]
+        self.assertIs(updates[0]["draft"], True)
+        self.assertIs(updates[0]["prerelease"], False)
+        self.assertIs(client.release["prerelease"], False)
+
+    def test_manifest_must_agree_with_stable_release_before_network_access(self):
+        manifest_path = self.assets / "release.json"
+        for override in ({"release_type": "prerelease"}, {"release_type": None}, {"tag": "v0.5.0"}, {"version": "0.5.0"}):
+            with self.subTest(override=override):
+                manifest_path.write_text(json.dumps({"tag": TAG, "version": TAG[1:], "release_type": "release", **override}), encoding="utf-8")
+                client = FakeGitHub()
+                with self.assertRaisesRegex(PUBLISH.ReleaseError, "stable release"):
+                    self.publish(client)
+                self.assertEqual(client.calls, [])
+
+    def test_publication_response_must_confirm_stable_tag_and_commit(self):
+        for override in ({"prerelease": True}, {"draft": True}, {"tag_name": "v0.5.0"}, {"target_commitish": OTHER_SHA}):
+            with self.subTest(override=override):
+                client = FakeGitHub()
+                original_request = client.request
+
+                def request(method, endpoint, payload=None, file=None):
+                    result = original_request(method, endpoint, payload, file)
+                    if payload is not None and payload.get("draft") is False:
+                        result.update(override)
+                    return result
+
+                client.request = request
+                with self.assertRaisesRegex(PUBLISH.ReleaseError, "did not confirm the stable release"):
+                    self.publish(client)
+
+    def test_latest_response_must_identify_the_published_stable_release(self):
+        for override in ({"id": 11}, {"tag_name": "v0.5.0"}, {"draft": True}, {"prerelease": True}):
+            with self.subTest(override=override):
+                client = FakeGitHub()
+                original_request = client.request
+
+                def request(method, endpoint, payload=None, file=None):
+                    result = original_request(method, endpoint, payload, file)
+                    if endpoint == "releases/latest":
+                        result.update(override)
+                    return result
+
+                client.request = request
+                with self.assertRaisesRegex(PUBLISH.ReleaseError, "was published, but GitHub did not confirm it as latest"):
+                    self.publish(client)
+                self.assertIs(client.release["draft"], False)
+                self.assertEqual(client.calls[-1], ("GET", "releases/latest", None))
+                self.assertEqual(sum(payload is not None and payload.get("draft") is False for _, _, payload in client.calls), 1)
+
+    def test_latest_lookup_failure_reports_publication_without_retrying_mutations(self):
+        client = FakeGitHub()
+        original_request = client.request
+
+        def request(method, endpoint, payload=None, file=None):
+            result = original_request(method, endpoint, payload, file)
+            if endpoint == "releases/latest":
+                raise PUBLISH.ReleaseError("GitHub GET request failed (HTTP 503).")
+            return result
+
+        client.request = request
+        with self.assertRaisesRegex(PUBLISH.ReleaseError, "was published, but its latest status could not be verified"):
+            self.publish(client)
+        self.assertIs(client.release["draft"], False)
+        self.assertEqual(client.calls[-1], ("GET", "releases/latest", None))
 
     def test_existing_published_release_is_never_modified(self):
         client = FakeGitHub(draft(draft=False))

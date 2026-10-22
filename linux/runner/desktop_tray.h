@@ -8,14 +8,9 @@
 #include <string>
 #include <vector>
 
-namespace tamayura {
+#include "tray_icon.h"
 
-// An ARGB32 image in network byte order, as StatusNotifierItem expects.
-struct TrayIcon {
-  int width = 0;
-  int height = 0;
-  std::vector<uint8_t> argb;
-};
+namespace tamayura {
 
 // A StatusNotifierItem with a two-entry dbusmenu, exported directly over the
 // session bus. KDE Plasma, Ubuntu's default desktop (AppIndicator), Xfce,
@@ -43,6 +38,8 @@ class DesktopTray {
   const std::string& bus_name() const { return bus_name_; }
   // Refreshes the title, tooltip and menu in the current language.
   void LanguageChanged();
+  // Refreshes the icon in an already registered tray after a theme change.
+  void SetIcons(std::vector<TrayIcon> icons);
 
   static constexpr int kOpenItem = 1;
   static constexpr int kSeparatorItem = 2;

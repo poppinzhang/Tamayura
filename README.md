@@ -13,6 +13,7 @@ and save the originals you want with a tap.
 ![Android](https://img.shields.io/badge/Android-16%2B-3DDC84?logo=android&logoColor=white)
 ![macOS](https://img.shields.io/badge/macOS-15%2B-111111?logo=apple&logoColor=white)
 ![Windows](https://img.shields.io/badge/Windows-x64-0078D4)
+![Linux](https://img.shields.io/badge/Linux-x64%20%7C%20arm64-FCC624)
 [![License](https://img.shields.io/badge/license-Apache--2.0-111111)](LICENSE)
 
 **[Quick start](#quick-start)** &nbsp;·&nbsp; **[Documentation](#documentation)** &nbsp;·&nbsp; **[Changelog](CHANGELOG.md)** &nbsp;·&nbsp; **English** · [简体中文](README.zh-CN.md)
@@ -37,11 +38,11 @@ It is for browsing and transferring media between your own devices on the same l
 
 ## Quick start
 
-Tamayura is in early development. The published **0.9.6** packages for Android, macOS, and Windows are available as a [Pre-release](https://github.com/poppinzhang/Tamayura/releases/tag/v0.9.6). See the [0.9.6 release record](docs/releases/0.9.6.md) for installation and validation scope. Use the **same build** on all devices; compatibility between releases is not guaranteed before v1.0.0, and protocol v4 does not connect to 0.5.0.
+**v1.0.0 is the first stable release**, with Android, macOS, Windows, and Linux builds. Release preparation is in progress; see the [1.0.0 release record](docs/releases/1.0.0.md) for the current publication status and validation scope. Packages are available only after they appear in [GitHub Releases](https://github.com/poppinzhang/Tamayura/releases). Future versions follow the [stable compatibility and upgrade policy](docs/兼容与升级.md).
 
-**0.9.6** adds 90-degree image rotation, previous/next preview navigation with downloads only for the item you visit, and double-tap navigation to return Albums, Devices, or Settings to the top. It also refreshes interface icons and motion and fixes local previews for some Sony ARW images on macOS. These features are included in the published 0.9.6 packages; the [0.9.5 release attempt](docs/releases/0.9.5.md) did not produce public packages.
+**1.0.0** adds Linux x64 and arm64 support, refreshed in-app and desktop tray branding, stable-only update checks, and database version checks that preserve unsupported data. It keeps image rotation, previous/next preview navigation, and downloads only for the media you open.
 
-**1 · Install and connect.** Choose the package for your platform from the [0.9.6 Pre-release](https://github.com/poppinzhang/Tamayura/releases/tag/v0.9.6), and read the [installation notes](docs/releases/0.9.6.md#安装与数据). To run from source, see the [source build instructions](AGENTS.md#本地开发). Android 0.9.6 keeps the release certificate used since 0.6.1 and can update an app with the same signature. Uninstall a 0.5.0 or earlier trial app with the old signature first; this clears app data and folder permissions. Connect both devices to the same local network and open Tamayura. Allow local network access when prompted; on Windows, allow the app through the firewall on your trusted private network.
+**1 · Install and connect.** Choose the package for your platform from [GitHub Releases](https://github.com/poppinzhang/Tamayura/releases) and read the [installation notes](docs/releases/1.0.0.md#安装与数据). Android keeps the release certificate used since 0.6.1 and can update an app with the same signature. A debug or older differently signed app must be uninstalled first, which clears its app data and folder permissions. Connect both devices to the same local network and open Tamayura. Allow local network access when prompted; on Windows, allow the app through the firewall on your trusted private network.
 
 **2 · Choose your folders.** In **Settings (设置)**, add the folders you want to share and choose where downloaded files should go. For example, share `DCIM` and receive files in `Pictures/Tamayura`. Subfolders are included automatically. On Android, choose a subfolder rather than the storage root or the `Download` root.
 
@@ -51,9 +52,9 @@ Tamayura is in early development. The published **0.9.6** packages for Android, 
 
 ## Check for updates
 
-Open **Settings → Check for updates** to check GitHub Releases, including pre-releases. Tamayura asks for your confirmation before proceeding. Android downloads and verifies the APK, then opens the system installation flow; allow this installation source when prompted and confirm the update. Windows downloads and verifies the full ZIP, replaces the complete application folder, and restarts. It requires a complete release bundle in a dedicated writable local folder whose parent is also writable; it does not provide a separate installer or automatically request administrator access. macOS opens the selected release page for you to download and install the update yourself. The Linux version in the current source also opens the release page; download the tar.gz for your architecture and replace the app folder yourself.
+Open **Settings → Check for updates** to check stable GitHub Releases. Tamayura asks for your confirmation before proceeding. Android downloads and verifies the APK, then opens the system installation flow; allow this installation source when prompted and confirm the update. Windows downloads and verifies the full ZIP, replaces the complete application folder, and restarts. It requires a complete release bundle in a dedicated writable local folder whose parent is also writable; it does not provide a separate installer or automatically request administrator access. macOS opens the selected release page for you to download and install the update yourself. Linux also opens the release page; download the tar.gz for your architecture and replace the app folder yourself.
 
-If you have 0.8.0 or a later release installed, use Check for updates to find 0.9.6. Users of 0.7.0 or earlier need to install 0.9.6 manually. Checking and downloading updates requires internet access. Updating interrupts sharing and transfers; interrupted media downloads can be retried after reopening the app. See the [0.9.6 release record](docs/releases/0.9.6.md) for limitations and the remaining device acceptance work.
+Once 1.0.0 is published, users of 0.8.0 or later can find it through Check for updates; older versions require manual installation. Checking and downloading updates requires internet access. Updating interrupts sharing and transfers; interrupted media downloads can be retried after reopening the app. See the [1.0.0 release record](docs/releases/1.0.0.md) for limitations and device validation scope.
 
 ## Supported platforms
 
@@ -62,13 +63,13 @@ If you have 0.8.0 or a later release installed, use Check for updates to find 0.
 | Android | Android 16+ · API 36+ | APK |
 | macOS | macOS Sequoia 15.0+, including Tahoe 26 and later | Universal app for Apple silicon and Intel |
 | Windows | Windows 10 1809+ / Windows 11 · x64 | ZIP; Visual C++ x64 runtime required |
-| Linux (current source; not in 0.9.6) | Ubuntu 24.04 LTS or a newer desktop with glibc 2.39+ and GTK 3.24 · x64 / arm64 | tar.gz app folder, starting with the next release |
+| Linux (from 1.0.0) | Ubuntu 24.04 LTS or a newer desktop with glibc 2.39+ and GTK 3.24 · x64 / arm64 | tar.gz app folder |
 
-The macOS Pre-release app uses ad-hoc signing and is not notarized; the Windows ZIP is unsigned. Installation details and validation limits are in the [0.9.6 release record](docs/releases/0.9.6.md). iOS is planned but does not yet have a runnable or downloadable build. Linux support is in the current source (the `unstaged` section of the [Changelog](CHANGELOG.md)) and is not part of the 0.9.6 packages; until a release includes it, build it from source. The Linux tar.gz is unsigned.
+The macOS app uses ad-hoc signing and is not notarized; Windows and Linux packages are unsigned. A stable GitHub Release does not imply platform notarization or app-store distribution. Installation details and validation limits are in the [1.0.0 release record](docs/releases/1.0.0.md). Linux is included from 1.0.0; older releases do not contain Linux packages. iOS is planned but does not yet have a runnable or downloadable build.
 
 Windows can display a connection QR code, open downloaded files in the default app, and reveal them in Explorer. Camera scanning and the system share sheet are available on Android and macOS.
 
-In the current source, Linux can likewise display a connection QR code, open downloaded files in the default app, and show them in the file manager. Extract the complete folder and run `tamayura`; run `install-desktop-entry.sh` in that folder to add Tamayura to your application menu, and run it again after moving the folder. Automatic discovery needs the Avahi daemon that most desktop distributions run, and Chinese and Japanese text needs a CJK font such as Noto Sans CJK. See [Linux desktop](docs/Linux原型.md) for details.
+Linux can likewise display a connection QR code, open downloaded files in the default app, and show them in the file manager. Extract the complete folder and run `tamayura`; run `install-desktop-entry.sh` in that folder to add Tamayura to your application menu, and run it again after moving the folder. Automatic discovery needs the Avahi daemon that most desktop distributions run, and Chinese and Japanese text needs a CJK font such as Noto Sans CJK. See [Linux desktop](docs/Linux原型.md) for details.
 
 ## How it fits together
 
@@ -98,7 +99,7 @@ Already saved media can be removed from this device in the app. This leaves the 
 
 On Android, enable **Settings → Background sharing (后台共享)** to serve files while the phone is locked. Availability depends on the system's battery settings. Downloads can also continue in the background.
 
-On macOS and Windows, closing the window keeps Tamayura in the menu bar or system tray. Background sharing follows its setting, and downloads can continue while the app is running and the computer is awake. Quitting the app or putting the computer to sleep interrupts transfers. In the current Linux source, closing the window keeps Tamayura in the system tray when your desktop provides one, such as KDE Plasma or Ubuntu's AppIndicator; otherwise it quits. Press Ctrl+Q to quit.
+On macOS and Windows, closing the window keeps Tamayura in the menu bar or system tray. Background sharing follows its setting, and downloads can continue while the app is running and the computer is awake. Quitting the app or putting the computer to sleep interrupts transfers. On Linux, closing the window keeps Tamayura in the system tray when your desktop provides one, such as KDE Plasma or Ubuntu's AppIndicator; otherwise it quits. Press Ctrl+Q to quit.
 
 ### Simplified Chinese, Japanese, and English
 
@@ -126,16 +127,13 @@ Most detailed documentation is currently in Chinese.
 | :-- | :-- |
 | [Changelog](CHANGELOG.md) | Released and unreleased changes |
 | [GitHub Releases](https://github.com/poppinzhang/Tamayura/releases) | Published packages and checksums |
-| [0.9.6 release record](docs/releases/0.9.6.md) | Preview rotation and navigation, installation impact, and validation scope |
-| [0.9.5 release record](docs/releases/0.9.5.md) | Unpublished release attempt |
-| [0.9.0 release record](docs/releases/0.9.0.md) | Previous release: interface languages |
-| [0.8.0 release record](docs/releases/0.8.0.md) | Previous release: update feature and installation requirements |
+| [1.0.0 release record](docs/releases/1.0.0.md) | Stable publication status, installation impact, and validation scope |
 | [Sync behavior](docs/自动与手动同步.md) | Automatic intervals, manual refresh, and sync status |
 | [New and forgotten devices](docs/新设备确认与忘记设备.md) | Confirming newly discovered devices, retrying when a device comes back, and forgetting devices |
 | [Downloads and storage](docs/下载存储与清理.md) | Resuming downloads, temporary files, and cleanup |
 | [Interface languages](docs/多语言.md) | Language selection, translated content, and limits |
 | [Background sharing](docs/后台共享.md) | Android background availability and battery settings |
-| [Linux desktop](docs/Linux原型.md) | Current-source Linux build: requirements, installation, tray, and limits |
+| [Linux desktop](docs/Linux原型.md) | Linux: requirements, installation, tray, and limits |
 | [Development guide](AGENTS.md) | Setup, tests, builds, and implementation references |
 
 ## Privacy
@@ -144,7 +142,7 @@ Media and previews travel directly between devices on your local network. Each d
 
 Tamayura currently uses **IPv4 local networks without authentication or transport encryption (TLS)**. Use it only on a trusted network. Guest Wi-Fi and client isolation may prevent devices from connecting.
 
-Before v1.0.0, updates may reset settings, cached albums, and download records. Files in your shared and receiving folders are preserved, but you may need to choose the folders and connect your devices again.
+Stable updates within the same major version must preserve settings, cached albums, and download records. Unsupported database versions are left intact and reported as an error. Earlier 0.x database formats are outside the migration baseline; back up app data before changing installations. Shared originals and saved receiving-folder files are never deleted by an upgrade.
 
 ## License
 

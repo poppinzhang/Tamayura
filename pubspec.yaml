@@ -1,7 +1,7 @@
 name: tamayura
 description: 局域网中的随身相册。Android、macOS、Windows 与 Linux 媒体共享应用。
 publish_to: none
-version: 0.9.6+15
+version: 1.0.0+16
 
 environment:
   sdk: '>=3.8.0 <4.0.0'
@@ -39,6 +39,8 @@ flutter:
   generate: true
   assets:
     - LICENSE
+    - assets/branding/hibiki/
+    - assets/branding/hibiki/license/
 
 # Windows and Linux ship SQLite with the app through Dart native assets; a
 # desktop Linux system often lacks the unversioned libsqlite3.so. Other hosts

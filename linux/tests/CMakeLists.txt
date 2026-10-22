@@ -44,6 +44,12 @@ tamayura_test(linux_settings_test settings_test.cc
 tamayura_test(linux_desktop_tray_test desktop_tray_test.cc
   "${RUNNER}/desktop_tray.cc" "${RUNNER}/app_text.cc")
 set_tests_properties(linux_desktop_tray_test PROPERTIES SKIP_RETURN_CODE 77)
+tamayura_test(linux_tray_icon_test
+  tray_icon_test.cc
+)
+target_link_libraries(linux_tray_icon_test PRIVATE PkgConfig::PIXBUF)
+target_compile_definitions(linux_tray_icon_test PRIVATE
+  TAMAYURA_TRAY_RESOURCE_DIR="${RUNNER}/resources/tray")
 # Registration and browsing need a running avahi-daemon; the rest always runs.
 tamayura_test(linux_lan_discovery_test lan_discovery_test.cc
   "${RUNNER}/lan_discovery.cc" "${RUNNER}/main_dispatcher.cc"

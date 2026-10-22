@@ -13,6 +13,7 @@
 ![Android](https://img.shields.io/badge/Android-16%2B-3DDC84?logo=android&logoColor=white)
 ![macOS](https://img.shields.io/badge/macOS-15%2B-111111?logo=apple&logoColor=white)
 ![Windows](https://img.shields.io/badge/Windows-x64-0078D4)
+![Linux](https://img.shields.io/badge/Linux-x64%20%7C%20arm64-FCC624)
 [![License](https://img.shields.io/badge/license-Apache--2.0-111111)](LICENSE)
 
 **[快速开始](#快速开始)** &nbsp;·&nbsp; **[文档](#文档)** &nbsp;·&nbsp; **[更新记录](CHANGELOG.md)** &nbsp;·&nbsp; [English](README.md) · **简体中文**
@@ -37,11 +38,11 @@
 
 ## 快速开始
 
-玉响仍处于早期开发阶段。已发布的 **0.9.6** 提供 Android、macOS 和 Windows 安装包，可从 [Pre-release](https://github.com/poppinzhang/Tamayura/releases/tag/v0.9.6) 下载。安装与核验范围见 [0.9.6 发布记录](docs/releases/0.9.6.md)。互联设备请使用**同一构建**；v1.0.0 前不承诺跨版本兼容，协议 v4 不能与 0.5.0 互联。
+**v1.0.0 是首个正式版本**，包含 Android、macOS、Windows 与 Linux。目前正在准备发布；实际发布状态与验证范围见 [1.0.0 发布记录](docs/releases/1.0.0.md)，安装包以 [GitHub Releases](https://github.com/poppinzhang/Tamayura/releases) 实际提供的附件为准。后续版本遵循[正式版本兼容与升级策略](docs/兼容与升级.md)。
 
-**0.9.6** 新增图片每次旋转 90 度、上一项/下一项预览切换并仅下载当前访问项，以及双击相册、设备或设置主菜单回到页面顶部；同时调整界面图标与动效，修复 macOS 部分 Sony ARW 的本地预览。这些功能已包含在发布的 0.9.6 安装包中；[0.9.5 发布尝试](docs/releases/0.9.5.md)未生成公开安装包。
+**1.0.0** 新增 Linux x64 与 arm64 支持，更新应用内及桌面托盘品牌图标，仅检查正式版本更新，并在数据库版本不受支持时保留数据。继续提供图片旋转、上一项/下一项预览，以及仅下载当前打开媒体的功能。
 
-**1 · 安装并连接网络。** 从 [0.9.6 Pre-release](https://github.com/poppinzhang/Tamayura/releases/tag/v0.9.6) 选择对应平台的安装包并阅读[安装说明](docs/releases/0.9.6.md#安装与数据)；从源码运行请参考[本地开发说明](AGENTS.md#本地开发)。Android 0.9.6 沿用 0.6.1 起的 release 签名，可覆盖安装同签名版本；从 0.5.0 及更早旧签名试用版切换时需先卸载，这会清除应用数据和目录授权。将两台设备连接到同一局域网，并打开玉响。按提示允许本地网络访问；Windows 请在可信的专用网络中允许应用通过防火墙。
+**1 · 安装并连接网络。** 从 [GitHub Releases](https://github.com/poppinzhang/Tamayura/releases) 选择对应平台的安装包并阅读[安装说明](docs/releases/1.0.0.md#安装与数据)。Android 沿用 0.6.1 起的 release 签名，可覆盖安装同签名版本；debug 或更早不同签名版本需先卸载，这会清除应用数据和目录授权。将两台设备连接到同一局域网，并打开玉响。按提示允许本地网络访问；Windows 请在可信的专用网络中允许应用通过防火墙。
 
 **2 · 选择文件夹。** 在**设置**中添加想分享的文件夹，再选择下载文件的接收目录。例如，分享 `DCIM`，接收到 `Pictures/Tamayura`。子文件夹会自动包含，无需重复添加。Android 请选用子文件夹，不能直接选择存储根目录或 `Download` 根目录。
 
@@ -51,9 +52,9 @@
 
 ## 检查更新
 
-打开 **设置 → 检查更新**，查询 GitHub Releases（包括预发布），发现新版本后先由你确认。Android 下载并校验 APK 后进入系统安装流程，需要按提示允许安装此来源的应用并确认更新。Windows 下载并校验完整 ZIP，替换整个应用目录后重新启动；需要完整发行包位于可写的独立本地目录，父目录也须可写，不提供独立安装器，也不自动请求管理员权限。macOS 打开对应版本的 Release 页面，由你自行下载并安装更新。当前源码中的 Linux 版同样打开 Release 页面，由你下载对应架构的 tar.gz 并自行替换应用目录。
+打开 **设置 → 检查更新**，查询 GitHub 正式 Releases，发现新版本后先由你确认。Android 下载并校验 APK 后进入系统安装流程，需要按提示允许安装此来源的应用并确认更新。Windows 下载并校验完整 ZIP，替换整个应用目录后重新启动；需要完整发行包位于可写的独立本地目录，父目录也须可写，不提供独立安装器，也不自动请求管理员权限。macOS 打开对应版本的 Release 页面，由你自行下载并安装更新。Linux 版同样打开 Release 页面，由你下载对应架构的 tar.gz 并自行替换应用目录。
 
-已安装 0.8.0 或更新版本的用户可通过「检查更新」找到 0.9.6；0.7.0 及更早版本的用户需手动安装 0.9.6。检查和下载更新需要互联网连接。升级会中断共享和传输，重新打开应用后可重试中断的媒体下载。限制与尚待完成的真机验收见 [0.9.6 发布记录](docs/releases/0.9.6.md)。
+1.0.0 发布后，已安装 0.8.0 或更新版本的用户可通过「检查更新」找到它；更早版本需手动安装。检查和下载更新需要互联网连接。升级会中断共享和传输，重新打开应用后可重试中断的媒体下载。限制与真机验证范围见 [1.0.0 发布记录](docs/releases/1.0.0.md)。
 
 ## 支持的平台
 
@@ -62,13 +63,13 @@
 | Android | Android 16+ · API 36+ | APK |
 | macOS | macOS Sequoia 15.0+，支持 Tahoe 26 及后续版本 | Apple 芯片与 Intel 通用 App |
 | Windows | Windows 10 1809+ / Windows 11 · x64 | ZIP；需要 Visual C++ x64 运行库 |
-| Linux（当前源码，0.9.6 不含） | Ubuntu 24.04 LTS 或更新的桌面发行版，glibc 2.39+、GTK 3.24 · x64 / arm64 | tar.gz 应用目录，自下一次发布起提供 |
+| Linux（自 1.0.0 起） | Ubuntu 24.04 LTS 或更新的桌面发行版，glibc 2.39+、GTK 3.24 · x64 / arm64 | tar.gz 应用目录 |
 
-macOS Pre-release 使用 ad-hoc 签名，尚未公证；Windows ZIP 未签名。安装细节和验证范围见 [0.9.6 发布记录](docs/releases/0.9.6.md)。iOS 属于后续目标，尚未提供可运行或下载的版本。Linux 支持位于当前源码（[更新记录](CHANGELOG.md)的 `unstaged`），不包含在 0.9.6 安装包中；在发布版本加入前请从源码构建。Linux tar.gz 未签名。
+macOS 使用 ad-hoc 签名，尚未公证；Windows 与 Linux 包未签名。GitHub 正式 Release 不代表平台公证或应用商店发行。安装细节和验证范围见 [1.0.0 发布记录](docs/releases/1.0.0.md)。Linux 自 1.0.0 起加入，更早版本不含 Linux 安装包。iOS 属于后续目标，尚未提供可运行或下载的版本。
 
 Windows 可以展示连接二维码、用默认应用打开已下载文件，以及在资源管理器中定位文件。相机扫码和系统分享面板可在 Android、macOS 上使用。
 
-当前源码中的 Linux 版同样可以展示连接二维码、用默认应用打开已下载文件，以及在文件管理器中显示文件。完整解压目录后运行 `tamayura`；在该目录运行 `install-desktop-entry.sh` 可将玉响加入应用菜单，移动目录后需重新运行。自动发现需要多数桌面发行版自带的 Avahi 守护进程，中文和日文显示需要安装 Noto Sans CJK 等中日文字体。详情见 [Linux 实现](docs/Linux原型.md)。
+Linux 版同样可以展示连接二维码、用默认应用打开已下载文件，以及在文件管理器中显示文件。完整解压目录后运行 `tamayura`；在该目录运行 `install-desktop-entry.sh` 可将玉响加入应用菜单，移动目录后需重新运行。自动发现需要多数桌面发行版自带的 Avahi 守护进程，中文和日文显示需要安装 Noto Sans CJK 等中日文字体。详情见 [Linux 实现](docs/Linux原型.md)。
 
 ## 它如何工作
 
@@ -98,7 +99,7 @@ Windows 可以展示连接二维码、用默认应用打开已下载文件，以
 
 Android 在**设置 → 后台共享**中开启后，可以在锁屏时继续提供文件，实际可用性受系统电池设置影响。下载也可以在后台继续。
 
-macOS 和 Windows 关闭窗口后，玉响会留在菜单栏或系统托盘。后台共享遵循设置开关，应用运行且电脑清醒时下载可继续；退出应用或让电脑进入睡眠会中断传输。当前源码中的 Linux 版在桌面提供系统托盘时（例如 KDE Plasma 或 Ubuntu 的 AppIndicator）关闭窗口后留在托盘，否则关闭窗口即退出；按 Ctrl+Q 退出。
+macOS 和 Windows 关闭窗口后，玉响会留在菜单栏或系统托盘。后台共享遵循设置开关，应用运行且电脑清醒时下载可继续；退出应用或让电脑进入睡眠会中断传输。Linux 版在桌面提供系统托盘时（例如 KDE Plasma 或 Ubuntu 的 AppIndicator）关闭窗口后留在托盘，否则关闭窗口即退出；按 Ctrl+Q 退出。
 
 ### 简体中文、日本語与 English
 
@@ -126,16 +127,13 @@ macOS 和 Windows 关闭窗口后，玉响会留在菜单栏或系统托盘。�
 | :-- | :-- |
 | [更新记录](CHANGELOG.md) | 已发布与未发布的变更 |
 | [GitHub Releases](https://github.com/poppinzhang/Tamayura/releases) | 已发布安装包与校验和 |
-| [0.9.6 发布记录](docs/releases/0.9.6.md) | 预览旋转与切换、安装影响和验证范围 |
-| [0.9.5 发布记录](docs/releases/0.9.5.md) | 未公开发布的版本尝试 |
-| [0.9.0 发布记录](docs/releases/0.9.0.md) | 历史版本的界面多语言 |
-| [0.8.0 发布记录](docs/releases/0.8.0.md) | 历史版本的更新功能与安装要求 |
+| [1.0.0 发布记录](docs/releases/1.0.0.md) | 正式发布状态、安装影响和验证范围 |
 | [自动与手动同步](docs/自动与手动同步.md) | 自动间隔、手动刷新与同步状态 |
 | [新设备确认与忘记设备](docs/新设备确认与忘记设备.md) | 新发现设备的确认、设备重新上线时的重试以及忘记设备 |
 | [下载存储与清理](docs/下载存储与清理.md) | 下载续传、临时文件与清理 |
 | [多语言](docs/多语言.md) | 语言选择、翻译范围与限制 |
 | [后台共享](docs/后台共享.md) | Android 后台可用性与电池设置 |
-| [Linux 实现](docs/Linux原型.md) | 当前源码的 Linux 版：系统要求、安装、托盘与限制 |
+| [Linux 实现](docs/Linux原型.md) | Linux 版：系统要求、安装、托盘与限制 |
 | [开发指南](AGENTS.md) | 环境准备、测试、构建与实现文档索引 |
 
 ## 隐私
@@ -144,7 +142,7 @@ macOS 和 Windows 关闭窗口后，玉响会留在菜单栏或系统托盘。�
 
 玉响目前仅用于 **IPv4 局域网，不提供身份验证或传输加密（TLS）**，请只在可信网络中使用。访客 Wi-Fi 或设备隔离可能阻止设备互联。
 
-在 v1.0.0 之前，更新可能重置设置、缓存相册和下载记录。共享目录与接收目录中的文件会保留，但可能需要重新选择目录并连接设备。
+同一主版本内的正式更新须保留设置、缓存相册与下载记录。遇到不受支持的数据库版本时保留原数据并报告错误。更早的 0.x 数据库结构不在迁移基线内，调整安装前请先备份应用数据；升级不删除共享原文件和接收目录中已保存的文件。
 
 ## 开源许可
 

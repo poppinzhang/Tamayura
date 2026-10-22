@@ -10,6 +10,7 @@ import '../app/view_state.dart';
 import '../app/endpoint.dart';
 import '../l10n/app_locale.dart';
 import 'app_icons.dart';
+import 'app_logo.dart';
 import 'app_motion.dart';
 import 'about_page.dart';
 import 'album_image.dart';
@@ -591,11 +592,7 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
                   title: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(
-                        AppIcons.logo,
-                        color: Theme.of(context).colorScheme.primary,
-                        size: 28,
-                      ),
+                      const AppLogo(),
                       SizedBox(width: 9),
                       Flexible(
                         child: Text(

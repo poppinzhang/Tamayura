@@ -21,7 +21,11 @@ ROOT_FILES = (
     "pubspec.yaml",
     "pubspec.lock",
 )
-OPTIONAL_FILES = (".gitignore", ".metadata", ".github/workflows/windows.yml")
+OPTIONAL_FILES = (
+    ".gitignore", ".metadata", ".github/workflows/windows.yml",
+    "assets/branding/hibiki/license/ATTRIBUTION.txt",
+    "assets/branding/hibiki/license/Nagino-OFL.txt",
+)
 SOURCE_SUFFIXES = {
     "lib": {".dart", ".arb"},
     "test": {".dart"},

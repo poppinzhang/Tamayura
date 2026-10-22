@@ -7,6 +7,7 @@ import '../core/models.dart';
 import '../core/transfer_task.dart';
 import '../l10n/app_locale.dart';
 import '../network/downloader.dart' show MediaDownloader, safeMediaFilename;
+import 'database_version.dart';
 import 'platform_database.dart';
 
 /// Shared by the UI and independent Android job engines. Claims and progress
@@ -22,18 +23,14 @@ class TransferStore {
     final db = await f.openDatabase(
       path ?? p.join(await f.getDatabasesPath(), 'tamayura_transfers.db'),
       options: OpenDatabaseOptions(
-        version: 3,
+        version: 3, // v1.0.0 compatibility baseline.
         singleInstance: false,
         onConfigure: (db) async {
           await db.rawQuery('PRAGMA busy_timeout = 5000');
         },
         onCreate: (db, _) => _createSchema(db),
-        onUpgrade: (db, _, _) async {
-          // Pre-1.0 databases are disposable; only the current schema is kept.
-          await db.execute('DROP TABLE IF EXISTS transfers');
-          await db.execute('DROP TABLE IF EXISTS destination_directories');
-          await _createSchema(db);
-        },
+        onUpgrade: rejectUnsupportedDatabaseVersion,
+        onDowngrade: rejectUnsupportedDatabaseVersion,
       ),
     );
     return TransferStore._(db);

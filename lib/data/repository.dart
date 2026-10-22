@@ -7,6 +7,7 @@ import 'package:uuid/uuid.dart';
 import '../core/models.dart';
 import '../core/catalog_repository.dart';
 import '../l10n/app_locale.dart';
+import 'database_version.dart';
 import 'platform_database.dart';
 
 class _MediaReadView {
@@ -44,7 +45,7 @@ class TamayuraRepository implements CatalogRepository {
     final database = await dbFactory.openDatabase(
       dbPath,
       options: OpenDatabaseOptions(
-        version: 7,
+        version: 7, // v1.0.0 compatibility baseline.
         // UI and headless engines own independent connections and lifetimes.
         singleInstance: false,
         onConfigure: (db) async {
@@ -53,21 +54,8 @@ class TamayuraRepository implements CatalogRepository {
           await db.rawQuery('PRAGMA journal_mode = WAL');
         },
         onCreate: (db, version) => _createSchema(db),
-        onUpgrade: (db, oldVersion, newVersion) async {
-          // Before v1.0.0 incompatible caches/settings are reset, not migrated.
-          for (final table in [
-            'sync_media',
-            'sync_sessions',
-            'media',
-            'thumbnails',
-            'downloads',
-            'peers',
-            'settings',
-          ]) {
-            await db.execute('DROP TABLE IF EXISTS $table');
-          }
-          await _createSchema(db);
-        },
+        onUpgrade: rejectUnsupportedDatabaseVersion,
+        onDowngrade: rejectUnsupportedDatabaseVersion,
       ),
     );
     final repository = TamayuraRepository._(database);

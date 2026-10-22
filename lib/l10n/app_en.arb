@@ -415,6 +415,7 @@
   "errorChunkIncomplete": "A file chunk didn't transfer completely. Retry to continue the download.",
   "errorDownloadSizeMismatch": "The downloaded file size doesn't match the catalog. Refresh and try again.",
   "errorDatabaseDirectory": "The local database folder is unavailable. Check your user folder permissions and try again.",
+  "errorDatabaseVersionUnsupported": "The database format is incompatible with this app version. Your existing data has been preserved. Use an app version that supports this data format.",
   "errorTransferTarget": "The media's device or shared folder is invalid. Refresh the album.",
   "errorStagingNotCleaned": "Staged files haven't been cleaned up. Retry deleting the task first.",
   "errorStagingCleanupFailed": "Couldn't clean up staged data. Retry deleting the task.",

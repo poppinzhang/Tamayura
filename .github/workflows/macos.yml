@@ -1,4 +1,4 @@
-name: macOS preview
+name: macOS validation
 on:
   push:
     branches: ['**']

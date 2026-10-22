@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Publish a fully assembled preview release; never replace a published release."""
+"""Publish a fully assembled stable release; never replace a published release."""
 
 from __future__ import annotations
 
@@ -159,6 +159,9 @@ def file_digest(path: Path) -> str:
 
 def publish(client: GitHubClient, tag: str, directory: Path, notes_path: Path, sha: str):
     paths = asset_paths(directory, tag)
+    manifest = json.loads((directory / "release.json").read_text(encoding="utf-8"))
+    if not isinstance(manifest, dict) or manifest.get("tag") != tag or manifest.get("version") != tag[1:] or manifest.get("release_type") != "release":
+        raise ReleaseError("release.json must describe this tag as a stable release.")
     if not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", sha):
         raise ReleaseError("GITHUB_SHA must identify the commit that was built.")
     notes = notes_path.read_text(encoding="utf-8")
@@ -172,7 +175,7 @@ def publish(client: GitHubClient, tag: str, directory: Path, notes_path: Path, s
         "name": tag,
         "body": notes,
         "draft": True,
-        "prerelease": True,
+        "prerelease": False,
         "make_latest": "false",
     }
     if release is None:
@@ -209,9 +212,17 @@ def publish(client: GitHubClient, tag: str, directory: Path, notes_path: Path, s
             raise ReleaseError("A draft attachment digest does not match its local file.")
     require_tag(client, tag, sha)
     require_draft(client.request("GET", endpoint), tag, sha)
-    result = client.request("PATCH", endpoint, payload={"draft": False, "prerelease": True, "make_latest": "false"})
-    if not isinstance(result, dict) or result.get("draft") is not False or result.get("prerelease") is not True:
-        raise ReleaseError("GitHub did not confirm the preview release publication.")
+    result = client.request("PATCH", endpoint, payload={"draft": False, "prerelease": False, "make_latest": "true"})
+    if not isinstance(result, dict) or result.get("draft") is not False or result.get("prerelease") is not False or result.get("tag_name") != tag or result.get("target_commitish") != sha:
+        raise ReleaseError("GitHub did not confirm the stable release publication for this commit.")
+    # The publication response does not report whether make_latest took effect.
+    # Read the public selection explicitly without modifying a published release.
+    try:
+        latest = client.request("GET", "releases/latest")
+    except ReleaseError as error:
+        raise ReleaseError("The release was published, but its latest status could not be verified; inspect GitHub before retrying.") from error
+    if not isinstance(latest, dict) or latest.get("id") != release_id or latest.get("tag_name") != tag or latest.get("draft") is not False or latest.get("prerelease") is not False:
+        raise ReleaseError("The release was published, but GitHub did not confirm it as latest; inspect GitHub before retrying.")
     return result
 
 
@@ -231,7 +242,7 @@ def main() -> int:
         # File and decoding exceptions can include local paths or file contents.
         print("Release publication failed: could not read the release inputs or process the response.", file=sys.stderr)
         return 1
-    print(f"Published preview release {args.tag} with all seven verified attachments.")
+    print(f"Published stable release {args.tag} as latest with all seven verified attachments.")
     return 0
 
 

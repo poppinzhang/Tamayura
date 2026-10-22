@@ -174,6 +174,10 @@ class UpdateService {
           throw UpdateException(AppLocale.strings.updateErrorReleaseList);
         }
         if (entry['draft'] == true) continue;
+        if (entry['prerelease'] is! bool) {
+          throw UpdateException(AppLocale.strings.updateErrorReleaseList);
+        }
+        if (entry['prerelease'] == true) continue;
         final tag = entry['tag_name'];
         if (tag is! String || !tag.startsWith('v')) continue;
         final version = _parseVersion(tag.substring(1));
@@ -237,6 +241,7 @@ class UpdateService {
     if (metadata is! Map<String, dynamic> ||
         metadata['tag'] != 'v${candidate.version}' ||
         metadata['version'] != candidate.version ||
+        metadata['release_type'] != 'release' ||
         metadata['build_number'] is! int ||
         (metadata['build_number'] as int) < 1) {
       throw UpdateException(AppLocale.strings.updateErrorManifestMismatch);

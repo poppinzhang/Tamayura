@@ -2590,6 +2590,12 @@ abstract class AppLocalizations {
   /// **'本机数据库目录不可用，请检查用户目录权限后重试'**
   String get errorDatabaseDirectory;
 
+  /// No description provided for @errorDatabaseVersionUnsupported.
+  ///
+  /// In zh, this message translates to:
+  /// **'数据库格式与此应用版本不兼容。原有数据已保留，请使用支持该数据格式的应用版本'**
+  String get errorDatabaseVersionUnsupported;
+
   /// No description provided for @errorTransferTarget.
   ///
   /// In zh, this message translates to:

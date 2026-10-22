@@ -119,7 +119,7 @@ install(DIRECTORY "${NATIVE_ASSETS_DIR}"
    COMPONENT Runtime
    PATTERN "native_assets.json" EXCLUDE)
 
-# Window, tray and menu icons in a hicolor theme layout, plus the script that
+# Window and application menu icons in a hicolor theme layout, plus the script that
 # adds the bundle to the current user's application menu.
 foreach(icon_size 16 22 24 32 48 64 128 256 512)
   install(FILES "runner/resources/icons/${icon_size}.png"
@@ -127,6 +127,9 @@ foreach(icon_size 16 22 24 32 48 64 128 256 512)
     RENAME "${APPLICATION_ID}.png"
     COMPONENT Runtime)
 endforeach(icon_size)
+# The small monochrome tray marks are separate from the orange application icon.
+install(DIRECTORY "runner/resources/tray/"
+  DESTINATION "${INSTALL_BUNDLE_DATA_DIR}/tray" COMPONENT Runtime)
 install(PROGRAMS "packaging/install-desktop-entry.sh"
   DESTINATION "${CMAKE_INSTALL_PREFIX}"
   COMPONENT Runtime)

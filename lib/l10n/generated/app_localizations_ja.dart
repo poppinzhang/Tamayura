@@ -1438,6 +1438,10 @@ class AppLocalizationsJa extends AppLocalizations {
       'このデバイスのデータベースフォルダーを利用できません。ユーザーフォルダーの権限を確認して、もう一度お試しください';
 
   @override
+  String get errorDatabaseVersionUnsupported =>
+      'データベースの形式はこのアプリのバージョンと互換性がありません。既存のデータは保持されています。このデータ形式に対応したアプリのバージョンを使用してください';
+
+  @override
   String get errorTransferTarget => 'メディアのデバイスまたは共有フォルダーが無効です。アルバムを更新してください';
 
   @override

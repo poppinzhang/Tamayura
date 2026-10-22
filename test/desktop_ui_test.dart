@@ -8,6 +8,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:tamayura/app/view_state.dart';
 import 'package:tamayura/ui/app.dart';
+import 'package:tamayura/ui/app_logo.dart';
 
 class _DesktopModel extends TamayuraModel {
   @override
@@ -613,6 +614,15 @@ void main() {
         }
       });
       await _show(tester, _DesktopModel());
+      // Asset decoding can finish after pumpAndSettle; wait before capturing.
+      final logo = find.byType(AppLogo);
+      final image = tester.widget<Image>(
+        find.descendant(of: logo, matching: find.byType(Image)),
+      );
+      await tester.runAsync(
+        () => precacheImage(image.image, tester.element(logo)),
+      );
+      await tester.pump();
       final boundary = tester.renderObject<RenderRepaintBoundary>(
         find.byKey(_captureKey),
       );

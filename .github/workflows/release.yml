@@ -206,7 +206,7 @@ jobs:
         run: |
           python scripts/release-metadata.py prepare --tag "$RELEASE_TAG" --output-dir dist/notes
           python scripts/release-metadata.py assemble --tag "$RELEASE_TAG" --artifacts-dir dist/artifacts --output-dir dist/release
-      - name: Upload complete release and publish preview
+      - name: Upload complete stable release and mark as latest
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}

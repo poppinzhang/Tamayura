@@ -231,6 +231,37 @@ int Run() {
   Expect(width == 2 && height == 1 && g_variant_n_children(bytes) == 8, "ARGB pixmap size");
   g_variant_unref(bytes);
   g_variant_unref(pixmaps);
+
+  guint icon_updates = 0;
+  const guint icon_subscription = g_dbus_connection_signal_subscribe(
+      host, nullptr, "org.kde.StatusNotifierItem", "NewIcon", "/StatusNotifierItem", nullptr,
+      G_DBUS_SIGNAL_FLAGS_NONE,
+      [](GDBusConnection*, const gchar*, const gchar*, const gchar*, const gchar*, GVariant*,
+         gpointer data) { ++*static_cast<guint*>(data); },
+      &icon_updates, nullptr);
+  // A live theme change must notify the host and expose the new network-order
+  // ARGB pixels without losing registration or activation/menu behaviour.
+  const std::vector<uint8_t> dark_pixels{255, 0, 0, 0, 128, 255, 255, 255};
+  tray->SetIcons({{2, 1, dark_pixels}});
+  Expect(Wait([&] { return icon_updates == 1; }), "theme icon update signalled");
+  Expect(tray->available(), "theme update keeps hosted tray available");
+  pixmaps = Property(host, name, "/StatusNotifierItem", "org.kde.StatusNotifierItem", "IconPixmap");
+  g_variant_get_child(pixmaps, 0, "(ii@ay)", &width, &height, &bytes);
+  gsize byte_count = 0;
+  const auto* actual = static_cast<const uint8_t*>(g_variant_get_fixed_array(bytes, &byte_count, 1));
+  Expect(width == 2 && height == 1 && std::vector<uint8_t>(actual, actual + byte_count) == dark_pixels,
+         "new theme pixels returned in ARGB byte order");
+  g_variant_unref(bytes);
+  tray->SetIcons({});
+  Wait([] { return false; }, 100);
+  GVariant* retained =
+      Property(host, name, "/StatusNotifierItem", "org.kde.StatusNotifierItem", "IconPixmap");
+  Expect(icon_updates == 1 && g_variant_equal(pixmaps, retained),
+         "missing theme resources preserve usable icon without a spurious signal");
+  g_variant_unref(retained);
+  g_variant_unref(pixmaps);
+  g_dbus_connection_signal_unsubscribe(host, icon_subscription);
+
   GVariant* tooltip =
       Property(host, name, "/StatusNotifierItem", "org.kde.StatusNotifierItem", "ToolTip");
   const gchar* tooltip_title = nullptr;

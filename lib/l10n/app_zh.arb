@@ -847,6 +847,7 @@
   "errorChunkIncomplete": "文件分片未传输完整，请重试继续下载",
   "errorDownloadSizeMismatch": "下载文件大小与目录记录不符，请刷新后重试",
   "errorDatabaseDirectory": "本机数据库目录不可用，请检查用户目录权限后重试",
+  "errorDatabaseVersionUnsupported": "数据库格式与此应用版本不兼容。原有数据已保留，请使用支持该数据格式的应用版本",
   "errorTransferTarget": "媒体所属设备或共享目录无效，请刷新相册",
   "errorStagingNotCleaned": "暂存文件尚未清理，请先重试删除任务",
   "errorStagingCleanupFailed": "暂存清理失败，请重试删除任务",

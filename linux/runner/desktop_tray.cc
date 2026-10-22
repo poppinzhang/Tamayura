@@ -464,4 +464,13 @@ void DesktopTray::LanguageChanged() {
                                 nullptr, nullptr);
 }
 
+void DesktopTray::SetIcons(std::vector<TrayIcon> icons) {
+  // A missing or unreadable resource must not erase the usable current icon.
+  if (icons.empty()) return;
+  icons_ = std::move(icons);
+  if (!connection_) return;
+  g_dbus_connection_emit_signal(connection_, nullptr, kItemPath, kItemInterface, "NewIcon",
+                                nullptr, nullptr);
+}
+
 }  // namespace tamayura

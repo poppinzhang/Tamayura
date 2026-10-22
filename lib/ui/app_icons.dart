@@ -7,7 +7,6 @@ abstract final class AppIcons {
   static const IconData album = LucideIcons.images;
   static const IconData devices = LucideIcons.monitorSmartphone;
   static const IconData settings = LucideIcons.slidersHorizontal;
-  static const IconData logo = LucideIcons.aperture;
 
   static const IconData add = LucideIcons.plus;
   static const IconData back = LucideIcons.arrowLeftDir;

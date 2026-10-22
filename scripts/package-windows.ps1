@@ -91,7 +91,7 @@ try {
     $hash = (Get-FileHash -LiteralPath $archivePath -Algorithm SHA256).Hash.ToLowerInvariant()
     # Keep the existing Android/macOS release manifest and checksums intact.
     [IO.File]::WriteAllText((Join-Path $outputDir 'SHA256SUMS-windows'), "$hash  $archiveName`n", [Text.Encoding]::ASCII)
-    Write-Host "Windows preview bundle: $archivePath"
+    Write-Host "Windows bundle: $archivePath"
     Write-Host 'Unsigned ZIP for local testing. Extract the whole bundle before running Tamayura.exe.'
 } finally {
     Pop-Location

@@ -6,6 +6,7 @@
 #endif
 
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "app_text.h"
@@ -22,6 +23,9 @@ struct _MyApplication {
   GtkHeaderBar* header_bar;
   tamayura::LinuxPlatform* platform;
   tamayura::DesktopTray* tray;
+  guint tray_theme_refresh;
+  gboolean tray_dark;
+  gboolean tray_theme_loaded;
   gboolean quitting;
 };
 
@@ -53,12 +57,37 @@ GList* WindowIcons() {
   return icons;
 }
 
-std::vector<tamayura::TrayIcon> TrayIcons() {
+bool DarkTrayTheme(MyApplication* self) {
+  GtkSettings* settings = gtk_widget_get_settings(GTK_WIDGET(self->window));
+  gboolean prefer_dark = FALSE;
+  g_object_get(settings, "gtk-application-prefer-dark-theme", &prefer_dark, nullptr);
+  if (prefer_dark) return true;
+  // Named dark themes also work when the GTK preference is unset. The tray
+  // follows the desktop GTK appearance independently of Flutter's override.
+  GdkRGBA background;
+  if (gtk_style_context_lookup_color(gtk_widget_get_style_context(GTK_WIDGET(self->window)),
+                                     "theme_bg_color", &background)) {
+    return 0.2126 * background.red + 0.7152 * background.green + 0.0722 * background.blue < 0.5;
+  }
+  g_autofree gchar* theme = nullptr;
+  g_object_get(settings, "gtk-theme-name", &theme, nullptr);
+  g_autofree gchar* lower = theme ? g_ascii_strdown(theme, -1) : nullptr;
+  return lower && g_strrstr(lower, "dark");
+}
+
+std::vector<tamayura::TrayIcon> TrayIcons(bool dark) {
   std::vector<tamayura::TrayIcon> icons;
-  for (const int size : kIconSizes) {
-    if (size > 64) continue;
-    g_autoptr(GdkPixbuf) loaded = gdk_pixbuf_new_from_file(IconPath(size).c_str(), nullptr);
-    if (!loaded) continue;
+  g_autofree gchar* executable = g_file_read_link("/proc/self/exe", nullptr);
+  if (!executable) return icons;
+  g_autofree gchar* directory = g_path_get_dirname(executable);
+  for (const int size : {16, 20, 24, 32, 40, 48, 64}) {
+    const std::string filename = std::string(dark ? "hibiki-white-" : "hibiki-black-") +
+                                 std::to_string(size) + ".png";
+    g_autofree gchar* path =
+        g_build_filename(directory, "data", "tray", filename.c_str(), nullptr);
+    g_autoptr(GdkPixbuf) loaded = gdk_pixbuf_new_from_file(path, nullptr);
+    if (!loaded || gdk_pixbuf_get_width(loaded) != size ||
+        gdk_pixbuf_get_height(loaded) != size) continue;
     g_autoptr(GdkPixbuf) image = gdk_pixbuf_add_alpha(loaded, FALSE, 0, 0, 0);
     if (!image) continue;
     tamayura::TrayIcon icon;
@@ -74,9 +103,44 @@ std::vector<tamayura::TrayIcon> TrayIcons() {
         icon.argb.insert(icon.argb.end(), {pixel[3], pixel[0], pixel[1], pixel[2]});
       }
     }
+    // The SVG artwork already includes its rounded corners and transparency.
     icons.push_back(std::move(icon));
   }
   return icons;
+}
+
+void RefreshTrayTheme(MyApplication* self) {
+  if (!self->tray || !self->window) return;
+  const bool dark = DarkTrayTheme(self);
+  if (self->tray_theme_loaded && self->tray_dark == dark) return;
+  auto icons = TrayIcons(dark);
+  if (icons.empty()) return;
+  self->tray->SetIcons(std::move(icons));
+  self->tray_dark = dark;
+  self->tray_theme_loaded = TRUE;
+}
+
+void QueueTrayThemeRefresh(MyApplication* self) {
+  if (self->tray_theme_refresh || !self->tray) return;
+  // Defer until GTK has applied its new style; combine settings and style
+  // notifications from the same change into one resource load and signal.
+  self->tray_theme_refresh = g_idle_add_full(
+      G_PRIORITY_DEFAULT_IDLE,
+      [](gpointer data) -> gboolean {
+        auto* self = MY_APPLICATION(data);
+        self->tray_theme_refresh = 0;
+        RefreshTrayTheme(self);
+        return G_SOURCE_REMOVE;
+      },
+      g_object_ref(self), g_object_unref);
+}
+
+void TrayThemeSettingChanged(GtkSettings*, GParamSpec*, MyApplication* self) {
+  QueueTrayThemeRefresh(self);
+}
+
+void TrayWindowStyleChanged(GtkWidget*, MyApplication* self) {
+  QueueTrayThemeRefresh(self);
 }
 
 void UpdateTitle(MyApplication* self) {
@@ -203,7 +267,7 @@ static void my_application_activate(GApplication* application) {
          if (self->tray) self->tray->LanguageChanged();
        }});
   self->tray = new tamayura::DesktopTray(
-      g_application_get_dbus_connection(application), TrayIcons(),
+      g_application_get_dbus_connection(application), {},
       {[self](const std::string& token) { PresentWindow(self, token); },
        [self] { RequestQuit(self); },
        [self](bool available) {
@@ -213,6 +277,14 @@ static void my_application_activate(GApplication* application) {
            PresentWindow(self, "");
          }
        }});
+  RefreshTrayTheme(self);
+  GtkSettings* settings = gtk_widget_get_settings(GTK_WIDGET(window));
+  g_signal_connect_object(settings, "notify::gtk-theme-name", G_CALLBACK(TrayThemeSettingChanged),
+                          self, G_CONNECT_DEFAULT);
+  g_signal_connect_object(settings, "notify::gtk-application-prefer-dark-theme",
+                          G_CALLBACK(TrayThemeSettingChanged), self, G_CONNECT_DEFAULT);
+  g_signal_connect_object(window, "style-updated", G_CALLBACK(TrayWindowStyleChanged), self,
+                          G_CONNECT_DEFAULT);
 
   gtk_widget_grab_focus(GTK_WIDGET(view));
 }
@@ -253,6 +325,10 @@ static void my_application_startup(GApplication* application) {
 // Implements GApplication::shutdown.
 static void my_application_shutdown(GApplication* application) {
   MyApplication* self = MY_APPLICATION(application);
+  if (self->tray_theme_refresh) {
+    g_source_remove(self->tray_theme_refresh);
+    self->tray_theme_refresh = 0;
+  }
   delete self->tray;
   self->tray = nullptr;
   delete self->platform;

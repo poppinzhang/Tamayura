@@ -8,6 +8,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:tamayura/app/app_info.dart';
 import 'package:tamayura/l10n/app_locale.dart';
 import 'package:tamayura/ui/about_page.dart';
+import 'package:tamayura/ui/app_logo.dart';
 
 Future<AppVersion> _version() async => const AppVersion('2.3.4', '56');
 
@@ -62,6 +63,8 @@ void main() {
     expect(find.text('2.3.4+56'), findsOneWidget);
     expect(find.textContaining('局域网设备之间'), findsOneWidget);
     expect(find.text('Apache-2.0'), findsOneWidget);
+    expect(tester.widget<AppLogo>(find.byType(AppLogo)).size, 51.2);
+    expect(tester.getSize(find.byType(AppLogo)), const Size.square(51.2));
     expect(find.byKey(const Key('musings-entry')), findsOneWidget);
   });
 

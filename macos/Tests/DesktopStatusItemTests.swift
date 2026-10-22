@@ -6,6 +6,23 @@ private func expect(_ value: @autoclosure () -> Bool, _ message: String) throws 
 }
 
 @MainActor
+private func render(_ image: NSImage, pixels: Int) throws -> NSBitmapImageRep {
+  guard let bitmap = NSBitmapImageRep(
+    bitmapDataPlanes: nil, pixelsWide: pixels, pixelsHigh: pixels,
+    bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+    colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0
+  ), let context = NSGraphicsContext(bitmapImageRep: bitmap) else {
+    throw TestFailure(message: "Could not create icon bitmap")
+  }
+  NSGraphicsContext.saveGraphicsState()
+  defer { NSGraphicsContext.restoreGraphicsState() }
+  NSGraphicsContext.current = context
+  context.cgContext.clear(CGRect(x: 0, y: 0, width: pixels, height: pixels))
+  image.draw(in: NSRect(x: 0, y: 0, width: pixels, height: pixels))
+  return bitmap
+}
+
+@MainActor
 private final class TestWindow: ResidentDesktopWindow {
   var isMiniaturized = false
   var isFullScreen = false
@@ -29,6 +46,65 @@ struct DesktopStatusItemTests {
     var passed = 0
     func test(_ name: String, _ body: () throws -> Void) throws {
       try body(); passed += 1; print("PASS \(name)")
+    }
+
+    try test("missing status artwork permits the accessible text fallback") {
+      var requestedAsset: String?
+      let image = DesktopStatusIcon.image {
+        requestedAsset = $0
+        return nil
+      }
+      try expect(requestedAsset == "StatusIcon", "Should load the dedicated macOS asset")
+      try expect(image == nil, "Missing artwork should permit the existing accessible text fallback")
+    }
+
+    try test("status icon preserves the SVG cutout and rounded corners as an 18-point template") {
+      guard CommandLine.arguments.count == 2 else {
+        throw TestFailure(message: "Expected the asset catalog path")
+      }
+      let assets = URL(fileURLWithPath: CommandLine.arguments[1])
+      let file = assets.appendingPathComponent("StatusIcon.imageset/hibiki-macos-cutout.svg")
+      guard let source = NSImage(contentsOf: file),
+            let icon = DesktopStatusIcon.image(load: { $0 == "StatusIcon" ? source : nil }) else {
+        throw TestFailure(message: "Missing or invalid dedicated status icon SVG")
+      }
+      try expect(icon.size == NSSize(width: 18, height: 18) && icon.isTemplate,
+                 "AppKit should tint the 18-point template for the menu-bar appearance")
+      try expect(source.size == NSSize(width: 512, height: 512) && !source.isTemplate,
+                 "Preparing the status icon must not mutate the shared source image")
+      for pixels in [18, 36, 72] {
+        let prepared = try render(icon, pixels: pixels)
+        let original = try render(source, pixels: pixels)
+        for (x, y) in [(0, 0), (0, pixels - 1), (pixels - 1, 0), (pixels - 1, pixels - 1)] {
+          try expect(prepared.colorAt(x: x, y: y)!.alphaComponent < 0.05,
+                     "Every supplied rounded corner should remain transparent")
+        }
+        try expect(prepared.colorAt(x: pixels / 2, y: 0)!.alphaComponent > 0.99,
+                   "The rounded square must retain its opaque outer edge")
+        // Compare the complete mask, including its outer edge. Any extra
+        // clipping, padding or glyph raster replacement would change it.
+        for y in 0..<pixels {
+          for x in 0..<pixels {
+            let actual = prepared.colorAt(x: x, y: y)!.alphaComponent
+            let expected = original.colorAt(x: x, y: y)!.alphaComponent
+            try expect(abs(actual - expected) < 0.01,
+                       "Preparing the template changed the supplied SVG alpha mask")
+          }
+        }
+      }
+      // At source resolution, the interior must contain both opaque body and
+      // fully transparent character pixels, not white text over a solid fill.
+      let mask = try render(icon, pixels: 512)
+      var transparent = 0, opaque = 0
+      for y in 52..<460 {
+        for x in 52..<460 {
+          let alpha = mask.colorAt(x: x, y: y)!.alphaComponent
+          if alpha < 0.01 { transparent += 1 }
+          if alpha > 0.99 { opaque += 1 }
+        }
+      }
+      try expect(transparent > 20000 && opaque > 50000,
+                 "The dedicated icon must retain its genuinely transparent character cutout")
     }
 
     try test("closing hides the existing window and reopening restores it") {
@@ -111,6 +187,6 @@ struct DesktopStatusItemTests {
       residence.didExitFullScreen()
       try expect(window.visible && window.events.isEmpty, "Normal full-screen exit must not hide")
     }
-    print("PASS \(passed) macOS desktop residence tests")
+    print("PASS \(passed) macOS desktop status and residence tests")
   }
 }

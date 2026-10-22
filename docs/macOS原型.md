@@ -1,6 +1,6 @@
 # macOS 实现与验收
 
-macOS 自 0.3.0 起与 Android 一起提供本地签名试用包，最低系统 **macOS Sequoia 15.0**，覆盖 Tahoe 26 及后续版本；不增加更早 macOS 的兼容分支。Android 的最低版本仍为 Android 16（API 36）。两端共用 Flutter 相册、设备记忆、SQLite 元信息和缩略图缓存、gRPC v4 协议及持久分片下载逻辑。
+macOS 自 0.3.0 起提供可运行安装包，1.0.0 起按正式版流程发布；实际发布与验收状态见 [版本记录](releases/)。最低系统 **macOS Sequoia 15.0**，覆盖 Tahoe 26 及后续版本；不增加更早 macOS 的兼容分支。Android 的最低版本仍为 Android 16（API 36）。两端共用 Flutter 相册、设备记忆、SQLite 元信息和缩略图缓存、gRPC v4 协议及持久分片下载逻辑。
 
 ![macOS 桌面界面原型](screenshots/macos-prototype.png)
 
@@ -90,11 +90,11 @@ macOS 普通失去焦点不等于应用退出。App Nap 会在系统认为后台
 
 ### 发现与配置
 
-- Bonjour 发布并浏览 `_tamayura._tcp.`，TXT 字段与 Android 保持一致（`id`、`name`、`version=3`）；仅使用当前协议及 IPv4 局域网。
+- Bonjour 发布并浏览 `_tamayura._tcp.`，TXT 字段与 Android 保持一致（`id`、`name`、`version=4`）；仅使用当前协议及 IPv4 局域网。
 - macOS 使用独立的 `macos-` 设备身份，与可编辑的设备名称分离。二维码和手动连接继续使用共享 `LanEndpoint` 解析器。
 - Mac 的 UUID 保存在应用本地偏好中，正常重启保持稳定；清空应用数据会生成新身份，不尝试读取硬件序列号。与 Android 的系统身份来源不同，但对端按相同协议将其作为独立设备记忆。
 - Debug/Profile 与 Release 都启用 App Sandbox、网络客户端和服务端、用户所选文件读写、应用 bookmark 与相机权限。`Info.plist` 声明局域网用途、Bonjour 服务和相机用途。
-- 所有 Runner 构建配置最低系统为 `15.0`，复用 `assets/branding/app_icon.png` 生成 macOS 图标。本地试用包使用 ad-hoc 签名，未配置 Developer ID 公证。
+- 所有 Runner 构建配置最低系统为 `15.0`，复用 `assets/branding/app_icon.png` 生成 macOS 图标。当前发行包使用 ad-hoc 签名，未配置 Developer ID 签名与公证；GitHub 正式 Release 分类不改变该签名状态。
 
 Apple 的 [本地网络隐私说明 TN3179](https://developer.apple.com/documentation/technotes/tn3179-understanding-local-network-privacy) 与 Flutter 的 [macOS 沙盒配置](https://docs.flutter.dev/platform-integration/macos/building) 是权限配置依据。
 
@@ -107,7 +107,7 @@ scripts/test-macos-native.sh
 scripts/package-macos.sh
 ```
 
-打包脚本先检查完整 Xcode（必要时自动使用 `/Applications/Xcode.app`），执行格式、静态分析、Flutter 与原生测试，再构建 Release App，核对版本、最低系统、通用架构和签名。脚本按应用版本生成 ZIP；0.3.0 路径为 `dist/0.3.0/Tamayura-0.3.0-macos.zip`，另写 `SHA256SUMS-macos` 独立校验文件，不覆盖双端 `SHA256SUMS`。CI 入口为 `.github/workflows/macos.yml`。版本、安装说明和实际发布检查见 [0.3.0 试用版本说明](releases/0.3.0.md)；本地包未公证，不上传远端 Release 或应用商店。
+打包脚本先检查完整 Xcode（必要时自动使用 `/Applications/Xcode.app`），执行格式、静态分析、Flutter 与原生测试，再构建 Release App，核对版本、最低系统、通用架构和签名。脚本按 `pubspec.yaml` 的应用版本生成 `dist/<version>/Tamayura-<version>-macos.zip`，另写 `SHA256SUMS-macos` 独立校验文件，不覆盖其他平台的记录。分支 CI 入口为 `.github/workflows/macos.yml`，远端发布由 Tag 工作流处理。1.0.0 起创建正式 GitHub Release；本地打包不等于上传，实际发布检查和附件状态见 [版本记录](releases/)，固定流程见 [发布与打包](发布.md)。当前 macOS 包未公证，也未提交应用商店。
 
 ## 验证边界与双机验收
 

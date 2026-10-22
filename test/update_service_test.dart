@@ -67,6 +67,7 @@ class _Fixture {
   late final Map<String, dynamic> metadata = {
     'tag': 'v$version',
     'version': version,
+    'release_type': 'release',
     'build_number': 12,
     'platforms': {target.name: platform},
   };
@@ -81,7 +82,7 @@ class _Fixture {
   late final Map<String, dynamic> release = {
     'tag_name': 'v$version',
     'draft': false,
-    'prerelease': true,
+    'prerelease': false,
     'body': '修复与改进',
     'html_url': '$_repository/releases/tag/v$version',
     'assets': [
@@ -125,7 +126,7 @@ void main() {
 
   group('release discovery', () {
     test(
-      'accepts prerelease and exact Android metadata without credentials',
+      'accepts stable release and exact Android metadata without credentials',
       () async {
         final fixture = _Fixture()..install(transport);
         final release = await service.check(_current, UpdateTarget.android);
@@ -155,9 +156,8 @@ void main() {
       },
     );
 
-    test('selects Windows x64 package and accepts stable releases', () async {
+    test('selects Windows x64 package from stable releases', () async {
       final fixture = _Fixture(target: UpdateTarget.windows);
-      fixture.release['prerelease'] = false;
       fixture.install(transport);
       final release = await service.check(_current, UpdateTarget.windows);
       expect(release!.asset!.filename, endsWith('-windows-x64.zip'));
@@ -192,26 +192,53 @@ void main() {
     );
 
     test(
-      'compares numeric components and ignores draft or invalid tags',
+      'compares numeric components and ignores prerelease, draft or invalid tags',
       () async {
         final lower = _Fixture(version: '0.9.9');
         final higher = _Fixture(version: '0.10.0');
         final draft = _Fixture(version: '9.0.0');
         draft.release['draft'] = true;
+        final prerelease = _Fixture(version: '10.0.0');
+        prerelease.release['prerelease'] = true;
         transport.routes[_listUrl(1)] = () => _jsonResponse([
           lower.release,
           draft.release,
-          {'draft': false, 'tag_name': 'v01.0.0'},
-          {'draft': false, 'tag_name': 'v2.0.0-beta'},
-          {'draft': false, 'tag_name': 'v2.0'},
-          {'draft': false, 'tag_name': '2.0.0'},
-          {'draft': false, 'tag_name': 'v92233720368547758080.0.0'},
+          prerelease.release,
+          {'draft': false, 'prerelease': false, 'tag_name': 'v01.0.0'},
+          {'draft': false, 'prerelease': false, 'tag_name': 'v2.0.0-beta'},
+          {'draft': false, 'prerelease': false, 'tag_name': 'v2.0'},
+          {'draft': false, 'prerelease': false, 'tag_name': '2.0.0'},
+          {
+            'draft': false,
+            'prerelease': false,
+            'tag_name': 'v92233720368547758080.0.0',
+          },
           higher.release,
         ]);
         final release = await service.check(_current, UpdateTarget.macos);
         expect(release!.version, '0.10.0');
       },
     );
+
+    test('prereleases alone do not offer an update or fetch assets', () async {
+      final fixture = _Fixture();
+      fixture.release['prerelease'] = true;
+      fixture.install(transport);
+      expect(await service.check(_current, UpdateTarget.android), isNull);
+      expect(transport.requests, [Uri.parse(_listUrl(1))]);
+    });
+
+    for (final flag in [null, 'false', 0]) {
+      test('rejects malformed prerelease flag $flag', () async {
+        final fixture = _Fixture();
+        fixture.release['prerelease'] = flag;
+        fixture.install(transport);
+        await expectLater(
+          service.check(_current, UpdateTarget.macos),
+          _failure('列表格式'),
+        );
+      });
+    }
 
     for (final version in ['0.7.0', '0.6.9']) {
       test('does not offer equal or older version $version', () async {
@@ -375,7 +402,7 @@ void main() {
       },
     );
 
-    for (final field in ['tag', 'version', 'build_number']) {
+    for (final field in ['tag', 'version', 'build_number', 'release_type']) {
       test('rejects metadata mismatched $field', () async {
         final fixture = _Fixture();
         fixture.metadata[field] = field == 'build_number' ? 0 : 'invalid';

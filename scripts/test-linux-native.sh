@@ -52,6 +52,15 @@ for size in sizes:
     data = (root / f'runner/resources/icons/{size}.png').read_bytes()
     assert data[:8] == b'\x89PNG\r\n\x1a\n' and data[12:16] == b'IHDR', f'{size}.png is not a PNG'
     assert struct.unpack('>II', data[16:24]) == (size, size), f'{size}.png is not {size}x{size}'
+assert 'install(DIRECTORY "runner/resources/tray/"' in project
+assert 'DESTINATION "${INSTALL_BUNDLE_DATA_DIR}/tray"' in project
+for variant in ['black', 'white']:
+    for size in [16, 20, 24, 32, 40, 48, 64]:
+        name = f'runner/resources/tray/hibiki-{variant}-{size}.png'
+        data = (root / name).read_bytes()
+        assert data[:8] == b'\x89PNG\r\n\x1a\n' and data[12:16] == b'IHDR', f'{name} is not a PNG'
+        assert struct.unpack('>II', data[16:24]) == (size, size), f'{name} has incorrect dimensions'
+        assert data[24:26] == bytes([8, 6]), f'{name} must retain 8-bit RGBA transparency'
 print('PASS Linux project registration, application ID and icons')
 PYCONFIG
 

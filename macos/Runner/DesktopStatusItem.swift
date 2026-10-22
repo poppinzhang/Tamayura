@@ -1,5 +1,23 @@
 import Cocoa
 
+@MainActor
+enum DesktopStatusIcon {
+  static let size = NSSize(width: 18, height: 18)
+  static let assetName = "StatusIcon"
+
+  static func image(
+    load: (String) -> NSImage? = { NSImage(named: NSImage.Name($0)) }
+  ) -> NSImage? {
+    guard let source = load(assetName), let image = source.copy() as? NSImage else { return nil }
+    // The dedicated SVG already contains rounded corners and a transparent
+    // character cutout. Keep that alpha mask intact and let AppKit tint it
+    // for the menu bar, independently of the app window's chosen theme.
+    image.size = size
+    image.isTemplate = true
+    return image
+  }
+}
+
 /// The window operations needed to keep the existing Flutter session alive.
 @MainActor
 protocol ResidentDesktopWindow: AnyObject {
@@ -81,9 +99,6 @@ final class DesktopStatusItem: NSObject, NSWindowDelegate {
     window.delegate = self
 
     let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-    let image = NSImage(systemSymbolName: "photo.stack", accessibilityDescription: nil)
-    image?.isTemplate = true
-    item.button?.image = image
 
     let menu = NSMenu()
     let openItem = NSMenuItem(title: "", action: #selector(showWindow), keyEquivalent: "")
@@ -99,6 +114,7 @@ final class DesktopStatusItem: NSObject, NSWindowDelegate {
     statusItem = item
     self.openItem = openItem
     self.quitItem = quitItem
+    item.button?.image = DesktopStatusIcon.image()
     updateText()
     languageObserver = NotificationCenter.default.addObserver(
       forName: AppText.didChange, object: nil, queue: .main
@@ -108,7 +124,7 @@ final class DesktopStatusItem: NSObject, NSWindowDelegate {
   /// Follow the interface language chosen in the app.
   func updateText() {
     guard let button = statusItem?.button else { return }
-    if button.image == nil { button.title = AppText.text(.statusTitle) }
+    button.title = button.image == nil ? AppText.text(.statusTitle) : ""
     button.toolTip = AppText.text(.statusTooltip)
     button.setAccessibilityLabel(AppText.text(.appName))
     openItem?.title = AppText.text(.openApp)

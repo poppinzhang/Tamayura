@@ -141,7 +141,7 @@ class ReleaseMetadataTests(unittest.TestCase):
         metadata = json.loads((output / "release.json").read_text())
         self.assertEqual((metadata["tag"], metadata["version"], metadata["build_number"]), (TAG, VERSION, 9))
         self.assertEqual(datetime.fromisoformat(metadata["generated_at"]).utcoffset(), timedelta(0))
-        self.assertEqual(metadata["release_type"], "prerelease")
+        self.assertEqual(metadata["release_type"], "release")
         self.assertEqual(metadata["validation"]["physical_device_acceptance"], "not_confirmed")
         self.assertEqual(metadata["platforms"]["macos"]["signing"], {"type": "ad-hoc", "notarized": False})
         self.assertEqual(metadata["platforms"]["windows"]["signing"], {"type": "unsigned"})

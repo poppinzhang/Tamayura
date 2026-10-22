@@ -186,7 +186,7 @@ def assemble(root, tag, artifacts_dir, output_dir):
         "version": version,
         "build_number": build_number,
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        "release_type": "prerelease",
+        "release_type": "release",
         "validation": {
             "automated_builds_and_checks": "completed",
             "physical_device_acceptance": "not_confirmed",

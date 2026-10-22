@@ -3,12 +3,14 @@ import 'dart:io';
 import 'package:material_ui/material_ui.dart';
 import 'app/app_controller.dart';
 import 'app/app_lifecycle.dart';
+import 'app/app_licenses.dart';
 import 'ui/app.dart';
 import 'background/transfer_worker.dart';
 import 'platform/macos_bridge.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+  registerBrandingLicenses();
   runApp(const _TamayuraRoot());
 }
 

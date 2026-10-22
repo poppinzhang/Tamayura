@@ -34,12 +34,14 @@
 * 日常动效选型：flutter_animate
 * 页面切换选型：animations 3.x
 
-## v1.0.0 前的兼容与升级策略
+## 正式版本兼容与升级策略
 
-* 在到达 v1.0.0 之前，代码只维护当前最新逻辑，不要求不同应用版本之间的向前或向后兼容；数据库结构、配置格式和通信协议可以直接按当前需求调整。
-* 优先保持实现简单，不为保留旧版本数据或支持旧版本行为添加兼容分支、数据迁移、旧配置转换、旧协议适配或回退逻辑，也不提前建设未来的升级框架。
-* 允许覆盖安装，不强制每次卸载重装，也不保证旧数据可继续使用。出现不兼容时，可以要求卸载重装、清空应用数据，或直接清空并重建应用数据库，无需为避免这些操作增加兼容性代码。
-* 测试验证当前版本的功能与异常处理，不要求验证历史版本兼容或数据迁移路径。到 v1.0.0 时再明确兼容与升级策略。
+* 自 v1.0.0 起按正式版本维护，GitHub 只发布非草稿、非 Pre-release 的正式 Release；既有 0.x 历史发布与 Tag 保留原状。
+* v1.0.0 建立媒体库 schema 7、下载任务库 schema 3、配置格式和 gRPC 协议 v4 的兼容基线。后续同一主版本的更新须保留设置、目录授权、设备记录、缓存、下载历史及未完成任务；数据库和配置变更必须提供经过测试的迁移，不能静默清空重建或用卸载重装代替升级支持。
+* 采用语义化版本：修复使用修订号，兼容功能使用次版本号，不兼容变化使用新主版本并明确升级路径。协议的兼容演进须验证新旧正式版本互联；无法安全互通时明确拒绝并提示版本要求，不回退到未经验证的行为。
+* 未知或较新数据库版本须保留原数据并报告错误；迁移失败必须回滚，不能删除原库、未完成分片或用户文件。不保证降级可运行，也不能在降级失败时破坏数据。
+* 每次发布验证当前功能、异常处理及从受支持正式版本升级；涉及 schema、配置、协议或签名时增加相应兼容、失败恢复与数据保留测试。0.x 试用版本不追溯承诺迁移；当前已有基线 schema 可继续使用，更旧结构安全拒绝，操作前先备份。
+* 具体兼容基线、升级边界与测试要求见 [兼容与升级](docs/兼容与升级.md)。
 
 ## 流程规范
 
@@ -75,7 +77,7 @@
 * `lib/core/`、`lib/data/`：媒体和下载模型、SQLite 元数据、同步断点及持久下载任务。
 * `lib/network/`：gRPC 服务、客户端与范围下载；协议源文件为 `proto/media.proto`，生成文件为 `lib/network/generated/`。
 * `lib/background/`：下载调度、后台执行与恢复；`lib/platform/` 对接各平台能力；`lib/ui/` 为共享 Flutter 界面。
-* `android/`、`macos/`、`windows/`、`linux/`：当前已实现的原生平台工程；Linux 自当前 `unstaged` 源码加入，尚未随已发布版本提供。iOS 属于项目目标，不能仅因存在对应平台的界面测试就声称已支持运行或发布。
+* `android/`、`macos/`、`windows/`、`linux/`：当前已实现的原生平台工程；Linux 自 v1.0.0 源码加入，实际发布状态见对应版本记录。iOS 属于项目目标，不能仅因存在对应平台的界面测试就声称已支持运行或发布。
 * `test/`：Flutter 单元、集成行为与界面测试；各平台原生测试入口见下文。`scripts/` 保存协议生成、原生检查与打包脚本，`.github/workflows/` 保存各平台 CI。
 
 ## 本地开发
@@ -135,7 +137,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\test-windows-nativ
 
 `scripts/test-macos-native.sh` 检查 Swift 存储、网络活动、窗口行为及工程权限配置；Windows 脚本通过 CMake / CTest 执行原生测试；`scripts/test-linux-native.sh` 默认以 AddressSanitizer / UndefinedBehaviorSanitizer 构建并执行 Linux CTest，再核对工程注册、图标及桌面入口。Linux 托盘与发现测试需要 dbus-daemon 和 avahi-daemon，缺少时跳过；CI 设置 `TAMAYURA_LINUX_TESTS_NO_SKIP=1` 禁止跳过。针对 `RunnerTests` 使用隔离 Bundle 和空 Dart 入口的测试结果只能记为原生宿主测试，不能代替正常应用的 GUI 验收。
 
-`.github/workflows/android.yml` 执行发布工具回归、工作流语法检查、公共检查、Android 原生测试和 debug APK 构建；macOS、Windows、Linux 工作流调用对应打包脚本，Linux 分别在 x64 与 arm64 runner 上执行。日常 CI 处理分支、Pull Request 和手动检查；`.github/workflows/release.yml` 专门处理版本 Tag，校验版本与 CHANGELOG 后执行各平台测试和打包，全部通过才发布 Pre-release，配置与失败处理见 `docs/发布.md`。配置存在不表示 CI 已运行，历史通过不表示当前修改通过；仅记录本轮实际执行的检查与未验证范围。
+`.github/workflows/android.yml` 执行发布工具回归、工作流语法检查、公共检查、Android 原生测试和 debug APK 构建；macOS、Windows、Linux 工作流调用对应打包脚本，Linux 分别在 x64 与 arm64 runner 上执行。日常 CI 处理分支、Pull Request 和手动检查；`.github/workflows/release.yml` 专门处理版本 Tag，校验版本与 CHANGELOG 后执行各平台测试和打包，全部通过才发布正式 Release，配置与失败处理见 `docs/发布.md`。配置存在不表示 CI 已运行，历史通过不表示当前修改通过；仅记录本轮实际执行的检查与未验证范围。
 
 自动化测试不能替代真实设备的 Wi-Fi 发现、目录权限、跨平台原文件传输、断网/睡眠恢复、系统菜单、扫码和分享验收。平台功能按实际支持范围验证，不把回环 gRPC 或独立原生宿主检查写成完整跨设备验收。
 
@@ -151,7 +153,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\test-windows-nativ
 scripts/generate-proto.sh
 ```
 
-脚本使用 `protoc_plugin 22.5.0` 重新生成 Dart gRPC 代码。协议源文件和生成结果一起提交，不手工修改生成代码；协议行为变化同步更新客户端、服务端、测试及相应实现文档，遵循 v1.0.0 前不维护旧协议兼容的策略。
+脚本使用 `protoc_plugin 22.5.0` 重新生成 Dart gRPC 代码。协议源文件和生成结果一起提交，不手工修改生成代码；协议行为变化同步更新客户端、服务端、测试及相应实现文档，遵循正式版本兼容与升级策略。
 
 ## 打包与发布入口
 
@@ -164,7 +166,7 @@ scripts/generate-proto.sh
 3. 确认本地 `main`、远端 `main` 与已核验提交一致，再为该明确提交创建附注版本 Tag 并推送 GitHub。测试失败或待发布提交变化时回到前两步，不给未经验证的新提交打 Tag，不强制移动既有版本 Tag。
 4. 等待该 Tag 的准备、Android、macOS、Windows、Linux x64、Linux arm64 和发布七个 job 全部成功，由 Agent 核对远端 Tag 实际提交、Release 正文与 Tag 内 CHANGELOG，以及五个包和 `SHA256SUMS` / `release.json` 共七个附件的元信息后报告完成。产物版本、系统、架构、签名、完整性、独立 SHA-256、联合元数据及上传后附件的大小、状态和可用摘要由 CI 自动核验；不再下载 Windows、Linux artifact 或 Release 附件重复手工比对，不得声称执行了下载校验。GitHub 自动生成的源码归档不计入七个附件。
 
-仅讨论或维护流程时不执行发布；已授权发布时由 Agent 连续执行上述步骤并等待结束，无需人工下载、逐步确认或重复申请批准。首次配置完成后沿用当前签名 Secrets 与工作流 `GITHUB_TOKEN`，不将 Chrome 下载、`gh`、个人 API 令牌或新 OAuth 授权设为每次发布前提。实际失败时停在失败步骤处理，可在不覆盖公开版本、不移动 Tag 的条件下自动安全重试；发现遗漏、版本冲突或缺少必要条件时如实说明，不跳过检查。当前远端发布为 Pre-release，保留 macOS 未公证、Windows 与 Linux 未签名和真机验收范围的说明。发布后实际结果补充到对应版本记录，不回改已发布 Tag。
+仅讨论或维护流程时不执行发布；已授权发布时由 Agent 连续执行上述步骤并等待结束，无需人工下载、逐步确认或重复申请批准。首次配置完成后沿用当前签名 Secrets 与工作流 `GITHUB_TOKEN`，不将 Chrome 下载、`gh`、个人 API 令牌或新 OAuth 授权设为每次发布前提。实际失败时停在失败步骤处理，可在不覆盖公开版本、不移动 Tag 的条件下自动安全重试；发现遗漏、版本冲突或缺少必要条件时如实说明，不跳过检查。自 v1.0.0 起发布正式 Release 并标记 Latest，既有历史 Pre-release 保持原状；保留 macOS 未公证、Windows 与 Linux 未签名和真机验收范围的说明。发布后实际结果补充到对应版本记录，不回改已发布 Tag。
 
 * Android：配置专用 release 签名后执行 `scripts/package-android.sh`，运行公共与原生检查、Release 构建及版本、系统、架构、签名和对齐核验，输出 APK 与独立校验和。按需生成 `flutter build apk --release --split-per-abi` 或 `flutter build appbundle --release`。缺失 release 签名配置时不得回退到 debug 签名。CI 签名通过 Actions Secrets 临时配置，详情见 `docs/发布.md`。
 * macOS：执行 `scripts/package-macos.sh`，脚本运行公共检查、原生测试与 Release 构建，核验最低系统、版本、Universal 架构和签名，输出 `dist/<version>/Tamayura-<version>-macos.zip` 及 `SHA256SUMS-macos`。完整 Xcode 位于标准位置时可由脚本自动选择；非标准位置用 `DEVELOPER_DIR`，不修改系统全局开发目录。当前流程用于 ad-hoc 本地试用签名；公开发行需独立的 Developer ID 签名与公证流程，不能覆盖已有正式签名。
@@ -202,4 +204,4 @@ scripts/generate-proto.sh
 | 下载、保存与删除 | [传输恢复](docs/传输恢复.md)、[下载存储与清理](docs/下载存储与清理.md)、[相册本地原图](docs/相册本地原图.md)、[本地媒体删除](docs/本地媒体删除.md) |
 | 后台与桌面生命周期 | [后台共享](docs/后台共享.md)、[桌面托盘与窗口生命周期](docs/桌面托盘与窗口生命周期.md) |
 | 相册浏览与外观 | [合集显示模式](docs/合集显示模式.md)、[合集图片排序](docs/合集图片排序.md)、[合集快速滚动](docs/合集快速滚动.md)、[主题与外观](docs/主题与外观.md)、[UI 组件与动效](docs/UI组件与动效.md)、[多语言](docs/多语言.md)、[应用图标](docs/应用图标.md) |
-| 项目说明与发布 | [关于与项目缘起](docs/关于与项目缘起.md)、[发布与打包](docs/发布.md)、[版本记录](docs/releases/)、[变更日志](CHANGELOG.md) |
+| 项目说明与发布 | [兼容与升级](docs/兼容与升级.md)、[关于与项目缘起](docs/关于与项目缘起.md)、[发布与打包](docs/发布.md)、[版本记录](docs/releases/)、[变更日志](CHANGELOG.md) |

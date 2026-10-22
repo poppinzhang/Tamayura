@@ -1545,6 +1545,10 @@ class AppLocalizationsEn extends AppLocalizations {
       'The local database folder is unavailable. Check your user folder permissions and try again.';
 
   @override
+  String get errorDatabaseVersionUnsupported =>
+      'The database format is incompatible with this app version. Your existing data has been preserved. Use an app version that supports this data format.';
+
+  @override
   String get errorTransferTarget =>
       'The media\'s device or shared folder is invalid. Refresh the album.';
 

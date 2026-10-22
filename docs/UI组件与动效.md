@@ -7,11 +7,11 @@
 | 职责 | 采用方案 | 约束与理由 |
 | --- | --- | --- |
 | UI 组件 | 官方 `material_ui` `^1.8.0`，Material 3 | `AppTheme` 启用 `useMaterial3`，主题、标准按钮、导航、菜单、弹窗及触摸区域统一使用独立 Material 包。 |
-| 应用图标 | `lucide_icons_flutter` 4.0.1 | Lucide 社区 Flutter 实现；字体随应用离线打包，不依赖网络或平台插件。业务代码通过 `AppIcons` 的语义常量使用。 |
+| 业务图标 | `lucide_icons_flutter` 4.0.1 | Lucide 社区 Flutter 实现；字体随应用离线打包，不依赖网络或平台插件。业务代码通过 `AppIcons` 的语义常量使用。 |
 | 日常动效 | `flutter_animate` 4.5.2 | 负责同步提示收起、快速滚动提示渐隐及预览拖动回弹，不给媒体网格逐项增加动画。 |
 | 页面过渡 | 官方 `animations` `^3.0.0` | 与 `material_ui` 使用同一套 Material 类型；标签页使用 Fade Through，非 Android 路由使用水平 Shared Axis，Android 保留预测返回实现。 |
 
-这些依赖的 Flutter 界面可在项目目标平台使用，但不能据此声称 iOS 原生工程或发布已经实现；Linux 原生工程属于当前 `unstaged` 源码，见 [Linux 实现](Linux原型.md)。依赖的具体版本由 `pubspec.lock` 固定；项目继续使用 Flutter 3.47.6 / Dart 3.13.5。
+这些依赖的 Flutter 界面可在项目目标平台使用，但不能据此声称 iOS 原生工程或发布已经实现；Linux 原生工程属于1.0.0 源码，见 [Linux 实现](Linux原型.md)。依赖的具体版本由 `pubspec.lock` 固定；项目继续使用 Flutter 3.47.6 / Dart 3.13.5。
 
 `material_ui` 是 Flutter 官方从 SDK 中拆分出的 Material 实现，提供 Material 3 组件及其主题与本地化能力。项目将自有界面、相关模型中的 Material 类型和界面测试统一迁移到这个包；`animations` 3.0.0 同样已迁移到 `material_ui`，因此可以直接使用同一套主题和页面路由类型。[官方迁移说明](https://pub.dev/packages/material_ui)、[animations 更新记录](https://pub.dev/packages/animations/changelog)。
 
@@ -27,6 +27,7 @@
 ## 实现
 
 - `lib/ui/app_icons.dart` 集中映射图标，使用 `static const IconData` 和 `@staticIconProvider`，支持 Release 字体裁剪。相同图标可服务多个相近语义；导航选中态由 Material 指示器、颜色和标签表达。主题同时覆盖默认返回、关闭按钮图标。组件内部的勾选标记等仍由 Material 绘制；系统托盘和启动图标不属于这套业务图标。
+- 1.0.0 源码的标题栏与关于页 Logo 由 `AppLogo` 显示用户提供的新版「響」SVG 导出的 PNG，边长分别为 22.4、51.2 逻辑像素；浅色主题黑底白字，深色主题白底黑字，直接保留素材圆角与透明区域。其资源、桌面系统区域版本和许可见 [应用图标](应用图标.md)。
 - `AppTheme` 保留已有控件尺寸、圆角与配色，并将 `IconButtonThemeData.variant` 明确设为 `StyleVariant.material3`，不在迁移中启用 Material 3 Expressive 外观。
 - `lib/ui/app_motion.dart` 集中读取系统减少动画和无障碍导航标志。`AppTabTransition` 始终保留一棵 `IndexedStack`，仅在选中标签改变时播放 220 ms 进入过渡；进度、语言和主题更新不重播。不会并行挂载两个相册列表，也不会丢失标签状态或让一个滚动控制器连接两份页面。
 - 路由继续使用 `MaterialPageRoute`，由 `PageTransitionsTheme` 统一设置；扫码返回值、返回栈、详情和许可证页面沿用同一导航机制。Android 的 `PredictiveBackPageTransitionsBuilder` 自带系统手势观察器，保留它以支持取消或提交预测返回；关闭新版新增的过渡快照优化，让相机画面和下载进度在切页时继续实时绘制，不复制框架私有手势实现。

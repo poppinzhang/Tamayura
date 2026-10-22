@@ -108,7 +108,11 @@ required = [
     "lib/libsqlite3.so", "data/icudtl.dat", "data/flutter_assets/AssetManifest.bin",
     "data/flutter_assets/NativeAssetsManifest.json", "data/flutter_assets/NOTICES.Z",
     "data/flutter_assets/version.json",
-] + [f"data/icons/hicolor/{size}x{size}/apps/dev.tamayura.app.png" for size in sizes]
+] + [f"data/icons/hicolor/{size}x{size}/apps/dev.tamayura.app.png" for size in sizes] + [
+    f"data/tray/hibiki-{variant}-{size}.png"
+    for variant in ["black", "white"]
+    for size in [16, 20, 24, 32, 40, 48, 64]
+]
 for name in required:
     if not (bundle / name).is_file():
         sys.exit(f"The release bundle is incomplete: {name}")
@@ -261,5 +265,5 @@ mv -f "$work_dir/$archive_name" "$output_dir/$archive_name"
   sha256sum "$archive_name" > "SHA256SUMS-linux-$arch"
   sha256sum -c "SHA256SUMS-linux-$arch"
 )
-echo "Linux $arch preview package: $output_dir/$archive_name"
+echo "Linux $arch package: $output_dir/$archive_name"
 echo 'Unsigned tar.gz for local testing. Extract the whole folder before running tamayura.'

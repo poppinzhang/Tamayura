@@ -83,6 +83,29 @@ class WindowsSourceTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "symlinks"):
             PACKAGE.package_source(self.root)
 
+    def test_themed_logos_and_their_licenses_are_included(self):
+        required = (
+            "assets/branding/hibiki/hibiki-black.png",
+            "assets/branding/hibiki/2.0x/hibiki-white.png",
+            "assets/branding/hibiki/4.0x/hibiki-white.png",
+            "assets/branding/hibiki/source/hibiki-black.svg",
+            "assets/branding/hibiki/source/hibiki-white.svg",
+            "assets/branding/hibiki/source/hibiki-macos-cutout.svg",
+            "assets/branding/hibiki/license/ATTRIBUTION.txt",
+            "assets/branding/hibiki/license/Nagino-OFL.txt",
+            "windows/runner/resources/app_icon.ico",
+        )
+        for name in required:
+            self.write(name, "asset\n")
+        self.write("assets/private.txt", "LOCAL_ONLY\n")
+        self.write("assets/branding/hibiki/license/private.txt", "LOCAL_ONLY\n")
+        archive, _ = PACKAGE.package_source(self.root)
+        with zipfile.ZipFile(archive) as bundle:
+            names = {name.split("/", 1)[1] for name in bundle.namelist()}
+            self.assertTrue(set(required).issubset(names))
+            for name in bundle.namelist():
+                self.assertNotIn(b"LOCAL_ONLY", bundle.read(name))
+
     def test_missing_required_files_fail_before_creating_output(self):
         (self.root / "pubspec.lock").unlink()
         with self.assertRaisesRegex(ValueError, "Missing required source file"):

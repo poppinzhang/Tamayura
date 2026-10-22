@@ -4,6 +4,7 @@ import '../app/app_info.dart';
 import '../app/endpoint.dart';
 import '../l10n/app_locale.dart';
 import 'app_icons.dart';
+import 'app_logo.dart';
 
 class AboutPage extends StatefulWidget {
   const AboutPage({super.key, this.loadVersion = AppVersion.load});
@@ -29,11 +30,7 @@ class _AboutPageState extends State<AboutPage> {
     title: context.l10n.aboutTitle,
     children: [
       const SizedBox(height: 12),
-      Icon(
-        AppIcons.logo,
-        size: 64,
-        color: Theme.of(context).colorScheme.primary,
-      ),
+      const Center(child: AppLogo(size: 51.2)),
       const SizedBox(height: 16),
       Text(
         context.l10n.appTitle,
