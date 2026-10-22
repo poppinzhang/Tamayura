@@ -1228,51 +1228,67 @@ void main() {
       );
     }
 
-    test(
-      'an export permission failure retains completed bytes for export retry',
-      () async {
-        final item = _item(size: 4);
-        final bytes = Uint8List.fromList([8, 6, 7, 5]);
-        final task = await store.enqueue(_peer, item, 'content://receive');
-        var readCalls = 0;
-        Stream<Uint8List> read(String id, int offset, int length) async* {
-          readCalls++;
-          yield Uint8List.sublistView(bytes, offset, offset + length);
-        }
+    for (final failure in [
+      (code: 'PERMISSION', message: '接收目录权限已失效'),
+      (code: 'PATH_TOO_LONG', message: '接收文件路径过长，请选择较短的接收目录'),
+    ]) {
+      test(
+        'an export ${failure.code} failure retains completed bytes for offline retry',
+        () async {
+          final item = _item(size: 4);
+          final bytes = Uint8List.fromList([8, 6, 7, 5]);
+          final task = await store.enqueue(_peer, item, 'content://receive');
+          var readCalls = 0;
+          Stream<Uint8List> read(String id, int offset, int length) async* {
+            readCalls++;
+            yield Uint8List.sublistView(bytes, offset, offset + length);
+          }
 
-        final worker = runner(
-          clientFactory: (peer) => _ScriptClient(peer, read),
-        );
-        bridge.fail = true;
-        await worker.run(task.id);
-        expect((await store.get(task.id))!.state, DownloadState.failed);
-        expect((await store.get(task.id))!.error, contains('权限'));
-        expect(
-          await File(p.join(staging.path, task.id, '0.part')).readAsBytes(),
-          bytes,
-        );
-        expect(
-          await File(
-            p.join(staging.path, task.id, 'complete.partial'),
-          ).exists(),
-          isFalse,
-        );
-        expect(await repository.getDownload(_peer.id, item.id), isNull);
-        bridge.fail = false;
-        await store.enqueue(_peer, item, 'content://replacement');
-        await runner(
-          clientFactory: (_) => throw StateError('The source is offline'),
-        ).run(task.id);
-        expect(
-          readCalls,
-          1,
-          reason:
-              'A successful byte transfer need not be repeated to retry export',
-        );
-        expect(bridge.destination, 'content://replacement');
-        expect((await store.get(task.id))!.state, DownloadState.completed);
-      },
-    );
+          final worker = runner(
+            clientFactory: (peer) => _ScriptClient(peer, read),
+          );
+          bridge.beforeSave = () async => throw PlatformException(
+            code: failure.code,
+            message: failure.message,
+          );
+          await worker.run(task.id);
+          final failed = (await store.get(task.id))!;
+          expect(failed.state, DownloadState.failed);
+          expect(failed.error, contains(failure.message));
+          expect(failed.savedUri, isNull);
+          expect(bridge.exported, isNull);
+          expect(
+            await File(p.join(staging.path, task.id, '0.part')).readAsBytes(),
+            bytes,
+          );
+          expect(
+            await File(
+              p.join(staging.path, task.id, 'complete.partial'),
+            ).exists(),
+            isFalse,
+          );
+          expect(await repository.getDownload(_peer.id, item.id), isNull);
+          bridge.beforeSave = null;
+          await store.enqueue(_peer, item, 'content://replacement');
+          await runner(
+            clientFactory: (_) => throw StateError('The source is offline'),
+          ).run(task.id);
+          expect(
+            readCalls,
+            1,
+            reason:
+                'A successful byte transfer need not be repeated to retry export',
+          );
+          expect(bridge.destination, 'content://replacement');
+          expect((await store.get(task.id))!.state, DownloadState.completed);
+          expect(await repository.getDownload(_peer.id, item.id), isNotNull);
+          expect(
+            await Directory(p.join(staging.path, task.id)).exists(),
+            isFalse,
+          );
+        },
+      );
+    }
 
     for (final example in [
       (

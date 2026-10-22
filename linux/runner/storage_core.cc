@@ -270,6 +270,15 @@ void CopyPart(int input, int64_t size, int output, bool same_device,
 
 std::atomic<bool> anonymous_saves{true};
 
+void ValidateDownloadPath(const std::string& directory, const std::string& name) {
+  // Descriptor-relative creation can exceed PATH_MAX, but the returned path
+  // must also work with ordinary path APIs used by the desktop and other apps.
+  // PATH_MAX includes the terminating NUL, unlike std::string::size().
+  if (JoinPath(directory, name).size() >= kMaxPathBytes) {
+    throw StorageError("PATH_TOO_LONG", TextId::kDownloadPathTooLong);
+  }
+}
+
 std::string AbsoluteBase(const char* value) {
   if (!value || value[0] != '/') {
     throw StorageError("STAGING_UNAVAILABLE",
@@ -992,6 +1001,12 @@ std::string SaveDownload(const std::vector<std::string>& sources,
     throw StorageError("FILE_CHANGED", TextId::kPartsSize);
   }
   auto parent = PinDirectory(destination);
+  std::string output_directory = parent.path;
+  for (const auto& folder : folders) {
+    output_directory = JoinPath(output_directory, folder);
+  }
+  // Reject the complete path before creating even an empty receive hierarchy.
+  ValidateDownloadPath(output_directory, received_name);
   for (const auto& folder : folders) {
     parent = ChildDirectory(parent, folder, true);
   }
@@ -1015,6 +1030,7 @@ std::string SaveDownload(const std::vector<std::string>& sources,
     for (unsigned attempt = 0; attempt <= 10000 && !output; ++attempt) {
       const auto candidate = AvailableName(received_name, attempt);
       ValidateSegment(candidate);
+      ValidateDownloadPath(parent.path, candidate);
       output.reset(openat(parent.fd.get(), candidate.c_str(),
                           O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC,
                           0644));
@@ -1044,6 +1060,7 @@ std::string SaveDownload(const std::vector<std::string>& sources,
       for (unsigned attempt = 0; attempt <= 10000 && chosen.empty(); ++attempt) {
         const auto candidate = AvailableName(received_name, attempt);
         ValidateSegment(candidate);
+        ValidateDownloadPath(parent.path, candidate);
         if (linkat(AT_FDCWD, descriptor.c_str(), parent.fd.get(),
                    candidate.c_str(), AT_SYMLINK_FOLLOW) == 0) {
           chosen = candidate;

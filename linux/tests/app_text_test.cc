@@ -57,6 +57,14 @@ void TestTables() {
           "Japanese tray text");
   Require(std::strcmp(app_text::Text(TextId::kQuitApp, "de"), "Quit Tamayura") == 0,
           "unknown language uses English");
+  for (const char* language : {"zh", "ja", "en"}) {
+    const std::string message = app_text::Text(TextId::kDownloadPathTooLong, language);
+    const char* hint = std::strcmp(language, "zh") == 0 ? "路径更短"
+                       : std::strcmp(language, "ja") == 0 ? "パスが短い"
+                                                          : "shorter destination path";
+    Require(message.find(hint) != std::string::npos,
+            std::string("path-length failure gives recovery guidance in ") + language);
+  }
   Require(std::strcmp(app_text::Text(TextId::kCount, "en"), "") == 0, "out of range");
 }
 

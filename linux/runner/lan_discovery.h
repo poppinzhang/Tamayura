@@ -7,23 +7,10 @@
 #include <string>
 #include <vector>
 
+#include "discovery_core.h"
+
 namespace tamayura {
 class MainDispatcher;
-
-struct DiscoveryEvent {
-  std::string type;  // "found", "lost" or "error".
-  std::string id;
-  std::string name;
-  std::string host;
-  int port = 0;
-  std::string stage;  // Errors: "register", "discover" or "resolve".
-  int64_t code = 0;
-  std::string message;
-  bool operator==(const DiscoveryEvent& other) const {
-    return type == other.type && id == other.id && name == other.name &&
-           host == other.host && port == other.port;
-  }
-};
 
 struct LocalNetwork {
   std::string name;

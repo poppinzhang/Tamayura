@@ -4,6 +4,38 @@
 #include <array>
 
 namespace tamayura {
+std::optional<DiscoveryEvent> PeerEndpoints::Resolve(Slot slot, DiscoveryEvent event) {
+  instances_[slot] = std::move(event);
+  return Select();
+}
+
+std::optional<DiscoveryEvent> PeerEndpoints::Remove(Slot slot) {
+  instances_.erase(slot);
+  return Select();
+}
+
+std::optional<DiscoveryEvent> PeerEndpoints::Clear() {
+  instances_.clear();
+  return Select();
+}
+
+std::optional<DiscoveryEvent> PeerEndpoints::Select() {
+  auto selected = selected_ ? instances_.find(*selected_) : instances_.end();
+  if (selected == instances_.end()) selected = instances_.begin();
+  if (selected != instances_.end()) {
+    selected_ = selected->first;
+    if (found_ && *found_ == selected->second) return std::nullopt;
+    found_ = selected->second;
+    return found_;
+  }
+  selected_.reset();
+  if (!found_) return std::nullopt;
+  auto lost = std::move(*found_);
+  found_.reset();
+  lost.type = "lost";
+  return lost;
+}
+
 bool IsPeerId(const std::string& value) {
   return !value.empty() && value.size() <= 128 &&
          std::all_of(value.begin(), value.end(), [](unsigned char c) {

@@ -256,7 +256,8 @@ TransferSpaceInfo TransferSpace(const std::string& staging,
 
 // Writes the ordered parts into a new file below `destination`. The file is
 // published under a name that does not exist yet, so no existing file is ever
-// replaced; a failed save leaves no partial file behind.
+// replaced; a failed save leaves no partial file behind. Complete output paths,
+// including collision suffixes, must fit PATH_MAX with their terminating NUL.
 std::string SaveDownload(const std::vector<std::string>& sources,
                          int64_t expected_size,
                          const std::vector<std::string>& allowed_roots,

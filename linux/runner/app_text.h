@@ -56,6 +56,7 @@ enum class TextId {
   kSourceLocation,
   kPartsSize,
   kCannotCreateFile,
+  kDownloadPathTooLong,
   kCannotReadStaging,
   kPartsChanged,
   kCannotSaveSpace,

@@ -19,7 +19,6 @@
 #include <atomic>
 #include <chrono>
 #include <map>
-#include <optional>
 #include <set>
 
 #include "app_text.h"
@@ -62,7 +61,7 @@ struct LanDiscovery::State : std::enable_shared_from_this<State> {
     std::string type;
     std::string domain;
     std::map<Slot, Instance> instances;
-    std::optional<DiscoveryEvent> found;
+    PeerEndpoints endpoints;
   };
 
   std::shared_ptr<MainDispatcher> dispatcher;
@@ -102,11 +101,7 @@ struct LanDiscovery::State : std::enable_shared_from_this<State> {
   }
 
   void Lost(Peer& peer) {
-    if (!peer.found) return;
-    auto event = *peer.found;
-    event.type = "lost";
-    peer.found.reset();
-    Emit(std::move(event));
+    if (auto event = peer.endpoints.Clear()) Emit(std::move(*event));
   }
 
   void FreeResolvers() {
@@ -182,17 +177,18 @@ struct LanDiscovery::State : std::enable_shared_from_this<State> {
     if (instance.resolver) {
       resolvers[instance.resolver] = {key, slot};
     } else {
-      Failed(peer, instance, avahi_client_errno(client));
+      Failed(peer, slot, avahi_client_errno(client));
     }
   }
 
-  void Failed(Peer& peer, Instance& instance, int code) {
+  void Failed(Peer& peer, const Slot& slot, int code) {
+    auto& instance = peer.instances.at(slot);
+    if (auto event = peer.endpoints.Remove(slot)) Emit(std::move(*event));
     ++instance.failures;
     instance.next_attempt = Clock::now() + (instance.failures < kResolveAttempts
                                                  ? std::chrono::seconds(1)
                                                  : std::chrono::seconds(30));
-    if (instance.failures == kResolveAttempts) {
-      Lost(peer);
+    if (instance.failures == kResolveAttempts && !peer.endpoints.found()) {
       Error("resolve", code);
     }
   }
@@ -296,8 +292,8 @@ struct LanDiscovery::State : std::enable_shared_from_this<State> {
       }
       peer->second.instances.erase(instance);
     }
+    if (auto event = peer->second.endpoints.Remove(slot)) state->Emit(std::move(*event));
     if (peer->second.instances.empty()) {
-      state->Lost(peer->second);
       state->peers.erase(peer);
     }
   }
@@ -319,17 +315,25 @@ struct LanDiscovery::State : std::enable_shared_from_this<State> {
       state->resolvers.erase(where);
       avahi_service_resolver_free(resolver);
       instance->second.resolver = nullptr;
-      state->Failed(peer->second, instance->second, avahi_client_errno(state->client));
+      state->Failed(peer->second, slot, avahi_client_errno(state->client));
       return;
     }
-    // A malformed record or another app's service is ignored, not an error.
+    // Invalid updates withdraw this interface's previous endpoint without
+    // treating another app's service as a discovery error.
     instance->second.failures = 0;
-    if (!address || address->proto != AVAHI_PROTO_INET || service_port == 0) return;
+    const auto invalidate = [&] {
+      if (auto event = peer->second.endpoints.Remove(slot)) state->Emit(std::move(*event));
+    };
+    if (!address || address->proto != AVAHI_PROTO_INET || service_port == 0) {
+      invalidate();
+      return;
+    }
     char host[AVAHI_ADDRESS_STR_MAX] = {};
     avahi_address_snprint(host, sizeof(host), address);
     const auto id = TxtValue(txt, "id");
     if (!IsPeerId(id) || id == state->id || !IsPrivateIPv4(host) ||
         !IsCompatibleVersion(TxtValue(txt, "version"))) {
+      invalidate();
       return;
     }
     auto label = TxtValue(txt, "name");
@@ -340,9 +344,8 @@ struct LanDiscovery::State : std::enable_shared_from_this<State> {
     found.name = LimitUtf8(label, 512);
     found.host = host;
     found.port = service_port;
-    if (!peer->second.found || !(*peer->second.found == found)) {
-      peer->second.found = found;
-      state->Emit(std::move(found));
+    if (auto event = peer->second.endpoints.Resolve(slot, std::move(found))) {
+      state->Emit(std::move(*event));
     }
   }
 
@@ -428,7 +431,7 @@ void LanDiscovery::Replay() {
   std::vector<DiscoveryEvent> events;
   avahi_threaded_poll_lock(state->poll);
   for (const auto& peer : state->peers) {
-    if (peer.second.found) events.push_back(*peer.second.found);
+    if (peer.second.endpoints.found()) events.push_back(*peer.second.endpoints.found());
   }
   avahi_threaded_poll_unlock(state->poll);
   for (auto& event : events) state->Emit(std::move(event));

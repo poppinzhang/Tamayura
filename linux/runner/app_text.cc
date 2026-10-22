@@ -123,6 +123,11 @@ constexpr Entry kTable[] = {
      "The download parts don't match the expected size"},
     {"无法创建接收文件", "保存先のファイルを作成できません",
      "Can't create the download file"},
+    {"接收文件的完整路径过长，请选择路径更短的接收目录，或缩短目录名称后重试",
+     "保存先ファイルのパスが長すぎます。パスが短い保存先を選ぶか、フォルダー名を"
+     "短くしてからもう一度お試しください",
+     "The full download path is too long. Choose a shorter destination path "
+     "or shorten folder names, then try again."},
     {"无法读取下载暂存文件", "ダウンロードの一時ファイルを読み込めません",
      "Can't read the staged download file"},
     {"下载分片在保存时已变化", "保存中にダウンロードの分割データが変わりました",

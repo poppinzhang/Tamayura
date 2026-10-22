@@ -290,6 +290,138 @@ struct PrivateRoots {
   }
 };
 
+std::vector<std::string> DirectoryNames(const std::string& path) {
+  GDir* listing = g_dir_open(path.c_str(), 0, nullptr);
+  Expect(listing != nullptr, "open fixture directory");
+  std::vector<std::string> names;
+  while (const gchar* name = g_dir_read_name(listing)) names.emplace_back(name);
+  g_dir_close(listing);
+  std::sort(names.begin(), names.end());
+  return names;
+}
+
+// Builds a hierarchy of names no larger than the Dart allocator's 180-byte
+// limit, with an exact final absolute path length (excluding its NUL).
+std::vector<std::string> FoldersForPathSize(const std::string& destination,
+                                          const std::string& name, size_t size,
+                                          bool unicode) {
+  const auto base_size = JoinPath(destination, ReceivedName(name)).size();
+  Expect(size > base_size + 1, "fixture has room for subfolders");
+  size_t remaining = size - base_size;
+  std::vector<std::string> folders;
+  while (remaining) {
+    size_t length = std::min<size_t>(180, remaining - 1);
+    if (remaining - length - 1 == 1) --length;
+    std::string component;
+    if (unicode) {
+      while (component.size() + 3 <= length) component += "界";
+    }
+    component.append(length - component.size(), 'a');
+    ValidateSegment(component);
+    folders.push_back(std::move(component));
+    remaining -= length + 1;
+  }
+  return folders;
+}
+
+void TestSaveRejectsOverlongPaths() {
+  for (const bool anonymous : {true, false}) {
+    SetAnonymousSavesForTesting(anonymous);
+    PrivateRoots roots;
+    const auto source = roots.staging + "/task/0.part";
+    const auto bytes = Pattern(100);
+    WriteFile(source, bytes);
+    std::vector<std::string> folders{std::string(180, 'p'), std::string(180, 'f')};
+    std::string relative;
+    for (int index = 0; index < 22; ++index) {
+      const auto component = std::string(178, 'd') + std::to_string(index + 10);
+      folders.push_back(component);
+      relative += component + "/";
+    }
+    relative += "image.jpg";
+    Expect(relative.size() == 3991, "valid long peer path fixture");
+    RelativeComponents(relative);
+    Reject("PATH_TOO_LONG", [&] {
+      SaveDownload({source}, 100, {roots.staging}, roots.destination, folders,
+                   "image.jpg");
+    });
+    Expect(DirectoryNames(roots.destination).empty(),
+           "overlong paths fail before creating a receive hierarchy");
+    Expect(ReadFile(source) == bytes, "failed save keeps all staged bytes");
+    const auto saved = SaveDownload({source}, 100, {roots.staging}, roots.destination,
+                                    {"Peer", "Album"}, "image.jpg");
+    Expect(SafeFile::Open(saved).Read(0, 100, 100) == bytes,
+           "shorter destination retries with retained parts");
+    DeleteDownload(saved);
+    Expect(!Exists(saved), "retried output can be deleted");
+  }
+  SetAnonymousSavesForTesting(true);
+}
+
+void TestSavePathBoundaries() {
+  for (const bool anonymous : {true, false}) {
+    SetAnonymousSavesForTesting(anonymous);
+    for (const bool unicode : {false, true}) {
+      PrivateRoots roots;
+      const auto source = roots.staging + "/task/0.part";
+      const auto bytes = Pattern(100);
+      WriteFile(source, bytes);
+      std::string name = "image.jpg";
+      if (unicode) {
+        name.clear();
+        for (int index = 0; index < 100; ++index) name += "旅";
+        name += ".jpg";
+      }
+      const auto fitted = ReceivedName(name);
+      const auto overlong =
+          FoldersForPathSize(roots.destination, name, kMaxPathBytes, unicode);
+      Reject("PATH_TOO_LONG", [&] {
+        SaveDownload({source}, 100, {roots.staging}, roots.destination, overlong, name);
+      });
+      Expect(DirectoryNames(roots.destination).empty(),
+             "PATH_MAX leaves room for the terminating NUL");
+
+      const auto folders =
+          FoldersForPathSize(roots.destination, name, kMaxPathBytes - 1, unicode);
+      const auto saved =
+          SaveDownload({source}, 100, {roots.staging}, roots.destination, folders, name);
+      Expect(saved.size() == kMaxPathBytes - 1 && IsUtf8(saved),
+             "output path reaches the exact byte boundary without splitting UTF-8");
+      Expect(ReadFile(saved) == bytes && SafeFile::Open(saved).Read(0, 100, 100) == bytes,
+             "boundary output works with ordinary and descriptor-relative reads");
+      Reject("PATH_TOO_LONG", [&] {
+        SaveDownload({source}, 100, {roots.staging}, roots.destination, folders, name);
+      });
+      Expect(DirectoryNames(ParentPath(saved)) == std::vector<std::string>{fitted},
+             "overlong collision suffix leaves no extra output");
+      Expect(ReadFile(saved) == bytes && ReadFile(source) == bytes,
+             "suffix failure preserves the existing output and staged parts");
+      DeleteDownload(saved);
+      Expect(!Exists(saved), "boundary output can be deleted");
+
+      // A suffix that still fits must work, including the multibyte stem
+      // shortened by AvailableName to keep one component within NAME_MAX.
+      const auto numbered_name = AvailableName(fitted, 1);
+      const auto growth = numbered_name.size() - fitted.size();
+      const auto collision_folders = FoldersForPathSize(
+          roots.destination, name, kMaxPathBytes - 1 - growth, unicode);
+      const auto first = SaveDownload({source}, 100, {roots.staging}, roots.destination,
+                                      collision_folders, name);
+      const auto second = SaveDownload({source}, 100, {roots.staging}, roots.destination,
+                                       collision_folders, name);
+      Expect(second.size() == kMaxPathBytes - 1 && BaseName(second) == numbered_name &&
+                 IsUtf8(second),
+             "collision suffix can reach the complete path byte limit");
+      Expect(SafeFile::Open(second).Read(0, 100, 100) == bytes,
+             "numbered boundary output can be opened");
+      DeleteDownload(first);
+      DeleteDownload(second);
+      Expect(!Exists(first) && !Exists(second), "numbered outputs can be deleted");
+    }
+  }
+  SetAnonymousSavesForTesting(true);
+}
+
 void TestSaveOrderedParts() {
   for (const bool anonymous : {true, false}) {
     SetAnonymousSavesForTesting(anonymous);
@@ -483,6 +615,9 @@ int main() {
       {"range reads are bounded and detect changes", TestRangeReads},
       {"replaced files and folders are never followed", TestLinksAreNeverFollowed},
       {"rescans, cancellation and revocation", TestCatalogLifecycle},
+      {"saves reject complete paths beyond the local limit", TestSaveRejectsOverlongPaths},
+      {"save path limits count UTF-8 bytes, NUL and collision suffixes",
+       TestSavePathBoundaries},
       {"saves write ordered parts without overwriting", TestSaveOrderedParts},
       {"saves reject sources outside private storage", TestSaveRejectsInvalidSources},
       {"concurrent saves never overwrite", TestConcurrentSavesNeverOverwrite},
