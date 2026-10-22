@@ -38,8 +38,8 @@ class TamayuraApp extends StatelessWidget {
       supportedLocales: AppLocalizations.supportedLocales,
       localizationsDelegates: AppLocale.localizationsDelegates,
       debugShowCheckedModeBanner: false,
-      theme: AppTheme.light,
-      darkTheme: AppTheme.dark,
+      theme: AppTheme.forLocale(AppTheme.light, model.locale),
+      darkTheme: AppTheme.forLocale(AppTheme.dark, model.locale),
       themeMode: model.themeMode,
       builder: (context, child) => AnnotatedRegion<SystemUiOverlayStyle>(
         value: Theme.of(context).appBarTheme.systemOverlayStyle!,
@@ -541,31 +541,31 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
                   SingleActivator(
                     LogicalKeyboardKey.digit1,
                     meta: isMacDesktop,
-                    control: isWindowsDesktop,
+                    control: usesControlShortcuts,
                   ): () =>
                       _changeTab(0),
                   SingleActivator(
                     LogicalKeyboardKey.digit2,
                     meta: isMacDesktop,
-                    control: isWindowsDesktop,
+                    control: usesControlShortcuts,
                   ): () =>
                       _changeTab(1),
                   SingleActivator(
                     LogicalKeyboardKey.digit3,
                     meta: isMacDesktop,
-                    control: isWindowsDesktop,
+                    control: usesControlShortcuts,
                   ): () =>
                       _changeTab(2),
                   SingleActivator(
                     LogicalKeyboardKey.comma,
                     meta: isMacDesktop,
-                    control: isWindowsDesktop,
+                    control: usesControlShortcuts,
                   ): () =>
                       _changeTab(2),
                   SingleActivator(
                     LogicalKeyboardKey.keyR,
                     meta: isMacDesktop,
-                    control: isWindowsDesktop,
+                    control: usesControlShortcuts,
                   ): () {
                     if (!model.busy) unawaited(_run(model.refresh));
                   },
@@ -1457,7 +1457,7 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
             icon: const Icon(AppIcons.connect, size: 20),
             label: Text(context.l10n.devicesConnectByIp),
           ),
-          if (!isWindowsDesktop)
+          if (hasCameraScanner)
             OutlinedButton.icon(
               onPressed: _connecting || model.busy ? null : _scan,
               icon: const Icon(AppIcons.scanQr, size: 20),
@@ -1518,7 +1518,8 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
       for (final device in model.devices) _deviceCard(device),
       const SizedBox(height: 12),
       Text(
-        isWindowsDesktop
+        // The Windows wording is not Windows-specific and applies to Linux.
+        isWindowsDesktop || isLinuxDesktop
             ? context.l10n.devicesFooterWindows
             : isMacDesktop
             ? context.l10n.devicesFooterMac
@@ -1824,6 +1825,8 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
                     ? context.l10n.settingsBackgroundSharingWindows
                     : isMacDesktop
                     ? context.l10n.settingsBackgroundSharingMac
+                    : isLinuxDesktop
+                    ? context.l10n.settingsBackgroundSharingLinux
                     : context.l10n.settingsBackgroundSharingMobile,
                 style: TextStyle(fontSize: 12, height: 1.6),
               ),
@@ -1851,7 +1854,7 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
                         : !model.backgroundSharingEnabled
                         ? context.l10n.backgroundSharingOff
                         : model.backgroundSharingRunning
-                        ? isWindowsDesktop
+                        ? isWindowsDesktop || isLinuxDesktop
                               ? context.l10n.backgroundSharingRunningWindows
                               : isMacDesktop
                               ? context.l10n.backgroundSharingRunningMac
@@ -2022,6 +2025,22 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
           title: context.l10n.tipKeyboardTitle,
           description: context.l10n.tipKeyboardMac,
         ),
+      ] else if (isLinuxDesktop) ...[
+        _Tip(
+          icon: AppIcons.desktop,
+          title: context.l10n.tipLinuxTitle,
+          description: context.l10n.tipLinuxDescription,
+        ),
+        _Tip(
+          icon: AppIcons.downloads,
+          title: context.l10n.tipBackgroundReceiveTitle,
+          description: context.l10n.tipBackgroundReceiveLinux,
+        ),
+        _Tip(
+          icon: AppIcons.keyboard,
+          title: context.l10n.tipKeyboardTitle,
+          description: context.l10n.tipKeyboardLinux,
+        ),
       ] else
         _Tip(
           icon: AppIcons.mobile,
@@ -2030,10 +2049,12 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
         ),
       _Tip(
         icon: AppIcons.touch,
-        title: isWindowsDesktop
+        title: revealsSavedFiles
             ? context.l10n.tipOpenTitle
             : context.l10n.tipShareTitle,
-        description: isWindowsDesktop
+        description: isLinuxDesktop
+            ? context.l10n.tipOpenDescriptionLinux
+            : isWindowsDesktop
             ? context.l10n.tipOpenDescription
             : context.l10n.tipShareDescription,
       ),
@@ -2087,6 +2108,8 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
               ? 'TAMAYURA  /  Windows 10 / 11'
               : isMacDesktop
               ? 'TAMAYURA  /  macOS 15+'
+              : isLinuxDesktop
+              ? 'TAMAYURA  /  Linux'
               : 'TAMAYURA  /  Android 16+',
           style: TextStyle(
             fontSize: 11,

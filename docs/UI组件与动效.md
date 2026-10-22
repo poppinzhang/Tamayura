@@ -11,7 +11,7 @@
 | 日常动效 | `flutter_animate` 4.5.2 | 负责同步提示收起、快速滚动提示渐隐及预览拖动回弹，不给媒体网格逐项增加动画。 |
 | 页面过渡 | 官方 `animations` `^3.0.0` | 与 `material_ui` 使用同一套 Material 类型；标签页使用 Fade Through，非 Android 路由使用水平 Shared Axis，Android 保留预测返回实现。 |
 
-这些依赖的 Flutter 界面可在项目目标平台使用，但不能据此声称 Linux、iOS 原生工程或发布已经实现。依赖的具体版本由 `pubspec.lock` 固定；项目继续使用 Flutter 3.47.6 / Dart 3.13.5。
+这些依赖的 Flutter 界面可在项目目标平台使用，但不能据此声称 iOS 原生工程或发布已经实现；Linux 原生工程属于当前 `unstaged` 源码，见 [Linux 实现](Linux原型.md)。依赖的具体版本由 `pubspec.lock` 固定；项目继续使用 Flutter 3.47.6 / Dart 3.13.5。
 
 `material_ui` 是 Flutter 官方从 SDK 中拆分出的 Material 实现，提供 Material 3 组件及其主题与本地化能力。项目将自有界面、相关模型中的 Material 类型和界面测试统一迁移到这个包；`animations` 3.0.0 同样已迁移到 `material_ui`，因此可以直接使用同一套主题和页面路由类型。[官方迁移说明](https://pub.dev/packages/material_ui)、[animations 更新记录](https://pub.dev/packages/animations/changelog)。
 

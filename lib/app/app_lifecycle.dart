@@ -5,6 +5,7 @@ class AppLifecycleCoordinator {
   AppLifecycleCoordinator({
     required this.isMacOS,
     this.isWindows = false,
+    this.isLinux = false,
     required this.setForeground,
     required this.onResume,
     this.isWindowVisible,
@@ -12,7 +13,8 @@ class AppLifecycleCoordinator {
 
   final bool isMacOS;
   final bool isWindows;
-  bool get _desktop => isMacOS || isWindows;
+  final bool isLinux;
+  bool get _desktop => isMacOS || isWindows || isLinux;
   final Future<void> Function(bool foreground) setForeground;
   final Future<void> Function() onResume;
   // macOS counts status-menu popups as visible application windows. Check the

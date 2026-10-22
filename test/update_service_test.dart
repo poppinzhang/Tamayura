@@ -178,6 +178,20 @@ void main() {
     );
 
     test(
+      'Linux only reads releases and opens the specific version page',
+      () async {
+        final fixture = _Fixture();
+        fixture.release.remove('assets');
+        fixture.install(transport);
+        final release = await service.check(_current, UpdateTarget.linux);
+        expect(release!.asset, isNull);
+        expect(release.buildNumber, isNull);
+        expect(release.pageUrl.toString(), '$_repository/releases/tag/v0.8.0');
+        expect(transport.requests.length, 1);
+      },
+    );
+
+    test(
       'compares numeric components and ignores draft or invalid tags',
       () async {
         final lower = _Fixture(version: '0.9.9');

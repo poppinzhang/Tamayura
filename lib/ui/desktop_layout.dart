@@ -3,7 +3,18 @@ import 'package:material_ui/material_ui.dart';
 
 bool get isMacDesktop => defaultTargetPlatform == TargetPlatform.macOS;
 bool get isWindowsDesktop => defaultTargetPlatform == TargetPlatform.windows;
-bool get isDesktop => isMacDesktop || isWindowsDesktop;
+bool get isLinuxDesktop => defaultTargetPlatform == TargetPlatform.linux;
+bool get isDesktop => isMacDesktop || isWindowsDesktop || isLinuxDesktop;
+
+/// Windows and Linux use Ctrl where macOS uses ⌘.
+bool get usesControlShortcuts => isWindowsDesktop || isLinuxDesktop;
+
+/// Without a system share sheet, saved files are shown in the file manager.
+bool get revealsSavedFiles => isWindowsDesktop || isLinuxDesktop;
+
+/// The QR scanner plugin has no Windows or Linux implementation.
+bool get hasCameraScanner => !isWindowsDesktop && !isLinuxDesktop;
+
 bool get isMobile =>
     defaultTargetPlatform == TargetPlatform.android ||
     defaultTargetPlatform == TargetPlatform.iOS;

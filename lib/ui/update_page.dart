@@ -134,7 +134,8 @@ class _UpdatePageState extends State<UpdatePage> with WidgetsBindingObserver {
     final release = _release;
     if (release == null || _busy || _confirming || _exiting) return;
     _confirming = true;
-    final manual = widget.platform.target == UpdateTarget.macos;
+    final target = widget.platform.target;
+    final manual = target.opensReleasePage;
     final accepted = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -142,9 +143,11 @@ class _UpdatePageState extends State<UpdatePage> with WidgetsBindingObserver {
         content: SingleChildScrollView(
           child: Text(
             manual
-                ? context.l10n.updateConfirmMac
+                ? target == UpdateTarget.linux
+                      ? context.l10n.updateConfirmLinux
+                      : context.l10n.updateConfirmMac
                 : '${context.l10n.updateConfirmAutomatic}\n\n'
-                      '${widget.platform.target == UpdateTarget.android ? context.l10n.updateConfirmAndroid : context.l10n.updateConfirmWindows}',
+                      '${target == UpdateTarget.android ? context.l10n.updateConfirmAndroid : context.l10n.updateConfirmWindows}',
           ),
         ),
         actions: [
@@ -178,7 +181,7 @@ class _UpdatePageState extends State<UpdatePage> with WidgetsBindingObserver {
       _total = 0;
     });
     try {
-      if (widget.platform.target == UpdateTarget.macos) {
+      if (widget.platform.target.opensReleasePage) {
         await widget.platform.openRelease(release.pageUrl);
         if (mounted) {
           setState(() => _status = _UpdateStatus.openedDownloadPage);
@@ -369,7 +372,7 @@ class _UpdatePageState extends State<UpdatePage> with WidgetsBindingObserver {
                           ? null
                           : _confirm,
                       child: Text(
-                        widget.platform.target == UpdateTarget.macos
+                        widget.platform.target.opensReleasePage
                             ? context.l10n.updateOpenDownloadPage
                             : _downloaded != null
                             ? context.l10n.updateRetryInstall

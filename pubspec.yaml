@@ -1,5 +1,5 @@
 name: tamayura
-description: 局域网中的随身相册。Android、macOS 与 Windows 媒体共享应用。
+description: 局域网中的随身相册。Android、macOS、Windows 与 Linux 媒体共享应用。
 publish_to: none
 version: 0.9.6+15
 
@@ -40,11 +40,13 @@ flutter:
   assets:
     - LICENSE
 
-# Windows ships SQLite with the app through Dart native assets. Other hosts
+# Windows and Linux ship SQLite with the app through Dart native assets; a
+# desktop Linux system often lacks the unversioned libsqlite3.so. Other hosts
 # retain their system SQLite for tests; Android/macOS use the sqflite plugin.
 hooks:
   user_defines:
     sqlite3:
       source:
         windows: sqlite3
+        linux: sqlite3
         default: system

@@ -9,7 +9,15 @@ import 'package:path/path.dart' as path;
 import '../app/app_info.dart';
 import '../l10n/app_locale.dart';
 
-enum UpdateTarget { android, windows, macos }
+enum UpdateTarget {
+  android,
+  windows,
+  macos,
+  linux;
+
+  /// macOS and Linux open the release page; the user replaces the app.
+  bool get opensReleasePage => this == macos || this == linux;
+}
 
 class UpdateAsset {
   const UpdateAsset({
@@ -211,7 +219,7 @@ class UpdateService {
       (left, right) => _compareVersion(right.components, left.components),
     );
     final candidate = candidates.first;
-    if (target == UpdateTarget.macos) {
+    if (target.opensReleasePage) {
       return candidate.release();
     }
     final metadataAsset = _findAsset(candidate, 'release.json');

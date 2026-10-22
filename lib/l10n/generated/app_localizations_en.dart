@@ -676,6 +676,10 @@ class AppLocalizationsEn extends AppLocalizations {
       'Closing the window keeps Tamayura in the menu bar. When on, sharing continues while the window is closed, hidden or minimized; when off, sharing stops while the window is hidden. The Mac must stay awake.';
 
   @override
+  String get settingsBackgroundSharingLinux =>
+      'On desktops with a status tray, closing the window keeps Tamayura in the tray; without one, closing the window quits Tamayura. When on, sharing continues while the window is hidden or minimized; when off, sharing stops while the window is hidden. The PC must stay awake.';
+
+  @override
   String get settingsBackgroundSharingMobile =>
       'When on, media stays shared while the screen is locked. When off, sharing only happens while you use the app, which saves battery.';
 
@@ -770,6 +774,13 @@ class AppLocalizationsEn extends AppLocalizations {
       'Supports Windows 10 1809 or later and Windows 11 (x64). Allow Tamayura through the firewall for private networks, or connect by IP manually.';
 
   @override
+  String get tipLinuxTitle => 'Ready for Linux';
+
+  @override
+  String get tipLinuxDescription =>
+      'Supports Ubuntu 24.04 LTS and distributions of the same generation or later (x64, arm64). Automatic discovery needs Avahi (avahi-daemon); allow mDNS (UDP 5353) and Tamayura\'s service port through the firewall, or connect by IP manually.';
+
+  @override
   String get tipBackgroundReceiveTitle => 'Close the window, keep receiving';
 
   @override
@@ -781,6 +792,10 @@ class AppLocalizationsEn extends AppLocalizations {
       'Downloads already started continue after you close the window. Reopen it from the menu bar or the Dock; it only quits when you choose “Quit Tamayura” or press ⌘Q. If the Mac sleeps or goes offline, retry in Downloads.';
 
   @override
+  String get tipBackgroundReceiveLinux =>
+      'On desktops with a status tray (such as KDE Plasma, Ubuntu\'s default desktop or Xfce), downloads already started continue after you close the window; click the Tamayura icon in the tray to reopen it, or choose “Quit Tamayura” from its menu. Without a tray, closing the window quits. Press Ctrl+Q to quit at any time. If the PC sleeps or goes offline, retry in Downloads.';
+
+  @override
   String get tipKeyboardTitle => 'Switch with the keyboard';
 
   @override
@@ -790,6 +805,10 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get tipKeyboardMac =>
       '⌘1 Album · ⌘2 Devices · ⌘3 or ⌘, Settings · ⌘R Refresh.';
+
+  @override
+  String get tipKeyboardLinux =>
+      'Ctrl+1 Album · Ctrl+2 Devices · Ctrl+3 or Ctrl+, Settings · Ctrl+R Refresh · Ctrl+Q Quit.';
 
   @override
   String get tipMacTitle => 'Ready for Mac';
@@ -811,6 +830,10 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get tipOpenDescription =>
       'Each shared folder appears as its own collection. Click to download the original, then open it with a system app or locate it in File Explorer.';
+
+  @override
+  String get tipOpenDescriptionLinux =>
+      'Each shared folder appears as its own collection. Click to download the original, then open it with a system app or locate it in the file manager.';
 
   @override
   String get tipShareTitle => 'Tap to fetch, share when downloaded';
@@ -1048,6 +1071,10 @@ class AppLocalizationsEn extends AppLocalizations {
       'Receiving continues after you close the window; reopen it from the menu bar or the Dock. Keep the Mac awake and on the same local network as the source device. Retry if quitting or sleep interrupts a download.';
 
   @override
+  String get downloadsHintLinux =>
+      'With a status tray, receiving continues after you close the window and you can reopen it from the tray; without one, closing the window quits and interrupts receiving. Keep the PC awake and on the same local network as the source device. Retry if exiting or sleep interrupts a download.';
+
+  @override
   String get downloadsHintMobile =>
       'Receiving continues in the background. The source device must keep Tamayura running and be on the same local network as this device.';
 
@@ -1158,6 +1185,10 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get updateConfirmMac =>
       'This opens the GitHub Release page for this version. Download the macOS package and upgrade manually.';
+
+  @override
+  String get updateConfirmLinux =>
+      'This opens the GitHub Release page for this version. Download the Linux archive for your architecture, quit Tamayura, extract it to a new folder, and run install-desktop-entry.sh there again. You can delete the old folder once the new version works.';
 
   @override
   String get updateConfirmAutomatic =>

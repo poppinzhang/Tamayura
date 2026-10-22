@@ -227,6 +227,7 @@ void main() {
     variant: TargetPlatformVariant({
       TargetPlatform.macOS,
       TargetPlatform.windows,
+      TargetPlatform.linux,
     }),
   );
 
@@ -292,6 +293,114 @@ void main() {
     },
     variant: TargetPlatformVariant.only(TargetPlatform.windows),
   );
+
+  testWidgets(
+    'Linux uses Ctrl shortcuts, desktop layout, QR display and no camera scanner',
+    (tester) async {
+      final model = _DesktopModel();
+      await _show(tester, model);
+      expect(find.byType(NavigationRail), findsOneWidget);
+      expect(find.byType(NavigationBar), findsNothing);
+      Future<void> control(LogicalKeyboardKey key) async {
+        await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+        await tester.sendKeyEvent(key);
+        await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+        await tester.pumpAndSettle();
+      }
+
+      await control(LogicalKeyboardKey.digit2);
+      expect(find.text('附近的伙伴'), findsOneWidget);
+      expect(find.text('扫一扫'), findsNothing);
+      expect(find.text('输入 IP 连接'), findsOneWidget);
+      expect(find.textContaining('电脑保持唤醒'), findsOneWidget);
+      await tester.tap(find.text('展示连接二维码'));
+      await tester.pumpAndSettle();
+      expect(find.byType(QrImageView), findsOneWidget);
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+      await control(LogicalKeyboardKey.keyR);
+      expect(model.refreshCalls, 1);
+      // ⌘ shortcuts belong to macOS only.
+      await _command(tester, LogicalKeyboardKey.digit1);
+      expect(find.text('附近的伙伴'), findsOneWidget);
+      await control(LogicalKeyboardKey.comma);
+      final tip = find.textContaining('支持 Ubuntu 24.04 LTS');
+      await _settingsItem(tester, tip);
+      expect(tip, findsOneWidget);
+      expect(find.textContaining('Avahi'), findsOneWidget);
+      expect(find.textContaining('支持 Windows 10'), findsNothing);
+      expect(find.textContaining('支持 macOS Sequoia'), findsNothing);
+      expect(find.textContaining('支持 Android 16'), findsNothing);
+      final keyboard = find.textContaining('Ctrl+R 刷新 · Ctrl+Q 退出');
+      await _settingsItem(tester, keyboard);
+      expect(keyboard, findsOneWidget);
+      final open = find.textContaining('在文件管理器中定位文件');
+      await _settingsItem(tester, open);
+      expect(open, findsOneWidget);
+      expect(find.textContaining('资源管理器'), findsNothing);
+      final footer = find.text('TAMAYURA  /  Linux');
+      await _settingsItem(tester, footer);
+      expect(footer, findsOneWidget);
+      expect(
+        find.byKey(const Key('background-sharing-battery-settings')),
+        findsNothing,
+      );
+      expect(tester.takeException(), isNull);
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.linux),
+  );
+
+  testWidgets('Linux explains tray-dependent closing and background sharing', (
+    tester,
+  ) async {
+    final model = _DesktopModel();
+    model.transfers[model.photo.key] = TransferView(
+      progress: .25,
+      item: model.photo,
+      receivedBytes: 800000,
+      totalBytes: model.photo.size,
+    );
+    await _show(tester, model);
+    await tester.tap(find.byKey(const Key('settings-tab')));
+    await tester.pumpAndSettle();
+    final sharing = find.byKey(const Key('background-sharing-switch'));
+    await _settingsItem(tester, sharing);
+    expect(find.textContaining('没有托盘时关闭窗口会退出玉响'), findsOneWidget);
+    await tester.tap(sharing);
+    await tester.pumpAndSettle();
+    expect(model.backgroundSharingEnabled, isTrue);
+    expect(find.textContaining('电脑睡眠或退出玉响后'), findsOneWidget);
+    final tray = find.textContaining('Ubuntu 默认桌面');
+    await _settingsItem(tester, tray);
+    expect(find.textContaining('「退出玉响」'), findsOneWidget);
+    expect(find.textContaining('右键菜单'), findsNothing);
+    await tester.tap(find.byKey(const Key('downloads-entry')));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('没有托盘时关闭窗口会退出并中断接收'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  }, variant: TargetPlatformVariant.only(TargetPlatform.linux));
+
+  testWidgets('Linux completed downloads offer a file manager reveal', (
+    tester,
+  ) async {
+    final model = _DesktopModel();
+    model.transfers[model.photo.key] = TransferView(
+      progress: 1,
+      status: TransferStatus.completed,
+      item: model.photo,
+      savedUri: '/home/用户/图片/Phone/IMG_001.jpg',
+    );
+    await _show(tester, model);
+    await tester.tap(find.text('日常 · 相机胶卷'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(Key('media-${model.photo.key}')));
+    await tester.pumpAndSettle();
+    expect(find.text('在文件夹中显示'), findsOneWidget);
+    expect(find.text('分享'), findsNothing);
+    tester.view.physicalSize = const Size(620, 860);
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+  }, variant: TargetPlatformVariant.only(TargetPlatform.linux));
 
   _desktopTest(
     'Mac uses sidebar and constrained surfaces with keyboard shortcuts',

@@ -33,6 +33,18 @@ PLATFORMS = {
         "architectures": ["x64"],
         "signing": {"type": "unsigned"},
     },
+    "linux-x64": {
+        "suffix": "linux-x64.tar.gz",
+        "minimum_os": "Ubuntu 24.04 LTS or equivalent (glibc 2.39, GTK 3.24)",
+        "architectures": ["x64"],
+        "signing": {"type": "unsigned"},
+    },
+    "linux-arm64": {
+        "suffix": "linux-arm64.tar.gz",
+        "minimum_os": "Ubuntu 24.04 LTS or equivalent (glibc 2.39, GTK 3.24)",
+        "architectures": ["arm64"],
+        "signing": {"type": "unsigned"},
+    },
 }
 
 
@@ -142,7 +154,7 @@ def assemble(root, tag, artifacts_dir, output_dir):
         raise ReleaseError("The artifacts directory must be a real directory.")
     entries = list(artifacts_dir.iterdir())
     if {entry.name for entry in entries} != expected:
-        raise ReleaseError("Artifacts must contain exactly the three platform packages and their three SHA256SUMS files.")
+        raise ReleaseError("Artifacts must contain exactly one package and one SHA256SUMS file for each release platform.")
     if any(entry.is_symlink() or not entry.is_file() or entry.stat().st_size == 0 for entry in entries):
         raise ReleaseError("Artifacts must be nonempty regular files; directories and symlinks are rejected.")
 
@@ -182,7 +194,7 @@ def assemble(root, tag, artifacts_dir, output_dir):
         "platforms": platforms,
     }
     (output_dir / "release.json").write_text(json.dumps(metadata, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
-    print(f"Assembled {tag} (build {build_number}): three packages, SHA256SUMS, release.json")
+    print(f"Assembled {tag} (build {build_number}): {len(filenames)} packages, SHA256SUMS, release.json")
 
 
 def main():

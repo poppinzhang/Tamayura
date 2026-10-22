@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:tamayura/core/models.dart';
 import 'package:tamayura/platform/android_bridge.dart';
 import 'package:tamayura/platform/default_bridge.dart';
+import 'package:tamayura/platform/linux_bridge.dart';
 import 'package:tamayura/platform/macos_bridge.dart';
 import 'package:tamayura/platform/windows_bridge.dart';
 
@@ -24,8 +25,9 @@ void main() {
       defaultPlatformBridge(operatingSystem: 'android'),
       isA<AndroidBridge>(),
     );
+    expect(defaultPlatformBridge(operatingSystem: 'linux'), isA<LinuxBridge>());
     expect(
-      () => defaultPlatformBridge(operatingSystem: 'linux'),
+      () => defaultPlatformBridge(operatingSystem: 'fuchsia'),
       throwsUnsupportedError,
     );
     expect(bridge.usesInProcessTransfers, isTrue);
@@ -36,6 +38,7 @@ void main() {
     for (final platform in [
       WindowsBridge(methods: channel),
       MacOSBridge(methods: channel),
+      LinuxBridge(methods: channel),
       AndroidBridge(methods: channel),
     ]) {
       final calls = <MethodCall>[];

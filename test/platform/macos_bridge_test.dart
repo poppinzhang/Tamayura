@@ -6,6 +6,7 @@ import 'package:tamayura/background/transfer_scheduler.dart';
 import 'package:tamayura/core/models.dart';
 import 'package:tamayura/platform/android_bridge.dart';
 import 'package:tamayura/platform/default_bridge.dart';
+import 'package:tamayura/platform/linux_bridge.dart';
 import 'package:tamayura/platform/macos_bridge.dart';
 import 'package:tamayura/platform/windows_bridge.dart';
 
@@ -38,13 +39,18 @@ void main() {
   test('macOS selects the desktop bridge and process-owned transfers', () {
     expect(bridge.usesInProcessTransfers, isTrue);
     expect(const AndroidBridge().usesInProcessTransfers, isFalse);
-    if (Platform.isMacOS || Platform.isWindows || Platform.isAndroid) {
+    if (Platform.isMacOS ||
+        Platform.isWindows ||
+        Platform.isLinux ||
+        Platform.isAndroid) {
       expect(
         defaultPlatformBridge(),
         Platform.isMacOS
             ? isA<MacOSBridge>()
             : Platform.isWindows
             ? isA<WindowsBridge>()
+            : Platform.isLinux
+            ? isA<LinuxBridge>()
             : isA<AndroidBridge>(),
       );
     } else {

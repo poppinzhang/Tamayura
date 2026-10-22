@@ -631,6 +631,10 @@ class AppLocalizationsJa extends AppLocalizations {
       'ウィンドウを閉じても Tamayura はメニューバーに残ります。オンの場合は、ウィンドウを閉じても、隠しても、最小化しても共有を続けます。オフの場合は、ウィンドウが非表示の間は共有を停止します。Mac をスリープさせないでください。';
 
   @override
+  String get settingsBackgroundSharingLinux =>
+      'デスクトップにステータストレイがある場合、ウィンドウを閉じても Tamayura はトレイに残ります。トレイがない場合は、ウィンドウを閉じると Tamayura は終了します。オンの場合は、ウィンドウが非表示または最小化されていても共有を続けます。オフの場合は、ウィンドウが非表示の間は共有を停止します。PC をスリープさせないでください。';
+
+  @override
   String get settingsBackgroundSharingMobile =>
       'オンにすると画面ロック中もメディアを共有します。オフにするとアプリの使用中のみ共有し、バッテリーを節約できます。';
 
@@ -711,6 +715,13 @@ class AppLocalizationsJa extends AppLocalizations {
       'Windows 10 1809 以降、Windows 11（x64）に対応しています。プライベートネットワークのファイアウォールで Tamayura を許可してください。IP を入力して手動で接続することもできます。';
 
   @override
+  String get tipLinuxTitle => 'Linux で使うために';
+
+  @override
+  String get tipLinuxDescription =>
+      'Ubuntu 24.04 LTS と同世代以降のディストリビューション（x64、arm64）に対応しています。自動検出には Avahi（avahi-daemon）が必要です。ファイアウォールで mDNS（UDP 5353）と Tamayura のサービスポートを許可するか、IP を入力して手動で接続してください。';
+
+  @override
   String get tipBackgroundReceiveTitle => 'ウィンドウを閉じても受信は続く';
 
   @override
@@ -722,6 +733,10 @@ class AppLocalizationsJa extends AppLocalizations {
       'ウィンドウを閉じても、開始済みのダウンロードは続きます。メニューバーまたは Dock から再び開けます。「Tamayura を終了」を選ぶか ⌘Q を押したときだけ終了します。Mac のスリープや切断のあとは、ダウンロードから再試行できます。';
 
   @override
+  String get tipBackgroundReceiveLinux =>
+      'デスクトップにステータストレイがある場合（KDE Plasma、Ubuntu の標準デスクトップ、Xfce など）、ウィンドウを閉じても開始済みのダウンロードは続きます。トレイの Tamayura アイコンをクリックすると再び開き、メニューから「Tamayura を終了」を選べます。トレイがない場合は、ウィンドウを閉じると終了します。Ctrl+Q でいつでも終了できます。PC のスリープや切断のあとは、ダウンロードから再試行できます。';
+
+  @override
   String get tipKeyboardTitle => 'キーボードですばやく切り替え';
 
   @override
@@ -730,6 +745,10 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get tipKeyboardMac => '⌘1 アルバム · ⌘2 デバイス · ⌘3 または ⌘, 設定 · ⌘R 更新。';
+
+  @override
+  String get tipKeyboardLinux =>
+      'Ctrl+1 アルバム · Ctrl+2 デバイス · Ctrl+3 または Ctrl+, 設定 · Ctrl+R 更新 · Ctrl+Q 終了。';
 
   @override
   String get tipMacTitle => 'Mac で使うために';
@@ -751,6 +770,10 @@ class AppLocalizationsJa extends AppLocalizations {
   @override
   String get tipOpenDescription =>
       '共有フォルダーはそれぞれ独立したコレクションとして表示されます。クリックしてオリジナルをダウンロードし、システムのアプリで開くか、エクスプローラーで場所を表示できます。';
+
+  @override
+  String get tipOpenDescriptionLinux =>
+      '共有フォルダーはそれぞれ独立したコレクションとして表示されます。クリックしてオリジナルをダウンロードし、システムのアプリで開くか、ファイルマネージャーで場所を表示できます。';
 
   @override
   String get tipShareTitle => 'タップで取得、ダウンロード後に共有';
@@ -973,6 +996,10 @@ class AppLocalizationsJa extends AppLocalizations {
       'ウィンドウを閉じても受信を続け、メニューバーまたは Dock から再び開けます。Mac をスリープさせず、送信元デバイスと同じローカルネットワークにいてください。終了やスリープで中断した場合は再試行できます。';
 
   @override
+  String get downloadsHintLinux =>
+      'ステータストレイがある場合は、ウィンドウを閉じても受信を続け、トレイから再び開けます。トレイがない場合は、ウィンドウを閉じると終了し、受信も中断します。PC をスリープさせず、送信元デバイスと同じローカルネットワークにいてください。終了やスリープで中断した場合は再試行できます。';
+
+  @override
   String get downloadsHintMobile =>
       '受信はバックグラウンドで続きます。送信元デバイスでは Tamayura を起動したままにし、このデバイスと同じローカルネットワークにいる必要があります。';
 
@@ -1080,6 +1107,10 @@ class AppLocalizationsJa extends AppLocalizations {
   @override
   String get updateConfirmMac =>
       'このバージョンの GitHub Release ページを開きます。macOS 版のパッケージをダウンロードして、手動でアップグレードしてください。';
+
+  @override
+  String get updateConfirmLinux =>
+      'このバージョンの GitHub Release ページを開きます。お使いのアーキテクチャの Linux 版アーカイブをダウンロードし、Tamayura を終了してから新しいフォルダーに展開し、そのフォルダーで install-desktop-entry.sh を再実行してください。新しいバージョンの動作を確認したら、古いフォルダーは削除できます。';
 
   @override
   String get updateConfirmAutomatic =>

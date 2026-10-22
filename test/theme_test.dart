@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart'
+    show debugDefaultTargetPlatformOverride;
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tamayura/ui/app_theme.dart';
@@ -64,4 +66,62 @@ void main() {
       expect(theme.navigationBarTheme.surfaceTintColor, Colors.transparent);
     });
   }
+
+  test('Linux names Latin, CJK and emoji fallbacks for the language', () {
+    final chinese = AppTheme.linuxFontFallback(const Locale('zh'));
+    final japanese = AppTheme.linuxFontFallback(const Locale('ja'));
+    for (final fallback in [chinese, japanese]) {
+      expect(fallback.first, 'Ubuntu');
+      expect(fallback.last, 'Noto Color Emoji');
+      expect(
+        fallback.indexOf('DejaVu Sans'),
+        lessThan(fallback.indexOf('Noto Sans CJK SC')),
+      );
+      expect(fallback.toSet(), hasLength(fallback.length));
+    }
+    // Han characters use the Chinese or Japanese forms of the interface.
+    expect(
+      chinese.indexOf('Noto Sans CJK SC'),
+      lessThan(chinese.indexOf('Noto Sans CJK JP')),
+    );
+    expect(
+      japanese.indexOf('Noto Sans CJK JP'),
+      lessThan(japanese.indexOf('Noto Sans CJK SC')),
+    );
+    expect(AppTheme.linuxFontFallback(const Locale('en')), chinese);
+    expect(chinese.toSet(), japanese.toSet());
+  });
+
+  test('only Linux themes gain the font fallback, once per language', () {
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+    expect(
+      AppTheme.forLocale(AppTheme.light, const Locale('ja')),
+      same(AppTheme.light),
+    );
+
+    debugDefaultTargetPlatformOverride = TargetPlatform.linux;
+    for (final base in [AppTheme.light, AppTheme.dark]) {
+      final japanese = AppTheme.forLocale(base, const Locale('ja'));
+      final english = AppTheme.forLocale(base, const Locale('en'));
+      expect(
+        japanese.textTheme.bodyMedium!.fontFamilyFallback,
+        AppTheme.linuxFontFallback(const Locale('ja')),
+      );
+      expect(
+        english.primaryTextTheme.titleLarge!.fontFamilyFallback,
+        AppTheme.linuxFontFallback(const Locale('en')),
+      );
+      expect(japanese.colorScheme, base.colorScheme);
+      expect(AppTheme.forLocale(base, const Locale('ja')), same(japanese));
+      expect(AppTheme.forLocale(base, const Locale('zh')), same(english));
+    }
+    final custom = AppTheme.light.copyWith(
+      colorScheme: AppTheme.dark.colorScheme,
+    );
+    expect(
+      AppTheme.forLocale(custom, const Locale('zh')).colorScheme,
+      AppTheme.dark.colorScheme,
+    );
+  });
 }

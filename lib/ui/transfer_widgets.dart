@@ -158,11 +158,11 @@ class TransferControls extends StatelessWidget {
                 key: Key('share-${item.key}'),
                 onPressed: onShare,
                 icon: Icon(
-                  isWindowsDesktop ? AppIcons.folder : AppIcons.share,
+                  revealsSavedFiles ? AppIcons.folder : AppIcons.share,
                   size: 18,
                 ),
                 label: Text(
-                  isWindowsDesktop
+                  revealsSavedFiles
                       ? l10n.transferShowInFolder
                       : l10n.commonShare,
                 ),

@@ -43,6 +43,33 @@ void main() {
     expect(calls.length, 1);
   });
 
+  test('Linux also opens only an official version page', () async {
+    const platform = UpdatePlatform(
+      channel: channel,
+      targetOverride: UpdateTarget.linux,
+    );
+    expect(platform.target.opensReleasePage, isTrue);
+    expect(UpdateTarget.windows.opensReleasePage, isFalse);
+    expect(UpdateTarget.android.opensReleasePage, isFalse);
+    final calls = <MethodCall>[];
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      calls.add(call);
+      return null;
+    });
+    final url = Uri.parse(
+      'https://github.com/poppinzhang/Tamayura/releases/tag/v1.0.0',
+    );
+    await platform.openRelease(url);
+    expect(calls.single.arguments, {'url': url.toString()});
+    await expectLater(
+      platform.openRelease(
+        Uri.parse('https://github.com/poppinzhang/Tamayura/releases'),
+      ),
+      throwsA(isA<UpdateException>()),
+    );
+    expect(calls, hasLength(1));
+  });
+
   test(
     'native installer receives verified package metadata and rejects unknown responses',
     () async {

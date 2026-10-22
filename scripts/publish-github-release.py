@@ -116,6 +116,8 @@ def asset_paths(directory: Path, tag: str) -> list[Path]:
         f"Tamayura-{version}-android.apk",
         f"Tamayura-{version}-macos.zip",
         f"Tamayura-{version}-windows-x64.zip",
+        f"Tamayura-{version}-linux-x64.tar.gz",
+        f"Tamayura-{version}-linux-arm64.tar.gz",
         "SHA256SUMS",
         "release.json",
     ]
@@ -123,7 +125,7 @@ def asset_paths(directory: Path, tag: str) -> list[Path]:
         raise ReleaseError("The assembled release directory is missing or is a symlink.")
     entries = list(directory.iterdir())
     if {path.name for path in entries} != set(names):
-        raise ReleaseError("The release directory must contain exactly the three packages, SHA256SUMS and release.json.")
+        raise ReleaseError("The release directory must contain exactly the platform packages, SHA256SUMS and release.json.")
     if any(path.is_symlink() or not path.is_file() or path.stat().st_size == 0 for path in entries):
         raise ReleaseError("Release assets must be nonempty regular files, without symlinks.")
     return [directory / name for name in names]
@@ -229,7 +231,7 @@ def main() -> int:
         # File and decoding exceptions can include local paths or file contents.
         print("Release publication failed: could not read the release inputs or process the response.", file=sys.stderr)
         return 1
-    print(f"Published preview release {args.tag} with all five verified attachments.")
+    print(f"Published preview release {args.tag} with all seven verified attachments.")
     return 0
 
 

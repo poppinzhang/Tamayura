@@ -19,6 +19,7 @@ class UpdatePlatform {
     if (Platform.isAndroid) return UpdateTarget.android;
     if (Platform.isWindows) return UpdateTarget.windows;
     if (Platform.isMacOS) return UpdateTarget.macos;
+    if (Platform.isLinux) return UpdateTarget.linux;
     throw UpdateException(AppLocale.strings.updateErrorPlatform);
   }
 

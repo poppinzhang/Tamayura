@@ -138,8 +138,52 @@ jobs:
             dist/${{ needs.prepare.outputs.version }}/Tamayura-${{ needs.prepare.outputs.version }}-windows-x64.zip
             dist/${{ needs.prepare.outputs.version }}/SHA256SUMS-windows
 
+  linux:
+    needs: prepare
+    name: linux (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    env:
+      TAMAYURA_LINUX_TESTS_NO_SKIP: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install Linux build and test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libstdc++-14-dev \
+            libavahi-client-dev avahi-daemon dbus desktop-file-utils libglib2.0-bin \
+            shared-mime-info binutils xvfb xauth
+          sudo systemctl start avahi-daemon
+      - name: Install Flutter 3.47.6
+        run: |
+          git clone --depth 1 --branch 3.47.6 https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
+          echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
+      - name: Test, build and verify Linux ${{ matrix.arch }} bundle
+        run: |
+          flutter config --no-analytics
+          scripts/package-linux.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-linux-${{ matrix.arch }}
+          if-no-files-found: error
+          retention-days: 7
+          path: |
+            dist/${{ needs.prepare.outputs.version }}/Tamayura-${{ needs.prepare.outputs.version }}-linux-${{ matrix.arch }}.tar.gz
+            dist/${{ needs.prepare.outputs.version }}/SHA256SUMS-linux-${{ matrix.arch }}
+
   publish:
-    needs: [prepare, android, macos, windows]
+    needs: [prepare, android, macos, windows, linux]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:

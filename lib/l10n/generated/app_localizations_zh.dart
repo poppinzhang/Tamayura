@@ -626,6 +626,10 @@ class AppLocalizationsZh extends AppLocalizations {
       '关闭窗口后玉响会留在菜单栏。开启此项后，关闭、隐藏或最小化窗口仍可共享；关闭此项后在窗口隐藏时停止共享。Mac 需要保持唤醒。';
 
   @override
+  String get settingsBackgroundSharingLinux =>
+      '桌面提供状态托盘时，关闭窗口后玉响会留在托盘中；没有托盘时关闭窗口会退出玉响。开启此项后，窗口隐藏或最小化时仍可共享；关闭此项后在窗口隐藏时停止共享。电脑需要保持唤醒。';
+
+  @override
   String get settingsBackgroundSharingMobile => '开启后锁屏仍可共享媒体；关闭后仅在使用应用时共享，更省电。';
 
   @override
@@ -699,6 +703,13 @@ class AppLocalizationsZh extends AppLocalizations {
       '支持 Windows 10 1809 及更新版本、Windows 11（x64）。请允许玉响通过专用网络防火墙；也可使用手动 IP 连接。';
 
   @override
+  String get tipLinuxTitle => '为 Linux 准备';
+
+  @override
+  String get tipLinuxDescription =>
+      '支持 Ubuntu 24.04 LTS 及同代或更新的发行版（x64、arm64）。自动发现需要 Avahi（avahi-daemon）；请在防火墙中允许 mDNS（UDP 5353）和玉响的服务端口，也可使用手动 IP 连接。';
+
+  @override
   String get tipBackgroundReceiveTitle => '关闭窗口，接收继续';
 
   @override
@@ -710,6 +721,10 @@ class AppLocalizationsZh extends AppLocalizations {
       '关闭窗口后，已开始的下载继续。从右上角菜单栏或 Dock 可重新打开；选择「退出玉响」或按 ⌘Q 才会退出。Mac 睡眠或断网后可在下载任务中重试。';
 
   @override
+  String get tipBackgroundReceiveLinux =>
+      '桌面提供状态托盘（如 KDE Plasma、Ubuntu 默认桌面、Xfce）时，关闭窗口后已开始的下载继续，点击托盘中的玉响图标可重新打开，菜单中可选择「退出玉响」；没有托盘时关闭窗口即退出。任何时候都可按 Ctrl+Q 退出。电脑睡眠或断网后可在下载任务中重试。';
+
+  @override
   String get tipKeyboardTitle => '用键盘快速切换';
 
   @override
@@ -718,6 +733,10 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get tipKeyboardMac => '⌘1 相册 · ⌘2 设备 · ⌘3 或 ⌘, 设置 · ⌘R 刷新。';
+
+  @override
+  String get tipKeyboardLinux =>
+      'Ctrl+1 相册 · Ctrl+2 设备 · Ctrl+3 或 Ctrl+, 设置 · Ctrl+R 刷新 · Ctrl+Q 退出。';
 
   @override
   String get tipMacTitle => '为 Mac 准备';
@@ -739,6 +758,10 @@ class AppLocalizationsZh extends AppLocalizations {
   @override
   String get tipOpenDescription =>
       '每个共享文件夹显示为独立合集；点击下载原文件，可用系统应用打开，或在资源管理器中定位文件。';
+
+  @override
+  String get tipOpenDescriptionLinux =>
+      '每个共享文件夹显示为独立合集；点击下载原文件，可用系统应用打开，或在文件管理器中定位文件。';
 
   @override
   String get tipShareTitle => '轻点获取，下载后分享';
@@ -954,6 +977,10 @@ class AppLocalizationsZh extends AppLocalizations {
       '关闭窗口后仍可继续接收，从菜单栏或 Dock 可重新打开。请保持 Mac 唤醒，并与来源设备处于同一局域网；退出或睡眠中断后可重试。';
 
   @override
+  String get downloadsHintLinux =>
+      '有状态托盘时，关闭窗口后仍可继续接收，从托盘可重新打开；没有托盘时关闭窗口会退出并中断接收。请保持电脑唤醒，并与来源设备处于同一局域网；退出或睡眠中断后可重试。';
+
+  @override
   String get downloadsHintMobile => '接收可在后台继续。来源设备需要保持玉响运行，并与这台设备处于同一局域网。';
 
   @override
@@ -1059,6 +1086,10 @@ class AppLocalizationsZh extends AppLocalizations {
   @override
   String get updateConfirmMac =>
       '将打开此版本的 GitHub Release 页面，请下载 macOS 安装包并手动完成升级。';
+
+  @override
+  String get updateConfirmLinux =>
+      '将打开此版本的 GitHub Release 页面，请下载对应架构的 Linux 压缩包，退出玉响后解压到新文件夹，并在其中重新运行 install-desktop-entry.sh；确认新版本正常后可删除旧文件夹。';
 
   @override
   String get updateConfirmAutomatic =>

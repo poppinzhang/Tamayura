@@ -21,6 +21,8 @@ PACKAGES = {
     "android": "Tamayura-0.6.0-android.apk",
     "macos": "Tamayura-0.6.0-macos.zip",
     "windows": "Tamayura-0.6.0-windows-x64.zip",
+    "linux-x64": "Tamayura-0.6.0-linux-x64.tar.gz",
+    "linux-arm64": "Tamayura-0.6.0-linux-arm64.tar.gz",
 }
 
 
@@ -130,7 +132,7 @@ class ReleaseMetadataTests(unittest.TestCase):
         self.write("CHANGELOG.md", "## unstaged\n\n" + CHANGELOG)
         self.assert_failure(self.run_command(), "duplicate unstaged")
 
-    def test_assemble_verifies_and_describes_all_three_packages(self):
+    def test_assemble_verifies_and_describes_all_platform_packages(self):
         self.create_artifacts()
         result = self.run_command("assemble")
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -143,8 +145,12 @@ class ReleaseMetadataTests(unittest.TestCase):
         self.assertEqual(metadata["validation"]["physical_device_acceptance"], "not_confirmed")
         self.assertEqual(metadata["platforms"]["macos"]["signing"], {"type": "ad-hoc", "notarized": False})
         self.assertEqual(metadata["platforms"]["windows"]["signing"], {"type": "unsigned"})
+        for arch in ("x64", "arm64"):
+            linux = metadata["platforms"][f"linux-{arch}"]
+            self.assertEqual((linux["architectures"], linux["signing"]), ([arch], {"type": "unsigned"}))
+            self.assertIn("glibc 2.39", linux["minimum_os"])
         checksum_lines = (output / "SHA256SUMS").read_text().splitlines()
-        self.assertEqual(len(checksum_lines), 3)
+        self.assertEqual(len(checksum_lines), len(PACKAGES))
         for platform, filename in PACKAGES.items():
             original = (self.root / "artifacts" / filename).read_bytes()
             self.assertEqual((output / filename).read_bytes(), original)
@@ -158,12 +164,12 @@ class ReleaseMetadataTests(unittest.TestCase):
 
     def test_missing_package_or_checksum_is_rejected(self):
         self.create_artifacts()
-        for filename in (*PACKAGES.values(), "SHA256SUMS-android", "SHA256SUMS-macos", "SHA256SUMS-windows"):
+        for filename in (*PACKAGES.values(), *(f"SHA256SUMS-{platform}" for platform in PACKAGES)):
             with self.subTest(filename=filename):
                 path = self.root / "artifacts" / filename
                 content = path.read_bytes()
                 path.unlink()
-                self.assert_failure(self.run_command("assemble"), "exactly the three")
+                self.assert_failure(self.run_command("assemble"), "exactly one package")
                 path.write_bytes(content)
 
     def test_windows_checksum_line_endings_and_uppercase_digest_are_supported(self):
@@ -203,7 +209,7 @@ class ReleaseMetadataTests(unittest.TestCase):
         self.create_artifacts()
         for filename in ("debug.apk", ".secret"):
             extra = self.write(f"artifacts/{filename}", "extra")
-            self.assert_failure(self.run_command("assemble"), "exactly the three")
+            self.assert_failure(self.run_command("assemble"), "exactly one package")
             extra.unlink()
         package = self.root / "artifacts" / PACKAGES["android"]
         package.unlink()

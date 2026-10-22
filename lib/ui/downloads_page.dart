@@ -117,6 +117,8 @@ class _DownloadsPageState extends State<DownloadsPage> {
                                     ? l10n.downloadsHintWindows
                                     : isMacDesktop
                                     ? l10n.downloadsHintMac
+                                    : isLinuxDesktop
+                                    ? l10n.downloadsHintLinux
                                     : l10n.downloadsHintMobile,
                                 style: TextStyle(
                                   color: colors.onSurfaceVariant,

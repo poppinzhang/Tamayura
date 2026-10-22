@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -9,6 +10,76 @@ import 'app_motion.dart';
 abstract final class AppTheme {
   static final light = _build(_lightColors);
   static final dark = _build(_darkColors);
+
+  // Material's Linux text theme falls back to these Latin families only.
+  static const _linuxLatin = [
+    'Ubuntu',
+    'Adwaita Sans',
+    'Cantarell',
+    'DejaVu Sans',
+    'Liberation Sans',
+    'Arial',
+  ];
+  static const _linuxChinese = [
+    'Noto Sans CJK SC',
+    'Noto Sans SC',
+    'Source Han Sans SC',
+    'Source Han Sans CN',
+    'WenQuanYi Micro Hei',
+    'WenQuanYi Zen Hei',
+    'Droid Sans Fallback',
+  ];
+  static const _linuxJapanese = [
+    'Noto Sans CJK JP',
+    'Noto Sans JP',
+    'Source Han Sans JP',
+    'Source Han Sans',
+    'IPAexGothic',
+    'IPAGothic',
+    'TakaoPGothic',
+    'VL Gothic',
+  ];
+  static const _linuxOther = [
+    'Noto Sans CJK TC',
+    'Noto Sans CJK HK',
+    'Noto Sans CJK KR',
+    'Noto Color Emoji',
+  ];
+
+  /// Flutter's Linux engine reads font files without fontconfig, so text has
+  /// no system fallback beyond the families it names. Chinese, Japanese and
+  /// emoji fonts that distributions install are listed after the Latin ones,
+  /// with the Han forms of the interface language first.
+  static List<String> linuxFontFallback(Locale locale) => [
+    ..._linuxLatin,
+    if (locale.languageCode == 'ja') ...[
+      ..._linuxJapanese,
+      ..._linuxChinese,
+    ] else ...[
+      ..._linuxChinese,
+      ..._linuxJapanese,
+    ],
+    ..._linuxOther,
+  ];
+
+  // Per base theme, so rebuilding the app reuses the same theme objects.
+  static final _linuxThemes = Expando<Map<bool, ThemeData>>();
+
+  /// [theme] for the interface [locale]; only Linux needs named fallbacks.
+  static ThemeData forLocale(ThemeData theme, Locale locale) {
+    if (defaultTargetPlatform != TargetPlatform.linux) return theme;
+    final japanese = locale.languageCode == 'ja';
+    final themes = _linuxThemes[theme] ??= {};
+    return themes.putIfAbsent(japanese, () {
+      final fallback = linuxFontFallback(locale);
+      return theme.copyWith(
+        textTheme: theme.textTheme.apply(fontFamilyFallback: fallback),
+        primaryTextTheme: theme.primaryTextTheme.apply(
+          fontFamilyFallback: fallback,
+        ),
+      );
+    });
+  }
 
   static const _lightColors = ColorScheme(
     brightness: Brightness.light,

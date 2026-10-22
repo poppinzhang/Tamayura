@@ -85,7 +85,7 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   sqfliteFfiInit();
 
-  for (final platform in ['macOS', 'Windows']) {
+  for (final platform in ['macOS', 'Windows', 'Linux']) {
     group('$platform tray lifecycle', () {
       late Directory directory;
       late _DesktopBridge bridge;
@@ -128,6 +128,7 @@ void main() {
         lifecycle = AppLifecycleCoordinator(
           isMacOS: platform == 'macOS',
           isWindows: platform == 'Windows',
+          isLinux: platform == 'Linux',
           setForeground: model.setForeground,
           onResume: () async {
             resumeRefreshes++;

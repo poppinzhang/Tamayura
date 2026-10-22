@@ -88,7 +88,8 @@ class PublishTests(unittest.TestCase):
         self.root = Path(temporary.name)
         self.assets = self.root / "release"
         self.assets.mkdir()
-        for name in ["Tamayura-0.6.0-android.apk", "Tamayura-0.6.0-macos.zip", "Tamayura-0.6.0-windows-x64.zip", "SHA256SUMS", "release.json"]:
+        for name in ["Tamayura-0.6.0-android.apk", "Tamayura-0.6.0-macos.zip", "Tamayura-0.6.0-windows-x64.zip",
+                     "Tamayura-0.6.0-linux-x64.tar.gz", "Tamayura-0.6.0-linux-arm64.tar.gz", "SHA256SUMS", "release.json"]:
             (self.assets / name).write_bytes(f"test data for {name}\n".encode())
         self.notes = self.root / "notes.md"
         self.notes.write_text("# Preview\n\nChanges and known limitations.\n", encoding="utf-8")
@@ -126,7 +127,7 @@ class PublishTests(unittest.TestCase):
         self.assert_not_published(client)
         client.fail_upload = None
         self.publish(client)
-        self.assertEqual(len(client.assets), 5)
+        self.assertEqual(len(client.assets), len(list(self.assets.iterdir())))
         self.assertEqual(sum(method == "POST" and endpoint == "releases" for method, endpoint, _ in client.calls), 1)
         self.assertEqual(sum(method == "DELETE" for method, _, _ in client.calls), 2)
 
@@ -142,7 +143,7 @@ class PublishTests(unittest.TestCase):
         client.move_tag_after = 1
         with self.assertRaisesRegex(PUBLISH.ReleaseError, "tag moved"):
             self.publish(client)
-        self.assertEqual(len(client.assets), 5)
+        self.assertEqual(len(client.assets), len(list(self.assets.iterdir())))
         self.assert_not_published(client)
 
     def test_annotated_tag_is_resolved_to_its_commit(self):

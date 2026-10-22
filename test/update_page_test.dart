@@ -212,6 +212,23 @@ void main() {
     },
   );
 
+  testWidgets(
+    'Linux opens the selected release with archive instructions only',
+    (tester) async {
+      final service = _Service();
+      final platform = _Platform(UpdateTarget.linux);
+      await _show(tester, service, platform);
+      expect(find.textContaining('对应架构的 Linux 压缩包'), findsOneWidget);
+      expect(find.textContaining('macOS 安装包'), findsNothing);
+      expect(find.text('打开下载页面'), findsWidgets);
+      await _tap(tester, 'update-confirm');
+      expect(platform.opened, _release.pageUrl);
+      expect(service.downloads, 0);
+      expect(platform.events, ['open']);
+      expect(find.text('已打开此版本的下载页面，请手动完成升级'), findsOneWidget);
+    },
+  );
+
   testWidgets('macOS browser failures are visible and retryable', (
     tester,
   ) async {

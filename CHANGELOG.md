@@ -2,6 +2,34 @@
 
 ## unstaged
 
+### 已完成功能
+
+- 新增 Linux 桌面版，面向 Ubuntu 24.04 LTS 同代或更新的桌面发行版（glibc 2.39+、GTK 3.24），支持 x64 与 arm64。复用共享界面、相册同步、离线缩略图、gRPC v4 与超过 50 MiB 的四路并发下载；GTK 原生文件夹选择器选择共享与接收目录，原生存储从 `/` 逐级打开路径且不跟随符号链接，拒绝根目录及重复、父子重叠的共享目录，保存时不覆盖同名文件。实现与验证范围见 `docs/Linux原型.md`。
+- Linux 自动发现通过 Avahi 注册与浏览 `_tamayura._tcp`；守护进程不可用时报告一次错误，仍可手动输入 IP 或由其他设备扫描本机二维码连接，守护进程启动后自动恢复。Linux 不提供相机扫码。
+- Linux 预览与缩略图使用 GdkPixbuf，只按内容识别 JPEG、PNG、GIF、BMP、TIFF、WebP 及系统已安装解码器的 HEIF / AVIF，应用 EXIF 方向，并读取 DNG、CR2、NEF、ARW 内嵌预览；共享视频等优先使用系统缩略图缓存和已安装的缩略图程序，单次限时，失败显示占位且不影响其他条目。
+- Linux 有 StatusNotifierItem 托盘（KDE Plasma、Ubuntu AppIndicator 等）时关闭窗口留在托盘，托盘菜单可打开或退出玉响；没有托盘时关闭窗口即退出。Ctrl+Q 退出，Release 构建为单实例。已下载文件可在文件管理器中显示或用默认应用打开，没有可用程序时如实提示；检查更新打开 Release 页面，由用户手动替换。
+- 新增 `scripts/test-linux-native.sh`、`scripts/package-linux.sh` 与 `.github/workflows/linux.yml`（x64、arm64 矩阵）。发行包为完整目录的 tar.gz，附带 `install-desktop-entry.sh` 添加或移除当前用户的应用菜单入口。Tag 发布工作流加入两个 Linux 包，Release 附件由五个增至七个，`release.json` 新增 `linux-x64`、`linux-arm64`；已安装客户端的更新只读取自身平台，不受影响。
+
+### 改进
+
+- Linux 界面按语言指定拉丁、中文、日文与 emoji 字体回退，避免 Flutter Linux 引擎不经 fontconfig 回退导致中日文显示为方框；Linux 原生窗口标题、托盘、目录选择器、错误及桌面入口提示支持三种语言。
+- Linux 打包从中性临时目录构建，核验架构、glibc / libstdc++ 符号版本上限、库搜索路径、归档内容与构建机路径，并启动解压后的应用确认加载包内 SQLite，避免发行包混入个人路径或 debug 构建残留。
+
+### 修复
+
+- 平台桥接选择测试在 Linux 主机上期望 Linux 桥接，使 Flutter 全量测试可在 Linux CI 中运行。
+
+### 安装与数据
+
+- 不改变媒体库 schema 7、下载任务库 schema 3 和通信协议 v4；Linux 与其他平台互联时应使用同一构建。
+- Linux 数据位于 `$XDG_DATA_HOME/tamayura`（数据库与未完成分片）、`$XDG_CACHE_HOME/tamayura`（预览缓存）及 `$XDG_CONFIG_HOME/tamayura/settings.ini`（设备身份与后台共享）。需完整解压后运行，不能只复制可执行文件；SQLite 随包提供。程序目录路径含 `%` 或换行时，桌面入口脚本会拒绝添加。
+
+### 已知限制
+
+- Linux 包未签名，不提供 deb、rpm、Flatpak、Snap、AppImage 或软件商店版本，不支持更早的 glibc 及 32 位系统。原版 GNOME 需安装 AppIndicator 扩展才有托盘，没有托盘时关闭窗口会退出并中断接收；退出和系统睡眠会中断传输，不提供开机自启。
+- 自动发现依赖 avahi-daemon 与局域网组播；中日文显示需系统安装主题列出的中日文字体；HEIF / AVIF 与视频缩略图取决于系统解码器和缩略图程序。
+- 本轮在 Ubuntu 24.04 arm64 容器内完成完整打包与双容器验证，x64 在仿真容器中完成打包验证（仿真环境不支持 sanitizer 与 Avahi 测试，改由 CI 执行）；尚未在真实 GNOME / KDE 桌面、Wayland、真实托盘宿主及与 Android、macOS、Windows 的真机互传中验收，Linux CI 与 Tag 发布工作流尚未在远端运行。
+
 ## 0.9.6
 
 版本日期：2026-10-21。Android、macOS 与 Windows 统一使用 `0.9.6+15`，Windows EXE 数字版本为 `0.9.6.15`。本版包含 0.9.5 未公开发布的全部功能，并修复阻塞其发布的 Windows 更新测试清理竞态；0.9.5 Tag 保留不动，失败记录见 `docs/releases/0.9.5.md`。本版计划通过 GitHub Pre-release 分发 Android APK、macOS Universal ZIP、Windows x64 ZIP，以及 `SHA256SUMS` 和 `release.json` 共五个附件。准备提交时，本轮发布提交的完整测试、打包、三平台 CI 与远端发布待完成；实际结果见 `docs/releases/0.9.6.md`，此前验证不能替代本次发布检查。

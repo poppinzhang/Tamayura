@@ -30,6 +30,7 @@ class _TamayuraRootState extends State<_TamayuraRoot>
   late final lifecycle = AppLifecycleCoordinator(
     isMacOS: Platform.isMacOS,
     isWindows: Platform.isWindows,
+    isLinux: Platform.isLinux,
     setForeground: controller.setForeground,
     onResume: controller.refreshAfterResume,
     isWindowVisible: Platform.isMacOS
