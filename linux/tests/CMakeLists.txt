@@ -1,5 +1,14 @@
 cmake_minimum_required(VERSION 3.13)
+# Flutter builds the Linux runner with Clang. Use the same compiler for native
+# regressions so accepted language extensions match the application build.
+if(NOT DEFINED CMAKE_CXX_COMPILER AND "$ENV{CXX}" STREQUAL "")
+  set(CMAKE_CXX_COMPILER clang++)
+endif()
 project(tamayura_linux_native_tests LANGUAGES CXX)
+if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+  message(FATAL_ERROR
+    "Linux native tests require Clang, matching the Flutter runner. Configure a clean build directory with -DCMAKE_CXX_COMPILER=clang++.")
+endif()
 enable_testing()
 
 set(CMAKE_CXX_STANDARD 17)
@@ -16,7 +25,8 @@ set(RUNNER "${CMAKE_CURRENT_SOURCE_DIR}/../runner")
 function(tamayura_test name)
   add_executable(${name} ${ARGN})
   target_include_directories(${name} PRIVATE "${RUNNER}" "${CMAKE_CURRENT_SOURCE_DIR}")
-  target_compile_options(${name} PRIVATE -Wall -Wextra -Werror)
+  target_compile_options(${name} PRIVATE -Wall -Wextra -Werror
+    -Werror=c++20-extensions)
   target_link_libraries(${name} PRIVATE PkgConfig::GIO)
   if(TAMAYURA_SANITIZE)
     target_compile_options(${name} PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)

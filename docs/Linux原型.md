@@ -25,6 +25,12 @@ Linux 桌面版纳入 1.0.0 源码与发布范围，0.9.6 及更早安装包不�
 
 本次没有重新打包、运行 x64 原生测试或进行真实双网卡切换和跨设备验收；多接口覆盖来自原生状态测试，实际 Avahi 注册 / 浏览集成测试不能代替双网卡真机验收。
 
+### 正式发布准备中的 C++17 编译修复
+
+1.0.0 分支 CI 的 arm64 原生 9 项 CTest 与桌面入口检查通过后，Release 应用编译在 `lan_discovery.cc` 失败：失效地址处理 lambda 捕获了结构化绑定，Clang 将其识别为 C++20 扩展，而项目使用 C++17。改为普通局部变量副本后，保留解析记录移除前的键与接口槽位，不改变多接口失效处理。其余 Linux 结构化绑定均未被 lambda 捕获。
+
+原生测试现在与 Flutter Linux Runner 一样使用 Clang，并明确将 `c++20-extensions` 诊断视为错误；已有 `linux_lan_discovery_test` 直接编译同一生产源文件，可在测试构建阶段发现该问题。本机以同一原生测试 CMake 编译选项验证了最小代码片段：普通局部副本编译并运行通过，恢复原结构化绑定捕获后编译按预期失败；`git diff --check` 通过。未在本机执行 Linux 原生全量测试或 Release 打包，仍须通过新提交的 Linux x64 与 arm64 CI；片段验证不能替代发行包验收。
+
 ## 功能与平台接入
 
 - Flutter 复用相册、设备记忆、离线缩略图、渐进同步与断点恢复，沿用 gRPC v4、层级接收及超过 50 MiB 的四路并发下载。`LinuxBridge` 使用与 Windows / macOS 相同的进程内下载调度；设备 ID 形如 `linux-<UUID>`。
@@ -97,9 +103,9 @@ flutter test --no-pub
 scripts/test-linux-native.sh
 ```
 
-`scripts/test-linux-native.sh` 用 CMake 配置 `linux/tests`（有 Ninja 时使用 Ninja），默认启用 AddressSanitizer / UndefinedBehaviorSanitizer，构建后执行 CTest；缺少测试或测试失败会报错。缺少 dbus-daemon 或 avahi-daemon 时托盘与发现测试会跳过，设置 `TAMAYURA_LINUX_TESTS_NO_SKIP=1`（CI 默认设置）则视为失败。主机缺少 sanitizer 运行库时可设 `TAMAYURA_SANITIZE=OFF`。在 QEMU 用户态仿真（例如 Apple 芯片上的 x64 容器）中，AddressSanitizer 无法运行，avahi-daemon 也识别不到网卡，连 `avahi-browse` 都找不到本机发布的服务；此类环境只能关闭 sanitizer 并让发现测试跳过，对应覆盖以该架构的真机或 CI 为准。脚本还核对 Runner 源文件与测试均已注册、应用 ID 和九种尺寸图标一致，并在临时目录验证桌面入口的安装、启动、拒绝含 `%` 路径和移除。
+`scripts/test-linux-native.sh` 用 CMake 配置 `linux/tests`（有 Ninja 时使用 Ninja），使用与 Flutter Runner 相同的 Clang / C++17，并以 `-Werror=c++20-extensions` 拒绝误用更高标准的语法。已有 GCC 构建缓存须改用新的构建目录，或重新配置为 `-DCMAKE_CXX_COMPILER=clang++`。默认启用 AddressSanitizer / UndefinedBehaviorSanitizer，构建后执行 CTest；缺少测试或测试失败会报错。缺少 dbus-daemon 或 avahi-daemon 时托盘与发现测试会跳过，设置 `TAMAYURA_LINUX_TESTS_NO_SKIP=1`（CI 默认设置）则视为失败。主机缺少 sanitizer 运行库时可设 `TAMAYURA_SANITIZE=OFF`。在 QEMU 用户态仿真（例如 Apple 芯片上的 x64 容器）中，AddressSanitizer 无法运行，avahi-daemon 也识别不到网卡，连 `avahi-browse` 都找不到本机发布的服务；此类环境只能关闭 sanitizer 并让发现测试跳过，对应覆盖以该架构的真机或 CI 为准。脚本还核对 Runner 源文件与测试均已注册、应用 ID 和九种尺寸图标一致，并在临时目录验证桌面入口的安装、启动、拒绝含 `%` 路径和移除。
 
-完整预览包执行：
+完整发行包执行：
 
 ```sh
 scripts/package-linux.sh

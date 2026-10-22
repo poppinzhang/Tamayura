@@ -306,7 +306,10 @@ struct LanDiscovery::State : std::enable_shared_from_this<State> {
     auto* state = static_cast<State*>(data);
     const auto where = state->resolvers.find(resolver);
     if (where == state->resolvers.end()) return;
-    const auto [key, slot] = where->second;
+    // Ordinary local copies can be captured by the invalidation lambda in
+    // C++17; capturing a structured binding would require C++20.
+    const auto key = where->second.first;
+    const auto slot = where->second.second;
     auto peer = state->peers.find(key);
     if (peer == state->peers.end()) return;
     auto instance = peer->second.instances.find(slot);
