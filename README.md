@@ -38,7 +38,7 @@ It is for browsing and transferring media between your own devices on the same l
 
 ## Quick start
 
-**v1.0.0 is the first stable release**, with Android, macOS, Windows, and Linux builds. Release preparation is in progress; see the [1.0.0 release record](docs/releases/1.0.0.md) for the current publication status and validation scope. Packages are available only after they appear in [GitHub Releases](https://github.com/poppinzhang/Tamayura/releases). Future versions follow the [stable compatibility and upgrade policy](docs/兼容与升级.md).
+**v1.0.0 is the first stable release**, available for Android, macOS, Windows, and Linux from [GitHub Releases](https://github.com/poppinzhang/Tamayura/releases/tag/v1.0.0). See the [1.0.0 release record](docs/releases/1.0.0.md) for validation scope. Future versions follow the [stable compatibility and upgrade policy](docs/兼容与升级.md).
 
 **1.0.0** adds Linux x64 and arm64 support, refreshed in-app and desktop tray branding, stable-only update checks, and database version checks that preserve unsupported data. It keeps image rotation, previous/next preview navigation, and downloads only for the media you open.
 
@@ -54,7 +54,7 @@ It is for browsing and transferring media between your own devices on the same l
 
 Open **Settings → Check for updates** to check stable GitHub Releases. Tamayura asks for your confirmation before proceeding. Android downloads and verifies the APK, then opens the system installation flow; allow this installation source when prompted and confirm the update. Windows downloads and verifies the full ZIP, replaces the complete application folder, and restarts. It requires a complete release bundle in a dedicated writable local folder whose parent is also writable; it does not provide a separate installer or automatically request administrator access. macOS opens the selected release page for you to download and install the update yourself. Linux also opens the release page; download the tar.gz for your architecture and replace the app folder yourself.
 
-Once 1.0.0 is published, users of 0.8.0 or later can find it through Check for updates; older versions require manual installation. Checking and downloading updates requires internet access. Updating interrupts sharing and transfers; interrupted media downloads can be retried after reopening the app. See the [1.0.0 release record](docs/releases/1.0.0.md) for limitations and device validation scope.
+Users of 0.8.0 or later can find 1.0.0 through Check for updates; older versions require manual installation. Checking and downloading updates requires internet access. Updating interrupts sharing and transfers; interrupted media downloads can be retried after reopening the app. See the [1.0.0 release record](docs/releases/1.0.0.md) for limitations and device validation scope.
 
 ## Supported platforms
 

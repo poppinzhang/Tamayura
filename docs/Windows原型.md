@@ -81,7 +81,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\test-windows-nativ
 
 存储测试按文件系统身份核对保存文件与完整期望路径，不要求两者字符串逐字相同：系统临时目录可能使用 DOS 短路径或不同大小写，保存层会返回规范化路径。目录层级、同名后缀、两个独立文件和各自内容仍分别校验；同名保存使用不同内容，确保原文件未被覆盖。另用小写盘符输入稳定覆盖不同路径表示，无需依赖主机是否生成 DOS 短名。这些 Windows 存储回归需要在 Windows 原生 CTest 实际通过后才能记为完成验证。
 
-需要完整预览包时直接执行以下脚本，它会重新要求格式、静态分析、所有 Flutter 测试和 Windows 原生测试通过，再构建 Release：
+需要完整发行包时直接执行以下脚本，它会重新要求格式、静态分析、所有 Flutter 测试和 Windows 原生测试通过，再构建 Release：
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\package-windows.ps1

@@ -29,7 +29,7 @@ Linux 桌面版纳入 1.0.0 源码与发布范围，0.9.6 及更早安装包不�
 
 1.0.0 分支 CI 的 arm64 原生 9 项 CTest 与桌面入口检查通过后，Release 应用编译在 `lan_discovery.cc` 失败：失效地址处理 lambda 捕获了结构化绑定，Clang 将其识别为 C++20 扩展，而项目使用 C++17。改为普通局部变量副本后，保留解析记录移除前的键与接口槽位，不改变多接口失效处理。其余 Linux 结构化绑定均未被 lambda 捕获。
 
-原生测试现在与 Flutter Linux Runner 一样使用 Clang，并明确将 `c++20-extensions` 诊断视为错误；已有 `linux_lan_discovery_test` 直接编译同一生产源文件，可在测试构建阶段发现该问题。本机以同一原生测试 CMake 编译选项验证了最小代码片段：普通局部副本编译并运行通过，恢复原结构化绑定捕获后编译按预期失败；`git diff --check` 通过。未在本机执行 Linux 原生全量测试或 Release 打包，仍须通过新提交的 Linux x64 与 arm64 CI；片段验证不能替代发行包验收。
+原生测试现在与 Flutter Linux Runner 一样使用 Clang，并明确将 `c++20-extensions` 诊断视为错误；已有 `linux_lan_discovery_test` 直接编译同一生产源文件，可在测试构建阶段发现该问题。本机以同一原生测试 CMake 编译选项验证了最小代码片段：普通局部副本编译并运行通过，恢复原结构化绑定捕获后编译按预期失败；`git diff --check` 通过。未在本机执行 Linux 原生全量测试或 Release 打包；修复后的最终提交已通过 Linux x64 与 arm64 分支 CI，最终发布结果见 [1.0.0 发布记录](releases/1.0.0.md)。片段验证不能替代发行包验收。
 
 ## 功能与平台接入
 

@@ -77,7 +77,7 @@
 * `lib/core/`、`lib/data/`：媒体和下载模型、SQLite 元数据、同步断点及持久下载任务。
 * `lib/network/`：gRPC 服务、客户端与范围下载；协议源文件为 `proto/media.proto`，生成文件为 `lib/network/generated/`。
 * `lib/background/`：下载调度、后台执行与恢复；`lib/platform/` 对接各平台能力；`lib/ui/` 为共享 Flutter 界面。
-* `android/`、`macos/`、`windows/`、`linux/`：当前已实现的原生平台工程；Linux 自 v1.0.0 源码加入，实际发布状态见对应版本记录。iOS 属于项目目标，不能仅因存在对应平台的界面测试就声称已支持运行或发布。
+* `android/`、`macos/`、`windows/`、`linux/`：当前已实现的原生平台工程；Linux 自 v1.0.0 起提供 x64 与 arm64 发行包，验证范围见对应版本记录。iOS 属于项目目标，不能仅因存在对应平台的界面测试就声称已支持运行或发布。
 * `test/`：Flutter 单元、集成行为与界面测试；各平台原生测试入口见下文。`scripts/` 保存协议生成、原生检查与打包脚本，`.github/workflows/` 保存各平台 CI。
 
 ## 本地开发
