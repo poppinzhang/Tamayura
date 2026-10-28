@@ -65,6 +65,7 @@ class AppController extends TamayuraModel {
   bool _initialized = false;
   bool _initializationCancelled = false;
   _SharingStartup? _initializationStartup, _networkStartup;
+  String? _localCatalogError;
   Future<TamayuraRepository>? _openingRepository;
   Future<TransferStore>? _openingTransfers;
   Future<void> _networkTail = Future.value();
@@ -206,6 +207,9 @@ class AppController extends TamayuraModel {
   String? get downloadFolder => _downloadFolder;
   @override
   int get localMediaCount => _localCount;
+  @override
+  bool get localScanning =>
+      _bridge.supportsBackgroundCatalog && (_server?.scanning ?? false);
   @override
   String? get selectedDeviceId => _selectedDeviceId;
   @override
@@ -511,7 +515,7 @@ class AppController extends TamayuraModel {
             // A new service session may retry after a directory permission or
             // provider failure without recreating the application engine.
             await startup.wait(_server!.refresh);
-            _localCount = _server!.localMedia.length;
+            _localCount = _server!.localMediaCount;
           }
           if ((_server?.port ?? 0) == 0 || needsReady) {
             await _startNetwork(startup: startup);
@@ -604,8 +608,15 @@ class AppController extends TamayuraModel {
       await _bridge.stopDiscovery();
     } finally {
       await _server?.stop();
-      _online.clear();
-      _notify();
+      try {
+        if (_bridge.supportsBackgroundCatalog) {
+          _source?.invalidate();
+          await _bridge.clearSharedDirectory();
+        }
+      } finally {
+        _online.clear();
+        _notify();
+      }
     }
   }
 
@@ -1103,17 +1114,26 @@ class AppController extends TamayuraModel {
     _server ??= MediaRpcServer(
       identity: Peer(id: _id, name: name, host: '', port: 0),
       source: _source!,
+      onCatalogChanged: _onLocalCatalogChanged,
     );
     _server!.updateDeviceName(name);
     if (_server!.port == 0) {
       try {
-        await wait(() => _server!.start(port: _preferredPort));
+        await wait(
+          () => _server!.start(
+            port: _preferredPort,
+            backgroundScan: _bridge.supportsBackgroundCatalog,
+          ),
+        );
       } on SocketException {
-        await wait(() => _server!.start());
+        await wait(
+          () =>
+              _server!.start(backgroundScan: _bridge.supportsBackgroundCatalog),
+        );
       }
     }
-    _localCount = _server!.localMedia.length;
-    if (_server!.scanError != null) _error = describeError(_server!.scanError!);
+    _localCount = _server!.localMediaCount;
+    _onLocalCatalogChanged();
     if (!_shouldShare) {
       await _stopNetwork();
       return;
@@ -1131,6 +1151,38 @@ class AppController extends TamayuraModel {
     if (!_shouldShare) await _stopNetwork();
     _scheduleAutoSync();
     _notify();
+  }
+
+  void _onLocalCatalogChanged() {
+    if (_disposed) return;
+    final server = _server;
+    if (server == null) return;
+    _localCount = server.localMediaCount;
+    final error = server.scanError ?? server.restoreError ?? _source?.warning;
+    if (error != null) {
+      final message = describeError(error);
+      // Repeated scan-state notifications must not overwrite a newer error
+      // from a settings, download or peer operation with an old cache warning.
+      if (message != _localCatalogError ||
+          _error == null ||
+          _error == _localCatalogError) {
+        _error = message;
+      }
+      _localCatalogError = message;
+    } else {
+      if (_error == _localCatalogError) _error = null;
+      _localCatalogError = null;
+    }
+    _notify();
+  }
+
+  // The scan owns its own generation and error reporting. It must never hold
+  // the lifecycle queue or the UI's short-lived settings operation busy.
+  void _refreshLocalCatalog({bool replacePending = false}) {
+    final server = _server;
+    if (server == null || server.port == 0 || !_shouldShare) return;
+    if (server.scanning && !replacePending) return;
+    unawaited(server.refresh().catchError((Object _) {}));
   }
 
   void _onDiscovery(Map<String, dynamic> event) {
@@ -2116,12 +2168,18 @@ class AppController extends TamayuraModel {
         }
         Object? scanError;
         try {
-          if (rescan && (_server?.port ?? 0) != 0) await _server!.refresh();
+          if (rescan && (_server?.port ?? 0) != 0) {
+            if (_bridge.supportsBackgroundCatalog) {
+              _refreshLocalCatalog();
+            } else {
+              await _server!.refresh();
+            }
+          }
           await _startNetwork();
         } catch (e) {
           scanError = e;
         }
-        _localCount = _server?.localMedia.length ?? 0;
+        _localCount = _server?.localMediaCount ?? 0;
         if (scanError != null) throw scanError;
       });
     });
@@ -2166,17 +2224,25 @@ class AppController extends TamayuraModel {
       jsonEncode(folders.map((folder) => folder.toJson()).toList()),
     );
     _sharedFolders = folders;
+    if (_bridge.supportsBackgroundCatalog) {
+      _source?.invalidate();
+      _server?.invalidateCatalog(
+        retainSharedFolderIds: folders.map((folder) => folder.id).toSet(),
+      );
+    }
     try {
       await _networkOperation(() async {
         if (!_shouldShare) return;
         if ((_server?.port ?? 0) == 0) {
           await _startNetwork();
+        } else if (_bridge.supportsBackgroundCatalog) {
+          _refreshLocalCatalog(replacePending: true);
         } else {
           await _server!.refresh();
         }
       });
     } finally {
-      _localCount = _server?.localMedia.length ?? 0;
+      _localCount = _server?.localMediaCount ?? 0;
     }
   }
 
@@ -2631,7 +2697,7 @@ class _SharingStartup {
   }
 }
 
-class _PlatformMediaSource implements LocalMediaSource {
+class _PlatformMediaSource implements RestorableLocalMediaSource {
   _PlatformMediaSource(
     this.bridge,
     this.deviceId,
@@ -2645,33 +2711,76 @@ class _PlatformMediaSource implements LocalMediaSource {
 
   /// When the last successful scan started; failed scans retry on activation.
   DateTime? scannedAt;
+  int _generation = 0;
+  Object? warning;
+
+  void invalidate() {
+    ++_generation;
+    scannedAt = null;
+    warning = null;
+  }
+
+  @override
+  Future<List<MediaMetadata>?> restore() async {
+    if (!bridge.supportsBackgroundCatalog) return null;
+    final generation = ++_generation;
+    final entries = await bridge.restoreDirectoriesMetadata(sharedFolders());
+    if (generation != _generation) throw const MediaSourceInterrupted();
+    return entries == null ? null : _metadata(entries, generation);
+  }
 
   @override
   Future<List<MediaMetadata>> scan() async {
+    final generation = ++_generation;
     final started = clock();
     final folders = sharedFolders();
     if (folders.isEmpty) {
       await bridge.clearSharedDirectory();
+      if (generation != _generation) throw const MediaSourceInterrupted();
       scannedAt = started;
       return [];
     }
     final entries = await bridge.scanDirectoriesMetadata(folders);
+    if (generation != _generation) throw const MediaSourceInterrupted();
+    Object? nextWarning;
+    try {
+      nextWarning = await bridge.getLocalCatalogWarning();
+    } catch (error) {
+      nextWarning = error;
+    }
+    final result = await _metadata(entries, generation);
+    if (generation != _generation) throw const MediaSourceInterrupted();
+    warning = nextWarning;
     scannedAt = started;
-    return entries
-        .map(
-          (entry) => MediaMetadata(
-            id: entry['id'] as String,
-            deviceId: deviceId,
-            name: entry['name'] as String,
-            sharedFolderId: entry['sharedFolderId'] as String,
-            sharedFolderName: entry['sharedFolderName'] as String,
-            relativePath: entry['relativePath'] as String,
-            mimeType: entry['mimeType'] as String,
-            size: entry['size'] as int,
-            modifiedMs: entry['modifiedMs'] as int,
-          ),
-        )
-        .toList();
+    return result;
+  }
+
+  Future<List<MediaMetadata>> _metadata(
+    List<Map<String, dynamic>> entries,
+    int generation,
+  ) async {
+    final result = <MediaMetadata>[];
+    for (var index = 0; index < entries.length; index++) {
+      final entry = entries[index];
+      result.add(
+        MediaMetadata(
+          id: entry['id'] as String,
+          deviceId: deviceId,
+          name: entry['name'] as String,
+          sharedFolderId: entry['sharedFolderId'] as String,
+          sharedFolderName: entry['sharedFolderName'] as String,
+          relativePath: entry['relativePath'] as String,
+          mimeType: entry['mimeType'] as String,
+          size: entry['size'] as int,
+          modifiedMs: entry['modifiedMs'] as int,
+        ),
+      );
+      if ((index + 1) % 256 == 0) {
+        await Future<void>.delayed(Duration.zero);
+        if (generation != _generation) throw const MediaSourceInterrupted();
+      }
+    }
+    return result;
   }
 
   @override

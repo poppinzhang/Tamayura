@@ -15,6 +15,9 @@ String describeError(Object error) {
       'DIR_OVERLAP' => text.errorFolderOverlap,
       'FILE_CHANGED' => text.errorFileChanged,
       'SCAN_CANCELLED' => text.errorScanCancelled,
+      'LOCAL_CATALOG_VERSION' => text.errorLocalCatalogVersion,
+      'LOCAL_CATALOG_CORRUPT' => text.errorLocalCatalogCorrupt,
+      'LOCAL_CATALOG_IO' => text.errorLocalCatalogIo,
       _ => error.message ?? text.errorSystemOperation,
     };
   }

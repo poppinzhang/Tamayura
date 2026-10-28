@@ -123,6 +123,7 @@ abstract class TamayuraModel extends ChangeNotifier {
   List<SharedFolder> get sharedFolders;
   String? get downloadFolder;
   int get localMediaCount;
+  bool get localScanning => false;
   List<DeviceView> get devices;
   bool get deviceOrderSaving => false;
   List<SyncProgress> get syncProgress => const [];

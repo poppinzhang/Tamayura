@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
@@ -25,8 +26,11 @@ const maxThumbnailBytes = 512 * 1024;
 const maxReadWindowBytes = 8 * 1024 * 1024;
 
 class MediaRpcServer {
-  MediaRpcServer({required Peer identity, required LocalMediaSource source})
-    : _service = _MediaService(identity, source);
+  MediaRpcServer({
+    required Peer identity,
+    required LocalMediaSource source,
+    void Function()? onCatalogChanged,
+  }) : _service = _MediaService(identity, source, onCatalogChanged);
 
   final _MediaService _service;
   Server? _server;
@@ -35,22 +39,34 @@ class MediaRpcServer {
   int get port => _server?.port ?? 0;
   List<MediaMetadata> get localMedia =>
       List.unmodifiable(_service.snapshot.values);
+  int get localMediaCount => _service.snapshot.length;
   String get revision => _service.revision;
   Object? get scanError => _service.scanError;
+  Object? get restoreError => _service.restoreError;
+  bool get scanning => _service.scanning;
+
+  /// Completes when the current catalog work finishes or is superseded. Errors
+  /// are exposed by [scanError] and [restoreError], never by this future.
+  Future<void> get catalogReady => _service.catalogReady;
 
   /// Refresh the display name without changing identity or interrupting reads.
   void updateDeviceName(String name) {
     _service.identity = _service.identity.copyWith(name: name);
   }
 
-  Future<void> start({int port = 0}) async {
+  Future<void> start({int port = 0, bool backgroundScan = false}) async {
     if (_server != null) throw StateError('Server is already running');
     final generation = ++_lifecycleGeneration;
-    try {
-      await refresh();
-    } catch (_) {
-      // Receiving from other devices must still work if this device's shared
-      // directory permission expired. ListMedia reports the scan failure.
+    _CatalogWork? backgroundWork;
+    if (backgroundScan) {
+      backgroundWork = _service.beginBackgroundRefresh();
+    } else {
+      try {
+        await refresh();
+      } catch (_) {
+        // Receiving from other devices must still work if this device's shared
+        // directory permission expired. ListMedia reports the scan failure.
+      }
     }
     if (generation != _lifecycleGeneration) return;
     final server = _InterruptibleServer(services: [_service]);
@@ -61,8 +77,12 @@ class MediaRpcServer {
         return;
       }
       _server = server;
+      if (backgroundWork != null) {
+        unawaited(_service.restoreAndRefresh(backgroundWork));
+      }
     } catch (_) {
       await server.shutdown();
+      if (backgroundWork != null) _service.cancelWork(backgroundWork);
       if (generation != _lifecycleGeneration) return;
       rethrow;
     }
@@ -71,6 +91,13 @@ class MediaRpcServer {
   /// Failed scans revoke sharing and produce an RPC error, so callers preserve
   /// their offline snapshot instead of interpreting failure as an empty folder.
   Future<void> refresh() => _service.refresh();
+
+  /// Revoke an obsolete catalog before changing shared folders. Unlike a valid
+  /// empty scan, this makes catalog/thumbnail RPCs unavailable until a new
+  /// snapshot is published, so peers keep their cached media. Original files in
+  /// retained folders remain readable; all other files are revoked immediately.
+  void invalidateCatalog({Set<String> retainSharedFolderIds = const {}}) =>
+      _service.invalidateCatalog(retainSharedFolderIds);
 
   Future<void> stop() async {
     _lifecycleGeneration++;
@@ -130,89 +157,154 @@ class _InterruptibleServer extends Server {
   }
 }
 
+class _CatalogWork {
+  final completed = Completer<void>();
+
+  void finish() {
+    if (!completed.isCompleted) completed.complete();
+  }
+}
+
 class _MediaService extends wire.MediaLibraryServiceBase {
-  _MediaService(this.identity, this.source);
+  _MediaService(this.identity, this.source, this.onCatalogChanged);
 
   Peer identity;
   final LocalMediaSource source;
+  final void Function()? onCatalogChanged;
   Map<String, MediaMetadata> snapshot = {};
   List<MediaMetadata> _ordered = [];
   String revision = '';
   Object? scanError;
-  int _refreshGeneration = 0;
+  Object? restoreError;
+  bool _catalogAvailable = false;
+  bool _filesAvailable = false;
+  _CatalogWork? _work;
+  bool get scanning => _work != null && !_work!.completed.isCompleted;
+  Future<void> get catalogReady => _work?.completed.future ?? Future.value();
   int _thumbnailActive = 0;
   final _thumbnailWaiters = <Completer<void>>[];
 
   // A provider may finish after stop() has returned or another scan has begun.
   // Keep the last completed snapshot, but revoke every pending scan's commit.
-  void invalidateRefresh() => _refreshGeneration++;
+  void invalidateRefresh() {
+    final work = _work;
+    if (work != null) cancelWork(work);
+  }
+
+  void cancelWork(_CatalogWork work) {
+    if (!_current(work)) return;
+    work.finish();
+    onCatalogChanged?.call();
+  }
+
+  void invalidateCatalog(Set<String> retainedFolders) {
+    // Revoke removed folders synchronously, before any new scan or hashing.
+    // Retained originals remain readable while the new revision is prepared.
+    _work?.finish();
+    final canRetain = _filesAvailable && scanError == null;
+    snapshot = Map.unmodifiable({
+      for (final item in snapshot.values)
+        if (canRetain && retainedFolders.contains(item.sharedFolderId))
+          item.id: item,
+    });
+    _ordered = [];
+    revision = '';
+    _catalogAvailable = false;
+    _filesAvailable = snapshot.isNotEmpty;
+    onCatalogChanged?.call();
+  }
+
+  bool _current(_CatalogWork work) =>
+      identical(_work, work) && !work.completed.isCompleted;
+
+  _CatalogWork _beginWork() {
+    _work?.finish();
+    final work = _CatalogWork();
+    _work = work;
+    onCatalogChanged?.call();
+    return work;
+  }
+
+  _CatalogWork beginBackgroundRefresh() {
+    restoreError = null;
+    scanError = null;
+    // A previous process/session's Dart snapshot does not prove native access
+    // still exists. Revalidate it through restore before serving it again.
+    _catalogAvailable = false;
+    _filesAvailable = false;
+    return _beginWork();
+  }
+
+  Future<void> restoreAndRefresh(_CatalogWork work) async {
+    try {
+      if (!_current(work)) return;
+      final restorable = source;
+      if (restorable is RestorableLocalMediaSource) {
+        try {
+          final restored = await restorable.restore();
+          if (!_current(work)) return;
+          if (restored != null) {
+            final prepared = await _prepareCatalog(
+              restored,
+              identity.id,
+              strict: true,
+            );
+            if (!_current(work)) return;
+            _publish(prepared);
+          }
+        } catch (error) {
+          if (!_current(work)) return;
+          // A successful rescan must not erase a cache diagnostic before the
+          // controller has had a chance to display it.
+          restoreError = error;
+          onCatalogChanged?.call();
+        }
+      }
+      if (!_current(work)) return;
+      await _scan(work);
+    } catch (_) {
+      // Background startup remains reachable; _scan records the current error.
+    } finally {
+      cancelWork(work);
+    }
+  }
 
   Future<void> refresh() async {
-    final generation = ++_refreshGeneration;
+    restoreError = null;
+    final work = _beginWork();
+    try {
+      await _scan(work);
+    } finally {
+      cancelWork(work);
+    }
+  }
+
+  void _publish(_PreparedCatalog catalog) {
+    snapshot = catalog.byId;
+    _ordered = catalog.ordered;
+    revision = catalog.revision;
+    _catalogAvailable = true;
+    _filesAvailable = true;
+    scanError = null;
+    onCatalogChanged?.call();
+  }
+
+  Future<void> _scan(_CatalogWork work) async {
     try {
       final scanned = await source.scan();
-      if (generation != _refreshGeneration) return;
-      final next = <String, MediaMetadata>{};
-      final locations = <String>{};
-      for (final item in scanned) {
-        // Receivers reject a catalog with an invalid entry or a repeated ID or
-        // location, so skip that file rather than withholding every other file.
-        // Some document providers allow two children with the same name.
-        final location = jsonEncode([item.sharedFolderId, item.relativePath]);
-        if (!_validMetadata(item) ||
-            next.containsKey(item.id) ||
-            !locations.add(location)) {
-          continue;
-        }
-        // Never retain inline thumbnail bytes, even if a legacy adapter returns
-        // MediaItem instances. The catalog is only a lightweight metadata index.
-        next[item.id] = MediaMetadata(
-          id: item.id,
-          deviceId: identity.id,
-          name: item.name,
-          mimeType: item.mimeType,
-          size: item.size,
-          modifiedMs: item.modifiedMs,
-          sharedFolderId: item.sharedFolderId,
-          sharedFolderName: item.sharedFolderName,
-          relativePath: item.relativePath,
-        );
-      }
-      if (generation != _refreshGeneration) return;
-      snapshot = Map.unmodifiable(next);
-      _ordered = List.unmodifiable(
-        next.values.toList()..sort((a, b) => a.id.compareTo(b.id)),
-      );
-      // Identical catalogs retain their revision across source process restarts.
-      // Encode one record at a time, avoiding a second whole-library buffer.
-      final digest = _CatalogDigest();
-      final sink = sha256.startChunkedConversion(digest);
-      sink.add(utf8.encode(jsonEncode([mediaProtocolVersion, identity.id])));
-      for (final item in _ordered) {
-        sink.add(
-          utf8.encode(
-            jsonEncode([
-              item.id,
-              item.name,
-              item.mimeType,
-              item.size,
-              item.modifiedMs,
-              item.sharedFolderId,
-              item.sharedFolderName,
-              item.relativePath,
-            ]),
-          ),
-        );
-      }
-      sink.close();
-      revision = digest.value.toString();
-      scanError = null;
+      if (!_current(work)) return;
+      final prepared = await _prepareCatalog(scanned, identity.id);
+      if (!_current(work)) return;
+      _publish(prepared);
     } catch (error) {
-      if (generation != _refreshGeneration) return;
+      if (!_current(work)) return;
       snapshot = {};
       _ordered = [];
       revision = '';
+      _catalogAvailable = false;
+      _filesAvailable = false;
       scanError = error;
+      onCatalogChanged?.call();
       rethrow;
     }
   }
@@ -228,14 +320,23 @@ class _MediaService extends wire.MediaLibraryServiceBase {
   );
 
   void _checkRevision(String requested) {
+    _checkAvailable(_catalogAvailable);
+    if (requested.isNotEmpty && requested != revision) {
+      throw const GrpcError.aborted(
+        'Catalog revision expired; restart pagination',
+      );
+    }
+  }
+
+  void _checkAvailable(bool available) {
     if (scanError != null) {
       throw const GrpcError.failedPrecondition(
         'Shared folder is unavailable; refresh on the source device',
       );
     }
-    if (requested.isNotEmpty && requested != revision) {
-      throw const GrpcError.aborted(
-        'Catalog revision expired; restart pagination',
+    if (!available) {
+      throw const GrpcError.unavailable(
+        'Shared catalog is being prepared; retry shortly',
       );
     }
   }
@@ -367,11 +468,7 @@ class _MediaService extends wire.MediaLibraryServiceBase {
     ServiceCall call,
     wire.ReadRequest request,
   ) async* {
-    if (scanError != null) {
-      throw const GrpcError.failedPrecondition(
-        'Shared folder is unavailable; refresh on the source device',
-      );
-    }
+    _checkAvailable(_filesAvailable);
     final item = snapshot[request.id];
     if (item == null) throw const GrpcError.notFound('Media is not shared');
     final offset = request.offset.toInt();
@@ -808,6 +905,93 @@ bool _validMetadata(MediaMetadata item) {
       item.name.length <= 4096 &&
       item.mimeType.length <= 256 &&
       item.size >= 0;
+}
+
+class _PreparedCatalog {
+  _PreparedCatalog(this.byId, this.ordered, this.revision);
+  final Map<String, MediaMetadata> byId;
+  final List<MediaMetadata> ordered;
+  final String revision;
+}
+
+// Keep this closure outside the service: only immutable metadata and identity
+// cross isolates, never the platform source, callbacks or active RPC transport.
+Future<_PreparedCatalog> _prepareCatalog(
+  List<MediaMetadata> scanned,
+  String deviceId, {
+  bool strict = false,
+}) {
+  // Small catalogs do not justify an isolate startup or its event-loop delay.
+  // Future.sync preserves asynchronous error delivery for strict restoration.
+  if (scanned.length < 256) {
+    return Future.sync(() => _buildCatalog(scanned, deviceId, strict: strict));
+  }
+  return Isolate.run(() => _buildCatalog(scanned, deviceId, strict: strict));
+}
+
+class _InvalidRestoredCatalog implements Exception {
+  @override
+  String toString() => AppLocale.strings.errorLocalCatalogCorrupt;
+}
+
+_PreparedCatalog _buildCatalog(
+  List<MediaMetadata> scanned,
+  String deviceId, {
+  required bool strict,
+}) {
+  final next = <String, MediaMetadata>{};
+  final locations = <String>{};
+  for (final item in scanned) {
+    // Skip invalid or duplicate files without withholding other valid media.
+    final location = jsonEncode([item.sharedFolderId, item.relativePath]);
+    if (!_validMetadata(item) ||
+        next.containsKey(item.id) ||
+        !locations.add(location)) {
+      if (strict) throw _InvalidRestoredCatalog();
+      continue;
+    }
+    // Legacy sources can return MediaItem with thumbnails. Never retain those
+    // bytes in the lightweight serving catalog.
+    next[item.id] = MediaMetadata(
+      id: item.id,
+      deviceId: deviceId,
+      name: item.name,
+      mimeType: item.mimeType,
+      size: item.size,
+      modifiedMs: item.modifiedMs,
+      sharedFolderId: item.sharedFolderId,
+      sharedFolderName: item.sharedFolderName,
+      relativePath: item.relativePath,
+    );
+  }
+  final ordered = next.values.toList()..sort((a, b) => a.id.compareTo(b.id));
+  // Keep the v4 canonical encoding unchanged so existing released receivers
+  // keep their revision and reuse thumbnails across source restarts.
+  final digest = _CatalogDigest();
+  final sink = sha256.startChunkedConversion(digest);
+  sink.add(utf8.encode(jsonEncode([mediaProtocolVersion, deviceId])));
+  for (final item in ordered) {
+    sink.add(
+      utf8.encode(
+        jsonEncode([
+          item.id,
+          item.name,
+          item.mimeType,
+          item.size,
+          item.modifiedMs,
+          item.sharedFolderId,
+          item.sharedFolderName,
+          item.relativePath,
+        ]),
+      ),
+    );
+  }
+  sink.close();
+  return _PreparedCatalog(
+    Map.unmodifiable(next),
+    List.unmodifiable(ordered),
+    digest.value.toString(),
+  );
 }
 
 class _CatalogDigest implements Sink<Digest> {

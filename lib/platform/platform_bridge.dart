@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import '../core/models.dart';
@@ -61,6 +63,9 @@ abstract class PlatformBridge {
 
   /// macOS workers live in the application process; Android uses JobService.
   bool get usesInProcessTransfers => false;
+
+  /// Windows can restore its native file index before a background rescan.
+  bool get supportsBackgroundCatalog => false;
   String get platformName;
   bool isValidDeviceId(String id);
 
@@ -128,9 +133,30 @@ abstract class PlatformBridge {
       'scanDirectoriesMetadata',
       {'directories': directories.map((folder) => folder.toJson()).toList()},
     );
-    return (values ?? const [])
-        .map((value) => Map<String, dynamic>.from(value as Map))
-        .toList(growable: false);
+    return _metadataMaps(values ?? const []);
+  }
+
+  /// Null means there is no complete snapshot for these exact shared roots.
+  Future<List<Map<String, dynamic>>?> restoreDirectoriesMetadata(
+    List<SharedFolder> directories,
+  ) async => null;
+
+  /// Persistence errors do not revoke a successfully scanned, live catalog.
+  Future<PlatformException?> getLocalCatalogWarning() async => null;
+
+  @protected
+  Future<List<Map<String, dynamic>>> metadataMaps(List<dynamic> values) =>
+      _metadataMaps(values);
+
+  static Future<List<Map<String, dynamic>>> _metadataMaps(
+    List<dynamic> values,
+  ) async {
+    final result = <Map<String, dynamic>>[];
+    for (var index = 0; index < values.length; index++) {
+      result.add(Map<String, dynamic>.from(values[index] as Map));
+      if ((index + 1) % 256 == 0) await Future<void>.delayed(Duration.zero);
+    }
+    return result;
   }
 
   Future<Uint8List> thumbnail(String id) async =>

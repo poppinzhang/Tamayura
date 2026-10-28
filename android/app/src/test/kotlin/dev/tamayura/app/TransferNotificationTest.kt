@@ -9,6 +9,7 @@ import android.app.job.JobParameters
 import android.app.job.JobScheduler
 import android.app.job.JobService
 import android.content.Context
+import android.net.NetworkCapabilities
 import android.os.PersistableBundle
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
@@ -28,6 +29,7 @@ import org.robolectric.annotation.LooperMode
 import org.robolectric.annotation.RealObject
 import org.robolectric.shadow.api.Shadow
 import org.robolectric.shadows.ShadowJobService
+import org.robolectric.shadows.ShadowNetworkCapabilities
 import org.robolectric.shadows.ShadowJobScheduler.ShadowJobSchedulerImpl
 import org.robolectric.util.ReflectionHelpers
 
@@ -103,6 +105,46 @@ class TransferNotificationTest(private val access: NotificationAccess) {
         assertNotEquals(original.extras.getString(TransferScheduler.RUN_ID),
             retry.extras.getString(TransferScheduler.RUN_ID))
         assertNull(shadowOf(activity).lastRequestedPermission)
+    }
+
+    @Test fun downloadNetworkAcceptsLanWithOrWithoutVpnButNotCellular() {
+        call("scheduleTransfer", "network-matching").assertSuccess()
+        val request = requireNotNull(scheduler.allPendingJobs.single().requiredNetwork)
+
+        fun network(transport: Int?, vpn: Boolean): NetworkCapabilities =
+            ShadowNetworkCapabilities.newInstance().also { capabilities ->
+                shadowOf(capabilities).apply {
+                    addCapability(NetworkCapabilities.NET_CAPABILITY_TRUSTED)
+                    addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_RESTRICTED)
+                    // A normal LAN is not managed by Android's carrier VCN.
+                    addCapability(ReflectionHelpers.getStaticField<Int>(
+                        NetworkCapabilities::class.java, "NET_CAPABILITY_NOT_VCN_MANAGED"))
+                    transport?.let { addTransportType(it) }
+                    if (vpn) {
+                        addTransportType(NetworkCapabilities.TRANSPORT_VPN)
+                        removeCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+                    } else {
+                        addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+                    }
+                    // LAN transfers also work without validated Internet access.
+                    removeCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                    removeCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+                }
+            }
+
+        for (transport in listOf(NetworkCapabilities.TRANSPORT_WIFI,
+                NetworkCapabilities.TRANSPORT_ETHERNET)) {
+            val direct = network(transport, vpn = false)
+            assertTrue("$request must accept $direct", request.canBeSatisfiedBy(direct))
+            // Android reports the VPN transport together with its underlying LAN.
+            assertTrue("VPN over LAN must not leave a download queued",
+                request.canBeSatisfiedBy(network(transport, vpn = true)))
+        }
+        for (vpn in listOf(false, true)) {
+            assertFalse(request.canBeSatisfiedBy(network(NetworkCapabilities.TRANSPORT_CELLULAR, vpn)))
+        }
+        assertFalse(request.canBeSatisfiedBy(network(null, vpn = true)))
+        assertFalse(request.canBeSatisfiedBy(null))
     }
 
     @Test fun systemRejectionStillReportsSchedulingFailure() {

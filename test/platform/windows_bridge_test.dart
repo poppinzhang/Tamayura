@@ -31,6 +31,10 @@ void main() {
       throwsUnsupportedError,
     );
     expect(bridge.usesInProcessTransfers, isTrue);
+    expect(bridge.supportsBackgroundCatalog, isTrue);
+    expect(const AndroidBridge().supportsBackgroundCatalog, isFalse);
+    expect(const MacOSBridge().supportsBackgroundCatalog, isFalse);
+    expect(const LinuxBridge().supportsBackgroundCatalog, isFalse);
     expect(bridge.platformName, 'Windows');
   });
 
@@ -145,6 +149,75 @@ void main() {
           ),
         ),
       );
+    },
+  );
+
+  test(
+    'restored catalog distinguishes missing and complete empty snapshots',
+    () async {
+      const folder = SharedFolder(
+        id: 'photos',
+        uri: r'C:\Photos',
+        name: 'Photos',
+      );
+      List<Object?>? response;
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        expect(call.method, 'restoreDirectoriesMetadata');
+        expect(call.arguments, {
+          'directories': [folder.toJson()],
+        });
+        return response;
+      });
+      expect(await bridge.restoreDirectoriesMetadata([folder]), isNull);
+      response = [];
+      expect(await bridge.restoreDirectoriesMetadata([folder]), isEmpty);
+      response = [
+        {
+          'id': 'photo',
+          'name': '写真.ARW',
+          'size': 9000000000,
+          'modifiedMs': 1790000000000,
+          'relativePath': '2026/写真.ARW',
+          'sharedFolderId': folder.id,
+          'sharedFolderName': folder.name,
+          'mimeType': 'image/x-sony-arw',
+        },
+      ];
+      final restored = await bridge.restoreDirectoriesMetadata([folder]);
+      expect(restored!.single['size'], 9000000000);
+      expect(restored.single['relativePath'], '2026/写真.ARW');
+    },
+  );
+
+  test(
+    'restore errors and nonfatal persistence warnings preserve native codes',
+    () async {
+      for (final code in [
+        'LOCAL_CATALOG_VERSION',
+        'LOCAL_CATALOG_CORRUPT',
+        'LOCAL_CATALOG_IO',
+      ]) {
+        messenger.setMockMethodCallHandler(channel, (call) async {
+          if (call.method == 'restoreDirectoriesMetadata') {
+            throw PlatformException(code: code, message: 'Index preserved');
+          }
+          expect(call.method, 'getLocalCatalogWarning');
+          return {'code': code, 'message': 'Index preserved'};
+        });
+        await expectLater(
+          bridge.restoreDirectoriesMetadata([]),
+          throwsA(
+            isA<PlatformException>().having(
+              (error) => error.code,
+              'code',
+              code,
+            ),
+          ),
+        );
+        expect((await bridge.getLocalCatalogWarning())!.code, code);
+      }
+      messenger.setMockMethodCallHandler(channel, (_) async => null);
+      expect(await bridge.getLocalCatalogWarning(), isNull);
     },
   );
 

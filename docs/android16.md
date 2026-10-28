@@ -18,6 +18,10 @@ UIDT 服务仍须调用 `JobService.setNotification`，由系统依据用户设�
 
 任务要求 Wi-Fi 或以太网，但不要求网络能访问互联网。JobService 创建独立 FlutterEngine，运行 `backgroundTransferMain`；不会依赖相册 Activity 存活。`tamayura/background` 的 ready/progress/complete/stop 通道用于任务身份、通知和中断。
 
+1.0.1 显式移除 `NetworkRequest.Builder` 默认的 `NET_CAPABILITY_NOT_VPN` 条件，允许基于 Wi-Fi / 以太网的 VPN 或 TUN。Android 的 VPN 网络会包含底层网络的 transport；只解除“非 VPN”限制，仍保留 Wi-Fi / 以太网条件，不单独添加 `TRANSPORT_VPN`，因此纯蜂窝和纯蜂窝 VPN 仍不匹配。旧条件可能导致相册同步正常、下载一直等待：前台同步直接建立 gRPC 连接，下载则先经过 JobScheduler 的网络匹配。此修复不修改系统路由，代理仍须允许局域网设备互通。[Android 网络能力说明](https://developer.android.com/reference/android/net/NetworkCapabilities#NET_CAPABILITY_NOT_VPN)、[VPN 与底层 transport](https://developer.android.com/develop/connectivity/network-ops/reading-network-state)。
+
+`TransferNotificationTest` 从真实调度入口取得 `JobInfo.requiredNetwork`，覆盖普通及 VPN 上的 Wi-Fi / 以太网、无互联网验证的局域网，以及拒绝蜂窝、蜂窝 VPN、无底层局域网的 VPN 和无网络。开发阶段原条件在 VPN 局域网匹配断言失败，修复后 Android 应用原生 147 项、Flutter 网络与传输相关 57 项回归通过。这是网络条件与应用行为回归，不代替本次发布提交的完整检查或真机 VPN / TUN 下的任务启动及双向原文件传输验收；发布准备时完整测试与打包仍待完成，实际结果见 [1.0.1 发布记录](releases/1.0.1.md)。
+
 SQLite 的 `tamayura_transfers.db` 保存媒体与设备快照、目标目录、状态、已下载字节、次数、错误、已保存 URI 和运行令牌。UI 与 worker 使用独立数据库连接；运行令牌条件写入可阻止旧任务覆盖新尝试。界面前台轮询状态，恢复时将已无系统任务的未完成记录标为可重试。
 
 超过 50 MiB 分成四个区间，每个分片保存在应用私有 filesDir；长度本身就是续传位置。manifest 校验设备、文件、大小与修改时间，改变后清除旧分片。每个范围流 30 秒收不到数据即判定停滞并重连；对端暂时不可用时，连续三次没有新字节的尝试后交由 JobScheduler 退避重排，最长自动重试 30 分钟，收到字节即重新计时；文件删除、大小变化等不可恢复错误保留分片并显示重试。详见 [传输恢复](传输恢复.md)。每次恢复先核对对端设备 ID，避免 IP 地址被其他设备复用。

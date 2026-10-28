@@ -19,6 +19,9 @@
 namespace tamayura {
 namespace {
 using Microsoft::WRL::ComPtr;
+// Dart mediaPathSegments counts UTF-16 code units. Keep scan/cache publication
+// inside that protocol boundary even though Win32 supports longer local paths.
+constexpr size_t kMaxPublishedPathUnits = 4096;
 
 [[noreturn]] void IoError(const char* message, DWORD error = GetLastError()) {
   const char* code = error == ERROR_ACCESS_DENIED || error == ERROR_SHARING_VIOLATION
@@ -122,6 +125,23 @@ struct PinnedDirectory {
   std::vector<Handle> handles;
 };
 
+FileInfo FileMetadata(HANDLE file) {
+  BY_HANDLE_FILE_INFORMATION info{};
+  if (!GetFileInformationByHandle(file, &info)) IoError("Cannot read media metadata");
+  const uint64_t size = (static_cast<uint64_t>(info.nFileSizeHigh) << 32) | info.nFileSizeLow;
+  if (size > static_cast<uint64_t>(std::numeric_limits<int64_t>::max())) {
+    throw StorageError("INVALID_ARGUMENT", "The media file is too large");
+  }
+  ULARGE_INTEGER modified{};
+  modified.LowPart = info.ftLastWriteTime.dwLowDateTime;
+  modified.HighPart = info.ftLastWriteTime.dwHighDateTime;
+  constexpr uint64_t epoch = 116444736000000000ULL;
+  const int64_t modified_ms = modified.QuadPart >= epoch
+      ? static_cast<int64_t>((modified.QuadPart - epoch) / 10000)
+      : -static_cast<int64_t>((epoch - modified.QuadPart) / 10000);
+  return {static_cast<int64_t>(size), modified_ms};
+}
+
 Handle OpenDirectoryHandle(const std::wstring& path) {
   Handle handle(CreateFileW(NativePath(path).c_str(), FILE_READ_ATTRIBUTES | FILE_LIST_DIRECTORY,
                             FILE_SHARE_READ, nullptr, OPEN_EXISTING,
@@ -161,15 +181,6 @@ void AddDirectory(PinnedDirectory& directory, const std::string& name) {
   directory.path = CanonicalPath(directory.handles.back().get());
 }
 
-int64_t ModifiedMs(const FILETIME& time) {
-  ULARGE_INTEGER value{};
-  value.LowPart = time.dwLowDateTime;
-  value.HighPart = time.dwHighDateTime;
-  constexpr uint64_t epoch = 116444736000000000ULL;
-  return value.QuadPart >= epoch ? static_cast<int64_t>((value.QuadPart - epoch) / 10000)
-                                 : -static_cast<int64_t>((epoch - value.QuadPart) / 10000);
-}
-
 struct FindHandle {
   HANDLE value;
   ~FindHandle() { if (value != INVALID_HANDLE_VALUE) FindClose(value); }
@@ -183,13 +194,12 @@ bool SkippableScanError(const StorageError& error) {
 }
 
 void Enumerate(MediaCatalog& catalog, const SharedDirectory& shared,
-               const std::wstring& root, const std::wstring& directory,
+               const std::wstring& root, const PinnedDirectory& pinned,
                const std::string& relative, uint64_t generation,
                std::vector<MediaEntry>& output) {
   catalog.AssertScan(generation);
-  // Pin ancestors while FindFirstFile and child opens use absolute Win32 paths.
-  // The caller decides whether this directory failing is fatal.
-  auto pinned = PinDirectory(directory);
+  // The recursive callers retain every ancestor handle. Open only this
+  // directory's children instead of reopening the entire path for each file.
   WIN32_FIND_DATAW data{};
   const auto pattern = JoinPath(pinned.path, L"*");
   FindHandle search{FindFirstFileExW(NativePath(pattern).c_str(), FindExInfoBasic,
@@ -213,13 +223,21 @@ void Enumerate(MediaCatalog& catalog, const SharedDirectory& shared,
       const std::string utf8_name = Utf8(name);
       ValidateSegment(utf8_name);
       const auto child_relative = relative.empty() ? utf8_name : relative + "/" + utf8_name;
+      if (Wide(child_relative).size() > kMaxPublishedPathUnits) continue;
       if (is_directory) {
-        Enumerate(catalog, shared, root, path, child_relative, generation, output);
+        PinnedDirectory child{path, {}};
+        child.handles.push_back(OpenDirectoryHandle(path));
+        child.path = CanonicalPath(child.handles.back().get());
+        Enumerate(catalog, shared, root, child, child_relative, generation, output);
         continue;
       }
       RelativeComponents(child_relative);
-      auto file = SafeFile::Open(path);
-      const auto info = file.info();
+      Handle file(CreateFileW(NativePath(path).c_str(), GENERIC_READ, FILE_SHARE_READ,
+                              nullptr, OPEN_EXISTING,
+                              FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_SEQUENTIAL_SCAN, nullptr));
+      if (file.get() == INVALID_HANDLE_VALUE) IoError("Cannot access media file");
+      RequireOrdinary(file.get(), false);
+      const auto info = FileMetadata(file.get());
       output.push_back({StableMediaId(shared.id, child_relative), utf8_name, MediaMime(path),
                         info.size, info.modified_ms, shared.id, shared.name,
                         child_relative, path, root});
@@ -502,21 +520,38 @@ std::string MediaMime(const std::wstring& path) {
   return it == types.end() ? std::string() : it->second;
 }
 
-std::string StableMediaId(const std::string& folder_id, const std::string& relative_path) {
-  BCRYPT_ALG_HANDLE algorithm = nullptr;
-  if (BCryptOpenAlgorithmProvider(&algorithm, BCRYPT_SHA256_ALGORITHM, nullptr, 0) < 0) {
-    throw StorageError("PLATFORM_ERROR", "Cannot initialize media identifier hashing");
+namespace {
+std::array<unsigned char, 32> Sha256(const uint8_t* data, size_t size) {
+  struct Algorithm {
+    BCRYPT_ALG_HANDLE value = nullptr;
+    Algorithm() {
+      if (BCryptOpenAlgorithmProvider(&value, BCRYPT_SHA256_ALGORITHM, nullptr, 0) < 0) {
+        throw StorageError("PLATFORM_ERROR", "Cannot initialize media identifier hashing");
+      }
+    }
+    ~Algorithm() { BCryptCloseAlgorithmProvider(value, 0); }
+  };
+  // A worker reuses its provider across files without sharing mutable handles
+  // between threads. This avoids an algorithm-provider open for every entry.
+  static thread_local Algorithm algorithm;
+  if (size > std::numeric_limits<ULONG>::max()) {
+    throw StorageError("PLATFORM_ERROR", "The catalog is too large to hash");
   }
-  struct AlgorithmGuard { BCRYPT_ALG_HANDLE value; ~AlgorithmGuard() { BCryptCloseAlgorithmProvider(value, 0); } } guard{algorithm};
-  std::string input = folder_id;
-  input.push_back('\0');
-  input += relative_path;
   std::array<unsigned char, 32> digest{};
-  if (BCryptHash(algorithm, nullptr, 0, reinterpret_cast<PUCHAR>(input.data()),
-                 static_cast<ULONG>(input.size()), digest.data(),
+  if (BCryptHash(algorithm.value, nullptr, 0, const_cast<PUCHAR>(data),
+                 static_cast<ULONG>(size), digest.data(),
                  static_cast<ULONG>(digest.size())) < 0) {
     throw StorageError("PLATFORM_ERROR", "Cannot hash media identifier");
   }
+  return digest;
+}
+}  // namespace
+
+std::string StableMediaId(const std::string& folder_id, const std::string& relative_path) {
+  std::string input = folder_id;
+  input.push_back('\0');
+  input += relative_path;
+  const auto digest = Sha256(reinterpret_cast<const uint8_t*>(input.data()), input.size());
   constexpr char hex[] = "0123456789abcdef";
   std::string result;
   for (const auto byte : digest) { result += hex[byte >> 4]; result += hex[byte & 15]; }
@@ -562,13 +597,7 @@ SafeFile SafeFile::Open(const std::wstring& path) {
 }
 
 FileInfo SafeFile::info() const {
-  BY_HANDLE_FILE_INFORMATION info{};
-  if (!GetFileInformationByHandle(file_.get(), &info)) IoError("Cannot read media metadata");
-  const uint64_t size = (static_cast<uint64_t>(info.nFileSizeHigh) << 32) | info.nFileSizeLow;
-  if (size > static_cast<uint64_t>(std::numeric_limits<int64_t>::max())) {
-    throw StorageError("INVALID_ARGUMENT", "The media file is too large");
-  }
-  return {static_cast<int64_t>(size), ModifiedMs(info.ftLastWriteTime)};
+  return FileMetadata(file_.get());
 }
 
 Bytes SafeFile::Read(int64_t offset, int64_t length, int64_t expected_size) const {
@@ -674,11 +703,15 @@ uint64_t MediaCatalog::BeginScan(const std::set<std::string>& shared_folder_ids)
   return ++ticket_;
 }
 
-void MediaCatalog::RevokeLocked() {
+void MediaCatalog::RevokePublishedLocked() {
   files_.clear();
   ++generation_;
-  ++ticket_;
   PruneThumbnailsLocked();
+}
+
+void MediaCatalog::RevokeLocked() {
+  RevokePublishedLocked();
+  ++ticket_;
 }
 
 void MediaCatalog::AssertScan(uint64_t ticket) const {
@@ -711,8 +744,306 @@ void MediaCatalog::Validate(const std::string& uri,
   }
 }
 
+namespace {
+constexpr std::array<uint8_t, 8> kCatalogMagic{'T', 'M', 'Y', 'R', 'C', 'A', 'T', 0};
+constexpr uint32_t kCatalogVersion = 1;
+constexpr size_t kMaxCatalogBytes = 512 * 1024 * 1024;
+constexpr uint32_t kMaxCatalogEntries = 1000000;
+constexpr uint32_t kMaxCatalogStringBytes = 128 * 1024;
+
+[[noreturn]] void CorruptCatalog() {
+  throw StorageError("LOCAL_CATALOG_CORRUPT", "The saved local catalog is damaged; its original file was preserved");
+}
+
+struct CachedCatalog {
+  std::vector<SharedDirectory> directories;
+  std::vector<MediaEntry> entries;
+};
+
+void Append32(Bytes& output, uint32_t value) {
+  for (unsigned shift = 0; shift < 32; shift += 8) {
+    output.push_back(static_cast<uint8_t>(value >> shift));
+  }
+}
+
+void Append64(Bytes& output, int64_t value) {
+  const uint64_t unsigned_value = static_cast<uint64_t>(value);
+  for (unsigned shift = 0; shift < 64; shift += 8) {
+    output.push_back(static_cast<uint8_t>(unsigned_value >> shift));
+  }
+}
+
+void AppendString(Bytes& output, const std::string& value) {
+  if (value.size() > kMaxCatalogStringBytes ||
+      output.size() > kMaxCatalogBytes - 4 - value.size()) {
+    throw StorageError("LOCAL_CATALOG_IO", "The local catalog exceeds the cache size limit");
+  }
+  Append32(output, static_cast<uint32_t>(value.size()));
+  output.insert(output.end(), value.begin(), value.end());
+}
+
+class CatalogReader {
+ public:
+  CatalogReader(const Bytes& bytes, size_t limit) : bytes_(bytes), limit_(limit) {}
+  uint32_t Uint32() {
+    Require(4);
+    uint32_t value = 0;
+    for (unsigned shift = 0; shift < 32; shift += 8) {
+      value |= static_cast<uint32_t>(bytes_[offset_++]) << shift;
+    }
+    return value;
+  }
+  int64_t Int64() {
+    Require(8);
+    uint64_t value = 0;
+    for (unsigned shift = 0; shift < 64; shift += 8) {
+      value |= static_cast<uint64_t>(bytes_[offset_++]) << shift;
+    }
+    int64_t signed_value;
+    std::memcpy(&signed_value, &value, sizeof(value));
+    return signed_value;
+  }
+  std::string String() {
+    const uint32_t size = Uint32();
+    if (size > kMaxCatalogStringBytes) CorruptCatalog();
+    Require(size);
+    std::string value(reinterpret_cast<const char*>(bytes_.data() + offset_), size);
+    offset_ += size;
+    if (value.find('\0') != std::string::npos) CorruptCatalog();
+    try { Wide(value); } catch (const StorageError&) { CorruptCatalog(); }
+    return value;
+  }
+  bool finished() const { return offset_ == limit_; }
+
+ private:
+  void Require(size_t count) const {
+    if (offset_ > limit_ || count > limit_ - offset_) CorruptCatalog();
+  }
+  const Bytes& bytes_;
+  size_t offset_ = kCatalogMagic.size();
+  size_t limit_;
+};
+
+CachedCatalog DecodeCatalog(const Bytes& bytes,
+                            const std::function<void()>& check_current = {}) {
+  if (check_current) check_current();
+  if (bytes.size() < 12 || !std::equal(kCatalogMagic.begin(), kCatalogMagic.end(), bytes.begin())) {
+    CorruptCatalog();
+  }
+  CatalogReader header(bytes, bytes.size());
+  if (header.Uint32() != kCatalogVersion) {
+    throw StorageError("LOCAL_CATALOG_VERSION", "The saved local catalog uses an unsupported version; its original file was preserved");
+  }
+  if (bytes.size() < 12 + 32) CorruptCatalog();
+  const size_t payload_size = bytes.size() - 32;
+  const auto digest = Sha256(bytes.data(), payload_size);
+  if (!std::equal(digest.begin(), digest.end(), bytes.begin() + payload_size)) CorruptCatalog();
+  CatalogReader reader(bytes, payload_size);
+  reader.Uint32();
+  CachedCatalog result;
+  const uint32_t directory_count = reader.Uint32();
+  if (directory_count > 10000) CorruptCatalog();
+  std::set<std::string> folders;
+  for (uint32_t i = 0; i < directory_count; ++i) {
+    if (check_current && i % 256 == 0) check_current();
+    SharedDirectory directory{reader.String(), reader.String(), reader.String()};
+    try {
+      ValidateSegment(directory.id);
+      ValidateSegment(directory.name);
+      LocalPath(directory.uri);
+    } catch (const StorageError&) { CorruptCatalog(); }
+    if (!folders.insert(directory.id).second) CorruptCatalog();
+    result.directories.push_back(std::move(directory));
+  }
+  const uint32_t entry_count = reader.Uint32();
+  if (entry_count > kMaxCatalogEntries) CorruptCatalog();
+  std::set<std::string> ids;
+  for (uint32_t i = 0; i < entry_count; ++i) {
+    if (check_current && i % 256 == 0) check_current();
+    MediaEntry entry;
+    entry.id = reader.String();
+    entry.name = reader.String();
+    entry.mime_type = reader.String();
+    entry.size = reader.Int64();
+    entry.modified_ms = reader.Int64();
+    entry.shared_folder_id = reader.String();
+    entry.relative_path = reader.String();
+    try {
+      const auto components = RelativeComponents(entry.relative_path);
+      if (entry.size < 0 || Wide(entry.relative_path).size() > kMaxPublishedPathUnits ||
+          !folders.count(entry.shared_folder_id) ||
+          components.back() != entry.name || entry.mime_type.empty() ||
+          MediaMime(Wide(entry.name)) != entry.mime_type ||
+          StableMediaId(entry.shared_folder_id, entry.relative_path) != entry.id ||
+          !ids.insert(entry.id).second) CorruptCatalog();
+    } catch (const StorageError& error) {
+      if (error.code == "PLATFORM_ERROR") throw;
+      CorruptCatalog();
+    }
+    result.entries.push_back(std::move(entry));
+  }
+  if (!reader.finished()) CorruptCatalog();
+  return result;
+}
+
+std::optional<CachedCatalog> ReadCatalog(const std::wstring& path,
+                                       const std::function<void()>& check_current = {}) {
+  try {
+    if (check_current) check_current();
+    Bytes bytes;
+    {
+      const auto normal = LocalPath(Utf8(path));
+      const auto slash = normal.find_last_of(L'\\');
+      const auto parent = PinDirectory(normal.substr(0, slash == 2 ? 3 : slash));
+      const auto canonical = JoinPath(parent.path, normal.substr(slash + 1));
+      // An atomic replacement may unlink this old cache while it is read. No
+      // writer can change these bytes; media reads keep their stricter sharing.
+      Handle file(CreateFileW(NativePath(canonical).c_str(), GENERIC_READ,
+                              FILE_SHARE_READ | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
+                              FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_SEQUENTIAL_SCAN, nullptr));
+      if (file.get() == INVALID_HANDLE_VALUE) IoError("Cannot open the saved local catalog");
+      RequireOrdinary(file.get(), false);
+      const auto size = FileMetadata(file.get()).size;
+      if (size < 0 || static_cast<uint64_t>(size) > kMaxCatalogBytes) CorruptCatalog();
+      bytes.resize(static_cast<size_t>(size));
+      size_t offset = 0;
+      while (offset < bytes.size()) {
+        if (check_current) check_current();
+        DWORD count = 0;
+        const DWORD remaining = static_cast<DWORD>(std::min<size_t>(
+            bytes.size() - offset, static_cast<size_t>(kMaxReadChunkBytes)));
+        if (!ReadFile(file.get(), bytes.data() + offset, remaining, &count, nullptr) || !count) {
+          throw StorageError("LOCAL_CATALOG_IO", "Cannot read the saved local catalog");
+        }
+        offset += count;
+      }
+    }
+    return DecodeCatalog(bytes, check_current);
+  } catch (const StorageError& error) {
+    if (error.code == "SCAN_CANCELLED") throw;
+    if (error.code == "FILE_NOT_FOUND") return std::nullopt;
+    if (error.code == "LOCAL_CATALOG_CORRUPT" || error.code == "LOCAL_CATALOG_VERSION" ||
+        error.code == "LOCAL_CATALOG_IO") throw;
+    throw StorageError("LOCAL_CATALOG_IO", "Cannot read the saved local catalog");
+  } catch (const std::exception&) {
+    throw StorageError("LOCAL_CATALOG_IO", "Cannot read the saved local catalog");
+  }
+}
+
+Bytes EncodeCatalog(const std::vector<SharedDirectory>& directories,
+                    const std::vector<MediaEntry>& entries,
+                    const std::function<void()>& check_current = {}) {
+  if (check_current) check_current();
+  if (directories.size() > 10000 || entries.size() > kMaxCatalogEntries) {
+    throw StorageError("LOCAL_CATALOG_IO", "The local catalog exceeds the cache entry limit");
+  }
+  Bytes bytes(kCatalogMagic.begin(), kCatalogMagic.end());
+  Append32(bytes, kCatalogVersion);
+  Append32(bytes, static_cast<uint32_t>(directories.size()));
+  size_t index = 0;
+  for (const auto& directory : directories) {
+    if (check_current && index++ % 256 == 0) check_current();
+    // These native components are limited to 255 UTF-16 units, stricter than
+    // Dart's shared-folder ID (512) and display-name (4096) bounds.
+    ValidateSegment(directory.id);
+    ValidateSegment(directory.name);
+    AppendString(bytes, directory.id);
+    AppendString(bytes, directory.uri);
+    AppendString(bytes, directory.name);
+  }
+  Append32(bytes, static_cast<uint32_t>(entries.size()));
+  index = 0;
+  for (const auto& entry : entries) {
+    if (check_current && index++ % 256 == 0) check_current();
+    if (Wide(entry.relative_path).size() > kMaxPublishedPathUnits) {
+      throw StorageError("LOCAL_CATALOG_IO", "The local catalog contains an unsupported media path");
+    }
+    AppendString(bytes, entry.id);
+    AppendString(bytes, entry.name);
+    AppendString(bytes, entry.mime_type);
+    Append64(bytes, entry.size);
+    Append64(bytes, entry.modified_ms);
+    AppendString(bytes, entry.shared_folder_id);
+    AppendString(bytes, entry.relative_path);
+  }
+  if (bytes.size() > kMaxCatalogBytes - 32) {
+    throw StorageError("LOCAL_CATALOG_IO", "The local catalog exceeds the cache size limit");
+  }
+  const auto digest = Sha256(bytes.data(), bytes.size());
+  bytes.insert(bytes.end(), digest.begin(), digest.end());
+  return bytes;
+}
+
+struct PendingCatalog {
+  std::wstring target;
+  std::wstring temporary;
+  PinnedDirectory parent;
+  ~PendingCatalog() {
+    if (!temporary.empty()) DeleteFileW(NativePath(temporary).c_str());
+  }
+  void Commit() {
+    if (!MoveFileExW(NativePath(temporary).c_str(), NativePath(target).c_str(),
+                     MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+      throw StorageError("LOCAL_CATALOG_IO", "Cannot replace the saved local catalog");
+    }
+    temporary.clear();
+  }
+};
+
+std::unique_ptr<PendingCatalog> PrepareCatalog(const std::wstring& path,
+    const std::vector<SharedDirectory>& directories, const std::vector<MediaEntry>& entries,
+    const std::function<void()>& check_current) {
+  const auto bytes = EncodeCatalog(directories, entries, check_current);
+  auto pending = std::make_unique<PendingCatalog>();
+  const auto normal = LocalPath(Utf8(path));
+  const auto slash = normal.find_last_of(L'\\');
+  pending->parent = PinDirectory(normal.substr(0, slash == 2 ? 3 : slash));
+  pending->target = JoinPath(pending->parent.path, normal.substr(slash + 1));
+  GUID guid{};
+  wchar_t guid_text[40]{};
+  if (FAILED(CoCreateGuid(&guid)) || StringFromGUID2(guid, guid_text, 40) != 39) {
+    throw StorageError("LOCAL_CATALOG_IO", "Cannot create a temporary local catalog");
+  }
+  pending->temporary = JoinPath(pending->parent.path, std::wstring(L"catalog-") + guid_text + L".tmp");
+  Handle output(CreateFileW(NativePath(pending->temporary).c_str(), GENERIC_WRITE, 0,
+                            nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr));
+  if (output.get() == INVALID_HANDLE_VALUE) {
+    throw StorageError("LOCAL_CATALOG_IO", "Cannot create a temporary local catalog");
+  }
+  size_t offset = 0;
+  while (offset < bytes.size()) {
+    check_current();
+    const DWORD count = static_cast<DWORD>(std::min<size_t>(
+        bytes.size() - offset, static_cast<size_t>(kMaxReadChunkBytes)));
+    DWORD written = 0;
+    if (!WriteFile(output.get(), bytes.data() + offset, count, &written, nullptr) || !written) {
+      throw StorageError("LOCAL_CATALOG_IO", "Cannot write the saved local catalog");
+    }
+    offset += written;
+  }
+  if (!FlushFileBuffers(output.get())) {
+    throw StorageError("LOCAL_CATALOG_IO", "Cannot flush the saved local catalog");
+  }
+  return pending;
+}
+
+bool SameDirectories(const std::vector<SharedDirectory>& left,
+                     const std::vector<SharedDirectory>& right) {
+  if (left.size() != right.size()) return false;
+  for (const auto& expected : left) {
+    const auto found = std::find_if(right.begin(), right.end(), [&](const auto& actual) {
+      return expected.id == actual.id && expected.name == actual.name &&
+             expected.uri == actual.uri;
+    });
+    if (found == right.end()) return false;
+  }
+  return true;
+}
+}  // namespace
+
 std::vector<MediaEntry> MediaCatalog::Scan(const std::vector<SharedDirectory>& directories,
-                                          uint64_t expected) try {
+                                          uint64_t expected,
+                                          const std::wstring& cache_path) try {
   AssertScan(expected);
   std::set<std::string> ids;
   std::vector<std::string> previous;
@@ -728,13 +1059,53 @@ std::vector<MediaEntry> MediaCatalog::Scan(const std::vector<SharedDirectory>& d
     // The shared folder itself must be readable. Its pinned handles also keep
     // it from being renamed or removed while the scan skips unreadable children.
     auto root = PinDirectory(LocalPath(directory.uri));
-    Enumerate(*this, directory, root.path, root.path, "", expected, metadata);
+    Enumerate(*this, directory, root.path, root, "", expected, metadata);
   }
   std::map<std::string, MediaEntry> next;
   for (const auto& entry : metadata) next.emplace(entry.id, entry);
+  std::unique_ptr<PendingCatalog> pending;
+  std::optional<std::pair<std::string, std::string>> warning;
+  if (!cache_path.empty()) {
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      const auto protected_file = protected_cache_files_.find(cache_path);
+      if (protected_file != protected_cache_files_.end()) warning = protected_file->second;
+    }
+    if (!warning) {
+      try {
+        // Also check before the first write when callers skipped restore.
+        // An old application must never overwrite a newer catalog format.
+        ReadCatalog(cache_path, [&] { AssertScan(expected); });
+        AssertScan(expected);
+        pending = PrepareCatalog(cache_path, directories, metadata,
+                                 [&] { AssertScan(expected); });
+      } catch (const StorageError& error) {
+        if (error.code == "SCAN_CANCELLED") throw;
+        const std::string code = error.code == "LOCAL_CATALOG_CORRUPT" ||
+            error.code == "LOCAL_CATALOG_VERSION" ? error.code : "LOCAL_CATALOG_IO";
+        warning = std::make_pair(code, code == error.code ? std::string(error.what()) :
+            "Cannot save the local catalog; sharing remains available");
+        if (code != "LOCAL_CATALOG_IO") {
+          std::lock_guard<std::mutex> lock(mutex_);
+          if (expected == ticket_) protected_cache_files_[cache_path] = *warning;
+        }
+      } catch (const std::exception&) {
+        // This is only the auxiliary cache phase. Keep successfully scanned
+        // metadata available when serialization or cache allocation fails.
+        warning = std::make_pair("LOCAL_CATALOG_IO",
+            "Cannot save the local catalog; sharing remains available");
+      }
+    }
+  }
+  if (before_catalog_publish_) before_catalog_publish_();
   std::lock_guard<std::mutex> lock(mutex_);
   if (expected != ticket_) throw StorageError("SCAN_CANCELLED", "Shared directories changed; scan again");
+  if (pending) {
+    try { pending->Commit(); }
+    catch (const StorageError& error) { warning = std::make_pair(error.code, error.what()); }
+  }
   files_ = std::move(next);
+  catalog_warning_ = std::move(warning);
   PruneThumbnailsLocked();
   return metadata;
 } catch (...) {
@@ -742,6 +1113,84 @@ std::vector<MediaEntry> MediaCatalog::Scan(const std::vector<SharedDirectory>& d
   std::lock_guard<std::mutex> lock(mutex_);
   if (expected == ticket_) RevokeLocked();
   throw;
+}
+
+std::optional<std::vector<MediaEntry>> MediaCatalog::Restore(
+    const std::vector<SharedDirectory>& directories, uint64_t expected,
+    const std::wstring& cache_path) try {
+  AssertScan(expected);
+  std::optional<CachedCatalog> saved;
+  try {
+    saved = ReadCatalog(cache_path, [&] { AssertScan(expected); });
+  } catch (const StorageError& error) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (expected != ticket_) throw StorageError("SCAN_CANCELLED", "Shared directories changed; scan again");
+    if (error.code == "LOCAL_CATALOG_CORRUPT" || error.code == "LOCAL_CATALOG_VERSION") {
+      protected_cache_files_[cache_path] = std::make_pair(error.code, error.what());
+    }
+    catalog_warning_ = std::make_pair(error.code, error.what());
+    throw;
+  }
+  AssertScan(expected);
+  if (!saved || !SameDirectories(directories, saved->directories)) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (expected != ticket_) throw StorageError("SCAN_CANCELLED", "Shared directories changed; scan again");
+    RevokePublishedLocked();
+    return std::nullopt;
+  }
+  std::map<std::string, PinnedDirectory> roots;
+  std::map<std::string, std::string> names;
+  for (const auto& directory : directories) {
+    ValidateSegment(directory.id);
+    ValidateSegment(directory.name);
+    auto root = PinDirectory(LocalPath(directory.uri));
+    for (const auto& previous : roots) {
+      if (ContainsPath(root.path, previous.second.path) ||
+          ContainsPath(previous.second.path, root.path)) {
+        throw StorageError("DIR_OVERLAP", "Shared directories cannot repeat or contain each other");
+      }
+    }
+    if (!roots.emplace(directory.id, std::move(root)).second) {
+      throw StorageError("INVALID_ARGUMENT", "Shared directory identifiers repeat");
+    }
+    names.emplace(directory.id, directory.name);
+  }
+  std::map<std::string, MediaEntry> next;
+  for (auto& entry : saved->entries) {
+    AssertScan(expected);
+    const auto root = roots.find(entry.shared_folder_id);
+    if (root == roots.end()) CorruptCatalog();
+    entry.root = root->second.path;
+    entry.path = entry.root;
+    for (const auto& component : RelativeComponents(entry.relative_path)) {
+      entry.path = JoinPath(entry.path, Wide(component));
+    }
+    entry.shared_folder_name = names.at(entry.shared_folder_id);
+    next.emplace(entry.id, entry);
+  }
+  if (before_catalog_publish_) before_catalog_publish_();
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (expected != ticket_) throw StorageError("SCAN_CANCELLED", "Shared directories changed; scan again");
+  files_ = std::move(next);
+  catalog_warning_.reset();
+  PruneThumbnailsLocked();
+  return std::move(saved->entries);
+} catch (...) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  // A stale failure must never revoke a newer task's published catalog.
+  if (expected == ticket_) RevokePublishedLocked();
+  throw;
+}
+
+std::optional<std::pair<std::string, std::string>> MediaCatalog::CatalogWarning() const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  return catalog_warning_;
+}
+
+void MediaCatalog::ReportCatalogWarning(uint64_t ticket, const std::string& code,
+                                        const std::string& message) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (ticket == ticket_) catalog_warning_ = std::make_pair(code, message);
 }
 
 Bytes MediaCatalog::WithMedia(const std::string& id,

@@ -99,7 +99,7 @@ void UiDispatcher::Shutdown() {
 
 unsigned WorkerPool::ThreadCount() {
   const unsigned hardware = std::thread::hardware_concurrency();
-  return hardware == 0 ? 4 : hardware;
+  return hardware == 0 ? 4 : std::max(2u, hardware);
 }
 
 // Scans, thumbnails, peer reads and saves share this pool. Sizing it to the
@@ -326,6 +326,7 @@ void WindowsPlatform::Handle(const flutter::MethodCall<Value>& call,
     } else {
       static const std::set<std::string> storage_methods{
           "pickDirectory", "validateSharedDirectory", "scanDirectoriesMetadata",
+          "restoreDirectoriesMetadata", "getLocalCatalogWarning",
           "clearSharedDirectory", "thumbnail", "readPreview", "readRange", "saveDownload", "deleteDownload",
           "temporaryDirectory", "transferDirectory", "transferSpace", "databaseDirectory", "open", "share"};
       if (!storage_methods.count(method)) {
@@ -336,7 +337,7 @@ void WindowsPlatform::Handle(const flutter::MethodCall<Value>& call,
           method == "clearSharedDirectory") {
         result->Success(storage_->Handle(method, args, window_));
       } else {
-        if (method == "scanDirectoriesMetadata") {
+        if (method == "scanDirectoriesMetadata" || method == "restoreDirectoriesMetadata") {
           args[Value("__generation")] = Value(static_cast<int64_t>(storage_->BeginScan(args)));
         }
         const auto storage = storage_;

@@ -62,6 +62,9 @@ internal object TransferScheduler {
         val network = NetworkRequest.Builder()
             .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
             .addTransportType(NetworkCapabilities.TRANSPORT_ETHERNET)
+            // A VPN over the LAN retains its Wi-Fi/Ethernet transport. Match
+            // that default network too, just as foreground gRPC sync does.
+            .removeCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
             .removeCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
             .removeCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
             .build()

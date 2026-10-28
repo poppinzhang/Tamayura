@@ -340,6 +340,15 @@ abstract class LocalMediaSource {
   Future<Uint8List> readRange(String id, int offset, int length);
 }
 
+/// A source that can restore a complete, previously published local catalog.
+/// The native adapter must restore the matching read handles/identifiers before
+/// returning metadata. Null means there is no usable complete cache; an empty
+/// list is a successfully restored empty catalog.
+abstract interface class RestorableLocalMediaSource
+    implements LocalMediaSource {
+  Future<List<MediaMetadata>?> restore();
+}
+
 /// The shared catalog was replaced or revoked while a read was in progress.
 class MediaSourceInterrupted implements Exception {
   const MediaSourceInterrupted();

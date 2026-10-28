@@ -9,8 +9,8 @@ namespace tamayura {
 
 class WindowsStorage {
  public:
-  // Capture on the platform thread before queuing a scan. A later scan or
-  // clear must cancel both running scans and scans not yet on a worker.
+  // Capture on the platform thread before queuing a scan or cache restore. A
+  // later operation or clear cancels work running or still waiting on a worker.
   // Retained folders keep serving peers until the new scan publishes.
   uint64_t BeginScan(const flutter::EncodableMap& arguments);
   flutter::EncodableValue Handle(const std::string& method,

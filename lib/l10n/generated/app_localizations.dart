@@ -1138,6 +1138,30 @@ abstract class AppLocalizations {
   /// **'尚未选择 · 让其他设备看到这里的照片'**
   String get settingsSharedFoldersEmpty;
 
+  /// No description provided for @settingsSharedFoldersScanning.
+  ///
+  /// In zh, this message translates to:
+  /// **'正在检查共享目录，其他功能仍可使用。'**
+  String get settingsSharedFoldersScanning;
+
+  /// No description provided for @errorLocalCatalogVersion.
+  ///
+  /// In zh, this message translates to:
+  /// **'本机共享目录索引使用当前应用不支持的格式，已保留原文件。完整扫描成功后仍可共享；请使用支持此索引格式的应用版本。'**
+  String get errorLocalCatalogVersion;
+
+  /// No description provided for @errorLocalCatalogCorrupt.
+  ///
+  /// In zh, this message translates to:
+  /// **'本机共享目录索引无法读取，已保留原文件并重新扫描。此次扫描结果仍可用于共享，但暂时无法保存索引缓存。'**
+  String get errorLocalCatalogCorrupt;
+
+  /// No description provided for @errorLocalCatalogIo.
+  ///
+  /// In zh, this message translates to:
+  /// **'本机共享目录索引缓存无法读取或保存，请检查应用数据目录的权限和可用空间。完整扫描成功后仍可共享；下次启动可能需要重新扫描。'**
+  String get errorLocalCatalogIo;
+
   /// No description provided for @settingsRemoveSharedFolder.
   ///
   /// In zh, this message translates to:

@@ -657,6 +657,22 @@ class AppLocalizationsEn extends AppLocalizations {
       'None yet · Let other devices see photos here';
 
   @override
+  String get settingsSharedFoldersScanning =>
+      'Checking shared folders. Other features remain available.';
+
+  @override
+  String get errorLocalCatalogVersion =>
+      'The local shared-folder index uses an unsupported format and has been preserved. Sharing remains available after a successful full scan. Use an app version that supports this index format.';
+
+  @override
+  String get errorLocalCatalogCorrupt =>
+      'The local shared-folder index could not be read and has been preserved. A fresh scan can still provide sharing, but its index cannot be cached yet.';
+
+  @override
+  String get errorLocalCatalogIo =>
+      'The local shared-folder index cache could not be read or saved. Check app data permissions and free space. Sharing remains available after a successful scan; the next launch may need another scan.';
+
+  @override
   String settingsRemoveSharedFolder(String name) {
     return 'Remove $name';
   }

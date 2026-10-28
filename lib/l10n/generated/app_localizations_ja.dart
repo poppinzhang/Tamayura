@@ -612,6 +612,21 @@ class AppLocalizationsJa extends AppLocalizations {
   String get settingsSharedFoldersEmpty => '未選択 · 他のデバイスにここの写真を見せましょう';
 
   @override
+  String get settingsSharedFoldersScanning => '共有フォルダーを確認中です。他の機能は引き続き使用できます。';
+
+  @override
+  String get errorLocalCatalogVersion =>
+      'この端末の共有フォルダー索引は現在のアプリが対応していない形式です。元のファイルは保持されています。完全スキャンが成功すれば共有できます。この索引形式に対応するアプリをご利用ください。';
+
+  @override
+  String get errorLocalCatalogCorrupt =>
+      'この端末の共有フォルダー索引を読み取れないため、元のファイルを保持して再スキャンします。スキャン結果で共有できますが、索引キャッシュはまだ保存できません。';
+
+  @override
+  String get errorLocalCatalogIo =>
+      'この端末の共有フォルダー索引キャッシュを読み取り、または保存できません。アプリデータのアクセス権と空き容量を確認してください。スキャンが完了すれば共有できますが、次回起動時に再スキャンが必要になる場合があります。';
+
+  @override
   String settingsRemoveSharedFolder(String name) {
     return '$name を削除';
   }

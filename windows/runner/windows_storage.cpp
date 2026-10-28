@@ -151,14 +151,40 @@ EncodableValue WindowsStorage::Handle(const std::string& method,
   if (method == "pickDirectory") return PickDirectory(window);
   if (method == "validateSharedDirectory") {
     catalog_.Validate(String(arguments, "uri"), Strings(arguments, "existingUris"));
-  } else if (method == "scanDirectoriesMetadata") {
+  } else if (method == "scanDirectoriesMetadata" || method == "restoreDirectoriesMetadata") {
     const auto ticket = arguments.find(EncodableValue("__generation"));
     const auto expected = ticket == arguments.end() ? BeginScan(arguments) :
         static_cast<uint64_t>(Integer(arguments, "__generation"));
     const auto directories = SharedDirectories(arguments);
+    std::wstring cache_path;
+    bool cache_directory_unavailable = false;
+    try { cache_path = JoinPath(PrivateDirectory(L"catalog"), L"local-catalog.bin"); }
+    catch (const StorageError&) {
+      if (method == "restoreDirectoriesMetadata") {
+        throw StorageError("LOCAL_CATALOG_IO", "Cannot open the local catalog cache directory");
+      }
+      cache_directory_unavailable = true;
+    }
+    if (method == "restoreDirectoriesMetadata") {
+      const auto entries = catalog_.Restore(directories, expected, cache_path);
+      if (!entries) return EncodableValue();
+      EncodableList result;
+      for (const auto& entry : *entries) result.push_back(Metadata(entry));
+      return EncodableValue(std::move(result));
+    }
     EncodableList result;
-    for (const auto& entry : catalog_.Scan(directories, expected)) result.push_back(Metadata(entry));
+    for (const auto& entry : catalog_.Scan(directories, expected, cache_path)) result.push_back(Metadata(entry));
+    if (cache_directory_unavailable) {
+      catalog_.ReportCatalogWarning(expected, "LOCAL_CATALOG_IO",
+          "Cannot open the local catalog cache directory; sharing remains available");
+    }
     return EncodableValue(std::move(result));
+  } else if (method == "getLocalCatalogWarning") {
+    const auto warning = catalog_.CatalogWarning();
+    if (!warning) return EncodableValue();
+    return EncodableValue(EncodableMap{
+        {EncodableValue("code"), EncodableValue(warning->first)},
+        {EncodableValue("message"), EncodableValue(warning->second)}});
   } else if (method == "clearSharedDirectory") {
     catalog_.Clear();
   } else if (method == "readRange") {

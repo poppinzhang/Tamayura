@@ -652,7 +652,7 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
                       Expanded(
                         child: Column(
                           children: [
-                            if (model.busy)
+                            if (model.busy || model.localScanning)
                               const LinearProgressIndicator(minHeight: 2),
                             if (model.error != null)
                               _ErrorNotice(
@@ -1766,6 +1766,14 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
                 Padding(
                   padding: const EdgeInsets.only(top: 14),
                   child: Text(context.l10n.settingsSharedFoldersEmpty),
+                ),
+              if (model.localScanning)
+                Padding(
+                  padding: const EdgeInsets.only(top: 14),
+                  child: Text(
+                    context.l10n.settingsSharedFoldersScanning,
+                    key: const Key('shared-folders-scanning'),
+                  ),
                 ),
               for (final folder in model.sharedFolders)
                 ListTile(

@@ -110,9 +110,11 @@ class MediaCatalog {
  public:
   // Source previews are process-local; zero limits disable retained entries.
   explicit MediaCatalog(size_t thumbnail_max_bytes = 32 * 1024 * 1024,
-                        size_t thumbnail_max_entries = 4096)
+                        size_t thumbnail_max_entries = 4096,
+                        std::function<void()> before_catalog_publish = {})
       : thumbnail_max_bytes_(thumbnail_max_bytes),
-        thumbnail_max_entries_(thumbnail_max_entries) {}
+        thumbnail_max_entries_(thumbnail_max_entries),
+        before_catalog_publish_(std::move(before_catalog_publish)) {}
   // Stops serving every file and cancels running scans.
   uint64_t Clear();
   // Starts a rescan while the previous catalog keeps serving, so peers'
@@ -125,7 +127,18 @@ class MediaCatalog {
   // Files and subfolders that cannot be named or opened are skipped; only an
   // unreadable shared folder fails the scan.
   std::vector<MediaEntry> Scan(const std::vector<SharedDirectory>& directories,
-                             uint64_t ticket);
+                             uint64_t ticket,
+                             const std::wstring& cache_path = {});
+  // Restores only a complete cache for exactly these shared folders. Source
+  // files are checked when read, so restoring never walks the directory tree.
+  // A missing/configuration-mismatched cache returns nullopt. Unreadable,
+  // corrupt or unsupported caches are reported without deleting their bytes.
+  std::optional<std::vector<MediaEntry>> Restore(
+      const std::vector<SharedDirectory>& directories, uint64_t ticket,
+      const std::wstring& cache_path);
+  std::optional<std::pair<std::string, std::string>> CatalogWarning() const;
+  void ReportCatalogWarning(uint64_t ticket, const std::string& code,
+                            const std::string& message);
   Bytes Read(const std::string& id, int64_t offset, int64_t length);
   Bytes WithMedia(const std::string& id,
                   const std::function<Bytes(const MediaEntry&, const SafeFile&)>&
@@ -157,6 +170,7 @@ class MediaCatalog {
   void PruneThumbnailsLocked();
   void EraseThumbnailLocked(const std::string& id);
   void CacheThumbnailLocked(const MediaEntry& source, const Bytes& bytes);
+  void RevokePublishedLocked();
   void RevokeLocked();
   // A read may finish only while sharing continues and its file stays published.
   void AssertCurrent(const std::string& id, const MediaEntry& entry,
@@ -165,7 +179,12 @@ class MediaCatalog {
                            uint64_t generation) const;
 
   mutable std::mutex mutex_;
-  // Changes only when sharing stops or a scan fails; every read then ends.
+  // Cache reads, encoding and temporary writes run without mutex_. Only the
+  // final atomic rename and publication hold it together, so a late writer
+  // cannot replace a newer scan or persist after clear has returned.
+  std::map<std::wstring, std::pair<std::string, std::string>> protected_cache_files_;
+  std::optional<std::pair<std::string, std::string>> catalog_warning_;
+  // Revoking sharing (including a failed/missing restore) ends existing reads.
   uint64_t generation_ = 0;
   // The latest scan; starting another scan or clearing cancels older ones.
   uint64_t ticket_ = 0;
@@ -176,6 +195,8 @@ class MediaCatalog {
   std::list<std::string> thumbnail_recent_;
   std::map<std::string, ThumbnailEntry> thumbnails_;
   std::map<std::string, std::shared_ptr<ThumbnailFlight>> thumbnail_flights_;
+  // Optional synchronization seam for deterministic publication/cancel tests.
+  const std::function<void()> before_catalog_publish_;
 };
 
 std::wstring ValidateDirectory(const std::string& path);
