@@ -38,23 +38,23 @@ It is for browsing and transferring media between your own devices on the same l
 
 ## Quick start
 
-**v1.0.0 is the first stable release**, available for Android, macOS, Windows, and Linux from [GitHub Releases](https://github.com/poppinzhang/Tamayura/releases/tag/v1.0.0). See the [1.0.0 release record](docs/releases/1.0.0.md) for validation scope. Future versions follow the [stable compatibility and upgrade policy](docs/兼容与升级.md).
+**v1.0.1 is the latest stable release**, available for Android, macOS, Windows, and Linux from [GitHub Releases](https://github.com/poppinzhang/Tamayura/releases/tag/v1.0.1). See the [1.0.1 release record](docs/releases/1.0.1.md) for installation notes and validation scope. Stable releases began with v1.0.0 and follow the [compatibility and upgrade policy](docs/兼容与升级.md).
 
-**1.0.0** adds Linux x64 and arm64 support, refreshed in-app and desktop tray branding, stable-only update checks, and database version checks that preserve unsupported data. It keeps image rotation, previous/next preview navigation, and downloads only for the media you open.
+**1.0.1** fixes Windows startup scans blocking connections and folder controls, restores the existing Windows window when you open Tamayura again, and allows Android downloads over Wi-Fi or Ethernet through a VPN or TUN. The VPN must still allow local network traffic. Windows needs one complete scan after upgrading before it can share media; later launches can restore the saved index while checking for changes in the background.
 
-**1 · Install and connect.** Choose the package for your platform from [GitHub Releases](https://github.com/poppinzhang/Tamayura/releases) and read the [installation notes](docs/releases/1.0.0.md#安装与数据). Android keeps the release certificate used since 0.6.1 and can update an app with the same signature. A debug or older differently signed app must be uninstalled first, which clears its app data and folder permissions. Connect both devices to the same local network and open Tamayura. Allow local network access when prompted; on Windows, allow the app through the firewall on your trusted private network.
+**1 · Install and connect.** Choose the package for your platform from [GitHub Releases](https://github.com/poppinzhang/Tamayura/releases) and read the [installation notes](docs/releases/1.0.1.md#安装与数据). Android keeps the release certificate used since 0.6.1 and can update an app with the same signature. A debug or older differently signed app must be uninstalled first, which clears its app data and folder permissions. Connect both devices to the same local network and open Tamayura. Allow local network access when prompted; on Windows, allow the app through the firewall on your trusted private network.
 
 **2 · Choose your folders.** In **Settings (设置)**, add the folders you want to share and choose where downloaded files should go. For example, share `DCIM` and receive files in `Pictures/Tamayura`. Subfolders are included automatically. On Android, choose a subfolder rather than the storage root or the `Download` root.
 
 **3 · Find your other device.** Open **Devices (设备)** and wait for automatic discovery. When a new device is found, Tamayura asks whether to sync its album; if you choose not to, you can turn syncing on later from its card. You can also enter the address shown on the other device, or scan its QR code on Android and macOS; these connect and sync right away.
 
-**4 · Open an album.** In **Albums (相册)**, choose a shared collection and tap a photo or video to download its original. The source device must be online for downloads. After adding or removing media, refresh the source device, then refresh the receiving device to update its album immediately.
+**4 · Open an album.** In **Albums (相册)**, choose a shared collection and tap a photo or video to download its original. The source device must be online for downloads. After adding or removing media, refresh the source device and wait for its folder scan to finish, then refresh the receiving device to update its album.
 
 ## Check for updates
 
 Open **Settings → Check for updates** to check stable GitHub Releases. Tamayura asks for your confirmation before proceeding. Android downloads and verifies the APK, then opens the system installation flow; allow this installation source when prompted and confirm the update. Windows downloads and verifies the full ZIP, replaces the complete application folder, and restarts. It requires a complete release bundle in a dedicated writable local folder whose parent is also writable; it does not provide a separate installer or automatically request administrator access. macOS opens the selected release page for you to download and install the update yourself. Linux also opens the release page; download the tar.gz for your architecture and replace the app folder yourself.
 
-Users of 0.8.0 or later can find 1.0.0 through Check for updates; older versions require manual installation. Checking and downloading updates requires internet access. Updating interrupts sharing and transfers; interrupted media downloads can be retried after reopening the app. See the [1.0.0 release record](docs/releases/1.0.0.md) for limitations and device validation scope.
+Users of 0.8.0 or later can find 1.0.1 through Check for updates; older versions require manual installation. Checking and downloading updates requires internet access. Updating interrupts sharing and transfers; interrupted media downloads can be retried after reopening the app. On Windows, quit the old v1.0.0 app from its tray menu before launching the upgraded app for the first time. See the [1.0.1 release record](docs/releases/1.0.1.md) for limitations and device validation scope.
 
 ## Supported platforms
 
@@ -65,7 +65,7 @@ Users of 0.8.0 or later can find 1.0.0 through Check for updates; older versions
 | Windows | Windows 10 1809+ / Windows 11 · x64 | ZIP; Visual C++ x64 runtime required |
 | Linux (from 1.0.0) | Ubuntu 24.04 LTS or a newer desktop with glibc 2.39+ and GTK 3.24 · x64 / arm64 | tar.gz app folder |
 
-The macOS app uses ad-hoc signing and is not notarized; Windows and Linux packages are unsigned. A stable GitHub Release does not imply platform notarization or app-store distribution. Installation details and validation limits are in the [1.0.0 release record](docs/releases/1.0.0.md). Linux is included from 1.0.0; older releases do not contain Linux packages. iOS is planned but does not yet have a runnable or downloadable build.
+The macOS app uses ad-hoc signing and is not notarized; Windows and Linux packages are unsigned. A stable GitHub Release does not imply platform notarization or app-store distribution. Installation details and validation limits are in the [1.0.1 release record](docs/releases/1.0.1.md). Linux is included from 1.0.0; older releases do not contain Linux packages. iOS is planned but does not yet have a runnable or downloadable build.
 
 Windows can display a connection QR code, open downloaded files in the default app, and reveal them in Explorer. Camera scanning and the system share sheet are available on Android and macOS.
 
@@ -127,7 +127,7 @@ Most detailed documentation is currently in Chinese.
 | :-- | :-- |
 | [Changelog](CHANGELOG.md) | Released and unreleased changes |
 | [GitHub Releases](https://github.com/poppinzhang/Tamayura/releases) | Published packages and checksums |
-| [1.0.0 release record](docs/releases/1.0.0.md) | Stable publication status, installation impact, and validation scope |
+| [1.0.1 release record](docs/releases/1.0.1.md) | Stable publication status, installation impact, and validation scope |
 | [Sync behavior](docs/自动与手动同步.md) | Automatic intervals, manual refresh, and sync status |
 | [New and forgotten devices](docs/新设备确认与忘记设备.md) | Confirming newly discovered devices, retrying when a device comes back, and forgetting devices |
 | [Downloads and storage](docs/下载存储与清理.md) | Resuming downloads, temporary files, and cleanup |
