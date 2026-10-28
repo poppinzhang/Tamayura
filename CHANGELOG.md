@@ -4,7 +4,7 @@
 
 ## 1.0.1
 
-版本日期：2026-10-28。Android、macOS、Windows 与 Linux 统一使用 `1.0.1+17`，Windows 数字文件版本为 `1.0.1.17`。本版修复 Windows 启动与 Android 局域网下载问题，计划发布正式 Release 并标记 Latest，提供 Android APK、macOS Universal ZIP、Windows x64 ZIP、Linux x64 / arm64 tar.gz，以及 `SHA256SUMS`、`release.json` 共七个附件。准备提交时，本次完整测试、打包、四平台分支 CI 和 Tag 发布仍待完成；实际结果见 `docs/releases/1.0.1.md`。
+版本日期：2026-10-29。Android、macOS、Windows 与 Linux 统一使用 `1.0.1+17`，Windows 数字文件版本为 `1.0.1.17`。本版修复 Windows 启动与 Android 局域网下载问题，计划发布正式 Release 并标记 Latest，提供 Android APK、macOS Universal ZIP、Windows x64 ZIP、Linux x64 / arm64 tar.gz，以及 `SHA256SUMS`、`release.json` 共七个附件。准备提交时，本次完整测试、打包、四平台分支 CI 和 Tag 发布仍待完成；实际结果见 `docs/releases/1.0.1.md`。
 
 ### 修复
 
@@ -14,6 +14,7 @@
 
 ### 改进
 
+- Windows 本机目录恢复回归分别检查缓存持久化与恢复字段，失败时提供具体诊断；打包先执行独立原生测试，再执行完整 Flutter 检查及构建，所有发布检查保持必需。
 - 补充 Windows 万条 ARW 轻量元数据、慢扫描期间下载、重启恢复、目录索引安全读写及单实例并发启动回归；Android 补充普通与 VPN 局域网、蜂窝网络拒绝的调度条件回归。自动化执行结果以本次发布记录为准。
 
 ### 安装与数据

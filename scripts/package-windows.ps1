@@ -32,11 +32,13 @@ try {
     $flutter = (Get-Command flutter -ErrorAction Stop).Source
     $dart = (Get-Command dart -ErrorAction Stop).Source
 
+    # Native checks are independent of Flutter dependencies; report storage and
+    # desktop regressions before spending time on the shared Dart checks.
+    & (Join-Path $PSScriptRoot 'test-windows-native.ps1')
     Invoke-Checked -Command $flutter -Arguments @('pub', 'get', '--enforce-lockfile')
     Invoke-Checked -Command $dart -Arguments @('format', '--output=none', '--set-exit-if-changed', 'lib', 'test')
     Invoke-Checked -Command $flutter -Arguments @('analyze', '--no-pub')
     Invoke-Checked -Command $flutter -Arguments @('test', '--no-pub')
-    & (Join-Path $PSScriptRoot 'test-windows-native.ps1')
     # Flutter 3.47 selects the Windows target from the host architecture.
     Invoke-Checked -Command $flutter -Arguments @('build', 'windows', '--release', '--no-pub')
 

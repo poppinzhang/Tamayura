@@ -16,6 +16,29 @@ void Expect(bool value, const char* message) {
   if (!value) throw std::runtime_error(message);
 }
 
+void ExpectSameMetadata(const std::optional<std::vector<MediaEntry>>& restored,
+                        const std::vector<MediaEntry>& scanned) {
+  Expect(restored.has_value(), "The saved catalog must restore rather than return a cache miss");
+  Expect(restored->size() == scanned.size(), "Restored catalog entry count must match the scan");
+  for (size_t i = 0; i < scanned.size(); ++i) {
+    const auto& expected = scanned[i];
+    const auto& actual = restored->at(i);
+    Expect(actual.id == expected.id, "Restored media ID must match the scan");
+    Expect(actual.name == expected.name, "Restored media name must match the scan");
+    Expect(actual.mime_type == expected.mime_type, "Restored media MIME type must match the scan");
+    Expect(actual.size == expected.size, "Restored media size must match the scan");
+    Expect(actual.modified_ms == expected.modified_ms, "Restored media timestamp must match the scan");
+    Expect(actual.shared_folder_id == expected.shared_folder_id,
+           "Restored shared folder ID must match the scan");
+    Expect(actual.shared_folder_name == expected.shared_folder_name,
+           "Restored shared folder name must match the scan");
+    Expect(actual.relative_path == expected.relative_path,
+           "Restored media relative path must match the scan");
+    Expect(actual.root == expected.root, "Restored media root must match the scan");
+    Expect(actual.path == expected.path, "Restored media absolute path must match the scan");
+  }
+}
+
 void Reject(const std::string& code, const std::function<void()>& action) {
   try { action(); }
   catch (const StorageError& error) {
@@ -154,15 +177,19 @@ int main() {
       Expect(!fixture.Restore(first), "A missing cache is distinct from an empty catalog");
       const auto scanned = fixture.Scan(first);
       Expect(scanned.size() == 1, "One media file scanned");
+      if (const auto warning = first.CatalogWarning()) {
+        throw std::runtime_error("Initial catalog persistence failed: " + warning->first +
+                                 " / " + warning->second);
+      }
+      Expect(std::filesystem::exists(fixture.cache), "A completed scan must create the catalog cache");
+      MediaCatalog before_lock;
+      ExpectSameMetadata(fixture.Restore(before_lock), scanned);
       Handle exclusive(CreateFileW(fixture.photo.c_str(), GENERIC_READ, 0, nullptr,
                                    OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr));
       Expect(exclusive.get() != INVALID_HANDLE_VALUE, "Lock source media");
       MediaCatalog restarted;
       const auto restored = fixture.Restore(restarted);
-      Expect(restored && restored->size() == 1 && restored->front().id == scanned.front().id &&
-                 restored->front().path == scanned.front().path &&
-                 restored->front().modified_ms == scanned.front().modified_ms,
-             "Restoration reuses metadata while the media file cannot be opened");
+      ExpectSameMetadata(restored, scanned);
       Reject("PERMISSION_LOST", [&] { restarted.Read(fixture.id(), 0, 5); });
       exclusive.reset();
       Expect(restarted.Read(fixture.id(), 0, 5) == fixture.media, "Restored source can serve bytes");
