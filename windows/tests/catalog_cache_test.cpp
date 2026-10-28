@@ -352,6 +352,48 @@ int main() {
       catalog.AssertScan(missing_ticket);
     });
 
+    test("cache publication keeps its parent and exact temporary file pinned", [&] {
+      Fixture fixture;
+      unsigned publications = 0;
+      MediaCatalog catalog(0, 0, [&] {
+        ++publications;
+        const auto moved = fixture.base + L"-moved";
+        const bool renamed = MoveFileExW(fixture.base.c_str(), moved.c_str(), 0) != FALSE;
+        if (renamed) MoveFileExW(moved.c_str(), fixture.base.c_str(), 0);
+        Expect(!renamed, "The cache parent cannot be renamed during publication");
+        Handle parent_write(CreateFileW(fixture.base.c_str(), GENERIC_WRITE,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
+            FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
+        Expect(parent_write.get() == INVALID_HANDLE_VALUE &&
+                   GetLastError() == ERROR_SHARING_VIOLATION,
+               "The cache parent still rejects write access that could change reparse data");
+        unsigned temporary_files = 0;
+        for (const auto& entry : std::filesystem::directory_iterator(fixture.base)) {
+          if (entry.path().extension() != L".tmp") continue;
+          ++temporary_files;
+          Handle replace(CreateFileW(entry.path().c_str(), DELETE,
+              FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
+              FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
+          Expect(replace.get() == INVALID_HANDLE_VALUE &&
+                     GetLastError() == ERROR_SHARING_VIOLATION,
+                 "The exact temporary cache cannot be deleted or replaced before commit");
+        }
+        Expect(temporary_files == 1, "One prepared cache waits for atomic publication");
+      });
+      fixture.Scan(catalog);
+      Expect(!catalog.CatalogWarning(), "Initial cache creation succeeds with strict directory pins");
+      fixture.NoTemporaryFiles();
+      Write(JoinPath(fixture.root, L"new.jpg"), Bytes{9});
+      fixture.Scan(catalog);
+      Expect(!catalog.CatalogWarning(), "Existing cache replacement succeeds with strict directory pins");
+      Expect(publications == 2, "Both initial creation and replacement used the protected publication");
+      fixture.NoTemporaryFiles();
+      MediaCatalog restarted;
+      const auto restored = fixture.Restore(restarted);
+      Expect(restored && restored->size() == 2, "The replacement snapshot can be restored");
+      Expect(restarted.Read(fixture.id(), 0, 5) == fixture.media, "Restored media remains readable");
+    });
+
     test("atomic replacement failure preserves both old cache and live sharing", [&] {
       Fixture fixture;
       MediaCatalog catalog;

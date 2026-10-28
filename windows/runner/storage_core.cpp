@@ -5,10 +5,12 @@
 #include <shlobj.h>
 #include <shobjidl.h>
 #include <wincodec.h>
+#include <winternl.h>
 #include <wrl/client.h>
 
 #include <algorithm>
 #include <array>
+#include <cstddef>
 #include <cstring>
 #include <limits>
 #include <memory>
@@ -974,19 +976,78 @@ Bytes EncodeCatalog(const std::vector<SharedDirectory>& directories,
   return bytes;
 }
 
+[[noreturn]] void CatalogIoError(const char* message, DWORD error = GetLastError()) {
+  throw StorageError("LOCAL_CATALOG_IO", std::string(message) + " (Windows " +
+                                            std::to_string(error) + ")");
+}
+
+template <typename Function>
+Function CatalogProcedure(const char* name) {
+  const auto module = GetModuleHandleW(L"ntdll.dll");
+  if (!module) CatalogIoError("Cannot access local catalog rename support");
+  const auto procedure = GetProcAddress(module, name);
+  if (!procedure) CatalogIoError("Cannot access local catalog rename support");
+  Function function = nullptr;
+  static_assert(sizeof(function) == sizeof(procedure));
+  std::memcpy(&function, &procedure, sizeof(function));
+  return function;
+}
+
+void RenameCatalogInPlace(HANDLE file, const std::wstring& name) {
+  ValidateSegment(Utf8(name));
+  // NtSetInformationFile's FileRenameInformation accepts a simple name with
+  // RootDirectory == nullptr for a rename within the source file's directory.
+  // MoveFileEx/Win32 path conversion instead opens the target parent for write,
+  // conflicting with the strict directory pins. Keep those pins and the exact
+  // temporary file handle; do not allow directory writes or resolve a new path.
+  struct RenameInformation {
+    BOOLEAN replace_if_exists;
+    HANDLE root_directory;
+    ULONG file_name_length;
+    WCHAR file_name[256];
+  } information{};
+  static_assert(offsetof(RenameInformation, root_directory) ==
+                offsetof(FILE_RENAME_INFO, RootDirectory));
+  static_assert(offsetof(RenameInformation, file_name) ==
+                offsetof(FILE_RENAME_INFO, FileName));
+  information.replace_if_exists = TRUE;
+  information.file_name_length = static_cast<ULONG>(name.size() * sizeof(WCHAR));
+  std::copy(name.begin(), name.end(), information.file_name);
+  using SetInformation = NTSTATUS(NTAPI*)(HANDLE, PIO_STATUS_BLOCK, PVOID, ULONG,
+                                         FILE_INFORMATION_CLASS);
+  using StatusToError = ULONG(NTAPI*)(NTSTATUS);
+  static const auto set_information =
+      CatalogProcedure<SetInformation>("NtSetInformationFile");
+  static const auto status_to_error =
+      CatalogProcedure<StatusToError>("RtlNtStatusToDosError");
+  constexpr auto rename_information = static_cast<FILE_INFORMATION_CLASS>(10);
+  IO_STATUS_BLOCK completion{};
+  const auto status = set_information(file, &completion, &information,
+                                      static_cast<ULONG>(sizeof(information)),
+                                      rename_information);
+  if (status < 0) {
+    CatalogIoError("Cannot replace the saved local catalog", status_to_error(status));
+  }
+}
+
 struct PendingCatalog {
-  std::wstring target;
+  std::wstring target_name;
   std::wstring temporary;
   PinnedDirectory parent;
+  Handle output;
+  bool committed = false;
   ~PendingCatalog() {
-    if (!temporary.empty()) DeleteFileW(NativePath(temporary).c_str());
+    if (!committed && output.get() != INVALID_HANDLE_VALUE) {
+      // Delete only this exact temporary file, including after cancellation.
+      FILE_DISPOSITION_INFO disposition{TRUE};
+      SetFileInformationByHandle(output.get(), FileDispositionInfo, &disposition,
+                                 static_cast<DWORD>(sizeof(disposition)));
+    }
   }
   void Commit() {
-    if (!MoveFileExW(NativePath(temporary).c_str(), NativePath(target).c_str(),
-                     MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
-      throw StorageError("LOCAL_CATALOG_IO", "Cannot replace the saved local catalog");
-    }
-    temporary.clear();
+    RenameCatalogInPlace(output.get(), target_name);
+    committed = true;
+    output.reset();
   }
 };
 
@@ -998,17 +1059,18 @@ std::unique_ptr<PendingCatalog> PrepareCatalog(const std::wstring& path,
   const auto normal = LocalPath(Utf8(path));
   const auto slash = normal.find_last_of(L'\\');
   pending->parent = PinDirectory(normal.substr(0, slash == 2 ? 3 : slash));
-  pending->target = JoinPath(pending->parent.path, normal.substr(slash + 1));
+  pending->target_name = normal.substr(slash + 1);
   GUID guid{};
   wchar_t guid_text[40]{};
   if (FAILED(CoCreateGuid(&guid)) || StringFromGUID2(guid, guid_text, 40) != 39) {
     throw StorageError("LOCAL_CATALOG_IO", "Cannot create a temporary local catalog");
   }
   pending->temporary = JoinPath(pending->parent.path, std::wstring(L"catalog-") + guid_text + L".tmp");
-  Handle output(CreateFileW(NativePath(pending->temporary).c_str(), GENERIC_WRITE, 0,
-                            nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr));
-  if (output.get() == INVALID_HANDLE_VALUE) {
-    throw StorageError("LOCAL_CATALOG_IO", "Cannot create a temporary local catalog");
+  pending->output = Handle(CreateFileW(NativePath(pending->temporary).c_str(),
+      GENERIC_WRITE | DELETE, 0, nullptr, CREATE_NEW,
+      FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
+  if (pending->output.get() == INVALID_HANDLE_VALUE) {
+    CatalogIoError("Cannot create a temporary local catalog");
   }
   size_t offset = 0;
   while (offset < bytes.size()) {
@@ -1016,13 +1078,14 @@ std::unique_ptr<PendingCatalog> PrepareCatalog(const std::wstring& path,
     const DWORD count = static_cast<DWORD>(std::min<size_t>(
         bytes.size() - offset, static_cast<size_t>(kMaxReadChunkBytes)));
     DWORD written = 0;
-    if (!WriteFile(output.get(), bytes.data() + offset, count, &written, nullptr) || !written) {
-      throw StorageError("LOCAL_CATALOG_IO", "Cannot write the saved local catalog");
+    if (!WriteFile(pending->output.get(), bytes.data() + offset, count, &written, nullptr)) {
+      CatalogIoError("Cannot write the saved local catalog");
     }
+    if (!written) CatalogIoError("Cannot write the saved local catalog", ERROR_WRITE_FAULT);
     offset += written;
   }
-  if (!FlushFileBuffers(output.get())) {
-    throw StorageError("LOCAL_CATALOG_IO", "Cannot flush the saved local catalog");
+  if (!FlushFileBuffers(pending->output.get())) {
+    CatalogIoError("Cannot flush the saved local catalog");
   }
   return pending;
 }
