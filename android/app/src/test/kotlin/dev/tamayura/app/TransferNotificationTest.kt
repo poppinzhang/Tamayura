@@ -160,6 +160,23 @@ class TransferNotificationTest(private val access: NotificationAccess) {
         assertNull(shadowOf(activity).lastRequestedPermission)
     }
 
+    @Test fun approvedRemoteDownloadAddsCellularWithoutChangingLanPolicy() {
+        val result = Result()
+        MainActivity::class.java.getDeclaredMethod("handleMethod", MethodCall::class.java,
+            MethodChannel.Result::class.java).apply { isAccessible = true }
+            .invoke(activity, MethodCall("scheduleTransfer", mapOf(
+                "taskId" to "remote-network", "allowRemote" to true)), result)
+        result.assertSuccess()
+        val job = scheduler.allPendingJobs.single()
+        val request = requireNotNull(job.requiredNetwork)
+        assertTrue(request.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR))
+        assertTrue(request.hasTransport(NetworkCapabilities.TRANSPORT_WIFI))
+        assertTrue(request.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET))
+        assertFalse(request.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN))
+        assertFalse(request.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED))
+        assertTrue(job.extras.getBoolean("allowRemote"))
+    }
+
     @Test fun cancelReplyWaitsUntilTheOldNativeWriterIsDrained() {
         val current = Robolectric.buildService(BackgroundTransferService::class.java).create().get()
         service = current
@@ -212,7 +229,7 @@ class TransferNotificationTest(private val access: NotificationAccess) {
         val visible = shadowOf(notifications).getNotification(71)
         if (access == NotificationAccess.ALLOWED) {
             assertNotNull(visible)
-            assertEquals("下载暂停，等待局域网恢复", visible.extras.getString(Notification.EXTRA_TEXT))
+            assertEquals("下载暂停，等待连接恢复", visible.extras.getString(Notification.EXTRA_TEXT))
         } else {
             assertNull(visible)
         }

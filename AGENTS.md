@@ -2,7 +2,7 @@
 
 ## 项目概述
 
-本项目是一个用于局域网内多平台之间同步媒体文件的应用。
+本项目是一个用于多平台设备之间同步媒体文件的应用，目标覆盖局域网及通过互联网访问远端设备。
 
 ## 项目目标
 
@@ -16,8 +16,8 @@
 * 点击媒体文件后，再真正尝试连接对端并下载媒体文件到本地指定目录（也就是点一次就会下载到本设备）
 * 不需要考虑媒体文件内容修改的情况，只需要同步增删
 * 如果媒体文件大于 50M 则进行并发下载，提高下载速度
-* 暂时仅限局域网内进行同步
-* 暂不需要局域网内的安全验证
+* 支持通过互联网访问其它 Tamayura 服务，未发布源码已接入 Tailscale 官方管控，后续按需开放 Headscale；可选登录、设备发现与双路径在线状态见 [Tailscale 接入需求](docs/Tailscale接入需求.md)，实现与尚未验收范围见 [Tailscale 实现](docs/Tailscale实现.md)
+* 跨互联网连接须明确加密与访问控制边界；当前无应用层鉴权或 TLS，不能直接作为匿名公网服务开放
 
 ## 技术要求
 
@@ -90,6 +90,8 @@
 | macOS | macOS 15.0+、已安装并初始化的完整 Xcode；仅 Command Line Tools 不能构建应用 | `FLUTTER_SWIFT_PACKAGE_MANAGER=true flutter run -d macos` |
 | Windows | x64 Windows、Visual Studio 2022 的“使用 C++ 的桌面开发”、Windows SDK 与 CMake | `flutter run -d windows` |
 | Linux | Ubuntu 24.04 同代 x64 / arm64；clang、CMake、Ninja、pkg-config 及 GTK 3、liblzma、libstdc++-14、Avahi 客户端开发包；arm64 从 `3.47.6` 标签检出 Flutter | `flutter run -d linux` |
+
+未发布的 Tailscale 接入额外需要 Go **1.27.4** 和 Python **3.12+**（CI 使用 3.13）；Android 原生库使用 NDK **28.2.13676358**。构建与 SDK 验证入口见 [Tailscale 实现](docs/Tailscale实现.md)，不能省略 helper 或原生库后仍声称完成应用构建。
 
 在项目根目录解析依赖：
 
@@ -180,7 +182,7 @@ scripts/generate-proto.sh
 
 ## 实现约束与平台边界
 
-* 当前网络范围为 IPv4 局域网，无账号、鉴权或 TLS。默认端口为 `50728`，mDNS / DNS-SD 服务为 `_tamayura._tcp`；手动只填 IP 时使用默认端口，扫码与自动发现使用实际广播端口。
+* 未发布源码通过独立 Flutter-Tailscale 组件内嵌 Tailscale 官方节点，可选登录；LAN 启动、未登录与退出不依赖远程能力。实现、构建和验证边界见 [Tailscale 实现](docs/Tailscale实现.md)。LAN 手动地址仍仅接受私有及链路本地 IPv4，默认端口 `50728`、mDNS `_tamayura._tcp`；Tailscale 经用户态连接器，虚拟身份端口 `50729` 只返回身份，媒体端口 `50728` 要求显式确认的网络 / 节点绑定及 WhoIs 核验。原 LAN 入口仍无应用层鉴权或 TLS，禁止公开映射。Android 仅已绑定远端任务增加蜂窝网络候选；真实蜂窝 / UIDT / 锁屏验收不能用回环测试代替。Headscale、iOS、系统 VPN 与 Funnel 未实现。
 * 元数据与缩略图保存到本地 SQLite，离线可浏览。同步不自动下载原文件，不跟踪原文件内容修改，也不进行跨设备内容去重。目录快照完整成功后才应用删除；断点恢复和独立缩略图缓存的约束见对应文档。
 * 当前自动同步按设备分别计时，默认间隔 10 分钟，可设置 1–525600 的整数分钟；失败尝试也计时。手动刷新、明确重试、输入 IP 或扫码连接可立即尝试；上一次尝试失败的设备在 mDNS 上线边沿（发现会话中首次广播或下线后再广播）立即重试一次，重复广播不得触发同步或轮询。尝试时间与最后成功时间分开保存，不能把设备发现、在线探测或下载原文件当成相册同步成功。
 * 自动发现的新设备先核验身份，再以「待确认」保存并提示一次，用户确认后才同步；拒绝的设备保留在列表中可随时开启，输入 IP 或扫码视为确认。忘记设备删除其目录、同步暂存和无引用缩略图，保留下载历史与已保存文件，不影响对端。
@@ -200,6 +202,7 @@ scripts/generate-proto.sh
 | --- | --- |
 | 平台架构与原生能力 | [Android 原型](docs/Android原型.md)、[目录与设备发现](docs/android-storage.md)、[Android 16+](docs/android16.md)、[macOS 实现](docs/macOS原型.md)、[Windows 实现与调试](docs/Windows原型.md)、[Linux 实现与调试](docs/Linux原型.md) |
 | 设备与目录 | [设备身份与记忆](docs/设备身份与记忆.md)、[新设备确认与忘记设备](docs/新设备确认与忘记设备.md)、[设备排序](docs/设备排序.md)、[多目录共享与合集](docs/多目录共享与合集.md) |
+| 互联网与远程访问规划 | [Tailscale 接入需求](docs/Tailscale接入需求.md)、[互联网访问规划](docs/互联网访问规划.md)、[Tailscale 实现](docs/Tailscale实现.md)（未发布接入与验证边界） |
 | 同步与缓存 | [自动与手动同步](docs/自动与手动同步.md)、[同步进度](docs/同步进度.md)、[缩略图存储](docs/缩略图存储.md)、[单张缩略图容错](docs/单张缩略图容错.md) |
 | 下载、保存与删除 | [传输恢复](docs/传输恢复.md)、[下载存储与清理](docs/下载存储与清理.md)、[相册本地原图](docs/相册本地原图.md)、[本地媒体删除](docs/本地媒体删除.md) |
 | 后台与桌面生命周期 | [后台共享](docs/后台共享.md)、[桌面托盘与窗口生命周期](docs/桌面托盘与窗口生命周期.md) |

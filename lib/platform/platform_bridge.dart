@@ -104,6 +104,20 @@ abstract class PlatformBridge {
   Future<void> openBatteryOptimizationSettings() =>
       _methods.invokeMethod<void>('openBatteryOptimizationSettings');
 
+  /// Only an official, ephemeral Tailscale authentication URL may be opened.
+  Future<void> openTailscaleLogin(Uri url) {
+    if (url.scheme != 'https' ||
+        url.host != 'login.tailscale.com' ||
+        url.userInfo.isNotEmpty ||
+        url.hasPort ||
+        !url.path.startsWith('/a/')) {
+      throw const FormatException('Invalid Tailscale authentication URL');
+    }
+    return _methods.invokeMethod<void>('openTailscaleLogin', {
+      'url': url.toString(),
+    });
+  }
+
   /// Native notifications, menus, pickers and messages follow the saved
   /// preference: `system`, `zh`, `ja` or `en`. Native code persists it and
   /// resolves `system` with the same rule as the Dart interface.
@@ -180,6 +194,14 @@ abstract class PlatformBridge {
 
   Future<void> scheduleTransfer(String taskId) =>
       _methods.invokeMethod<void>('scheduleTransfer', {'taskId': taskId});
+
+  /// A user-started task with an approved Tailscale route may use cellular.
+  /// LAN-only requests keep the original Wi-Fi/Ethernet scheduling contract.
+  Future<void> scheduleRemoteTransfer(String taskId) =>
+      _methods.invokeMethod<void>('scheduleTransfer', {
+        'taskId': taskId,
+        'allowRemote': true,
+      });
 
   Future<void> cancelTransfer(String taskId) =>
       _methods.invokeMethod<void>('cancelTransfer', {'taskId': taskId});

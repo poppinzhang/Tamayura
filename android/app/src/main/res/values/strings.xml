@@ -22,14 +22,14 @@
     <string name="sharing_error_stopped">The background sharing service stopped. Open the app and try again.</string>
 
     <string name="transfer_channel_name">Media downloads</string>
-    <string name="transfer_channel_description">Progress and results of local network media downloads</string>
+    <string name="transfer_channel_description">Progress and results of media downloads</string>
     <string name="transfer_default_name">Media file</string>
     <string name="transfer_waiting_title">Waiting for the previous download to stop</string>
     <string name="transfer_waiting_text">Saving download progress</string>
-    <string name="transfer_preparing">Preparing the local network download</string>
-    <string name="transfer_downloading">Downloading over the local network</string>
+    <string name="transfer_preparing">Preparing the media download</string>
+    <string name="transfer_downloading">Downloading media</string>
     <string name="transfer_paused">Download paused</string>
-    <string name="transfer_waiting_network">Download paused, waiting for the local network</string>
+    <string name="transfer_waiting_network">Download paused, waiting for a connection</string>
     <string name="transfer_completed">Download complete. Open the app to view or share it.</string>
     <string name="transfer_retry_later">The other device is unavailable for now; retrying automatically later</string>
     <string name="transfer_failed">Download failed. Open the app to try again.</string>

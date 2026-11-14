@@ -30,11 +30,17 @@ jobs:
           packages: platform-tools
       - name: Install Android API 36 tools
         run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0' 'platform-tools'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: third_party/flutter_tailscale/native/go.mod
+          cache-dependency-path: third_party/flutter_tailscale/native/go.sum
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.47.6'
           channel: stable
           cache: true
+      - name: Test reusable Tailscale runtime and SDK
+        run: bash scripts/test-tailscale.sh
       - run: flutter pub get
       - run: dart format --output=none --set-exit-if-changed lib test
       - run: flutter analyze

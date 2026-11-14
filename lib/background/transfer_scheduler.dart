@@ -20,12 +20,19 @@ abstract interface class TransferScheduler {
 
 /// Android's jobs survive activity teardown and must not be stopped with the UI.
 class NativeTransferScheduler implements TransferScheduler {
-  const NativeTransferScheduler(this.bridge);
+  const NativeTransferScheduler(this.bridge, {this.allowRemoteTransfer});
   final PlatformBridge bridge;
+  final Future<bool> Function(String taskId)? allowRemoteTransfer;
 
   @override
-  Future<void> scheduleTransfer(String taskId) =>
-      bridge.scheduleTransfer(taskId);
+  Future<void> scheduleTransfer(String taskId) async {
+    if (await allowRemoteTransfer?.call(taskId) == true) {
+      await bridge.scheduleRemoteTransfer(taskId);
+    } else {
+      await bridge.scheduleTransfer(taskId);
+    }
+  }
+
   @override
   Future<void> cancelTransfer(String taskId) => bridge.cancelTransfer(taskId);
   @override

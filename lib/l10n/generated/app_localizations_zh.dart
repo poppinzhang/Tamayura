@@ -1653,4 +1653,92 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get updateErrorReleaseUrl => '更新页面地址无效';
+
+  @override
+  String get tailscaleTitle => 'Tailscale 远程连接';
+
+  @override
+  String get tailscaleDescription => '可选登录。登录后可通过互联网连接其它 Tamayura；局域网功能始终可用。';
+
+  @override
+  String get tailscaleSignedOut => '未登录';
+
+  @override
+  String get tailscaleConnecting => '正在连接';
+
+  @override
+  String get tailscaleNeedsLogin => '请在浏览器中完成登录';
+
+  @override
+  String get tailscaleNeedsApproval => '等待 Tailscale 管理员批准设备';
+
+  @override
+  String get tailscaleConnected => 'Tailscale 已连接';
+
+  @override
+  String get tailscaleUnavailable => 'Tailscale 暂不可用';
+
+  @override
+  String get tailscaleLogin => '登录 Tailscale';
+
+  @override
+  String get tailscaleOpenLogin => '打开登录页面';
+
+  @override
+  String get tailscaleRetry => '重新连接与检查设备';
+
+  @override
+  String get tailscaleLogout => '退出 Tailscale';
+
+  @override
+  String get tailscaleLogoutMessage =>
+      '退出会断开远程连接并清除本机登录凭据。保留设备、离线相册、下载文件及可恢复的下载进度。';
+
+  @override
+  String get tailscaleDataNotice =>
+      '远程同步和下载会使用当前网络，包括移动数据，可能产生流量费用。自动相册同步沿用现有间隔。远端媒体共享仍需逐台确认。';
+
+  @override
+  String get tailscaleCandidates => '发现的远程设备';
+
+  @override
+  String get tailscaleConfirm => '确认并允许远程共享';
+
+  @override
+  String get tailscaleConfirmMessage =>
+      '请确认这是你的设备。允许后，该 Tailscale 节点可以读取本机共享目录中的媒体。相册同步仍需另行确认，对端也需要允许本机访问。';
+
+  @override
+  String get tailscaleExistingDevice => '将与已有设备记录关联；请核对两端的设备身份。';
+
+  @override
+  String get tailscaleRevoke => '撤销远程共享';
+
+  @override
+  String get tailscaleAuthorized => '已允许远程共享的设备';
+
+  @override
+  String get tailscaleLanOnline => '局域网在线';
+
+  @override
+  String get tailscalePeerOnline => 'Tailscale 在线';
+
+  @override
+  String get tailscaleError => '远程连接失败，请重试并检查网络、登录及对端的共享授权。局域网和离线相册仍可使用。';
+
+  @override
+  String get tailscaleLoginOpenError => '无法打开登录页面，请确认已安装可用的浏览器后重试。';
+
+  @override
+  String get tailscaleRuntimeMissing => '此安装缺少 Tailscale 组件。请使用包含该组件的完整构建。';
+
+  @override
+  String get tailscaleControlDisconnected =>
+      '管控连接暂时中断；已建立的设备连接可能仍可使用，在线状态以实际检查为准。';
+
+  @override
+  String get tailscaleLocalIdentity => '本机设备与 Tailscale 节点身份';
+
+  @override
+  String get errorPeerAccessDenied => '远端访问被拒绝或节点身份验证失败。请核对两端设备身份和共享授权后重试。';
 }

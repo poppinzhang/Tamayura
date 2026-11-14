@@ -78,6 +78,31 @@ set_target_properties(${BINARY_NAME}
 # them to the application.
 include(flutter/generated_plugins.cmake)
 
+# The SDK's userspace node is an application-owned helper, not a system daemon.
+find_program(TAILSCALE_GO go REQUIRED)
+find_package(Python3 COMPONENTS Interpreter REQUIRED)
+set(TAILSCALE_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/../third_party/flutter_tailscale/native")
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64)$")
+  set(TAILSCALE_ARCH arm64)
+else()
+  set(TAILSCALE_ARCH amd64)
+endif()
+set(TAILSCALE_HELPER "${CMAKE_BINARY_DIR}/tailscale/flutter-tailscale-bridge")
+file(GLOB_RECURSE TAILSCALE_INPUTS CONFIGURE_DEPENDS "${TAILSCALE_SOURCE}/*.go")
+add_custom_command(OUTPUT "${TAILSCALE_HELPER}" "${TAILSCALE_HELPER}.NOTICES.txt"
+  COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/tailscale"
+  COMMAND ${CMAKE_COMMAND} -E env CGO_ENABLED=0 GOOS=linux GOARCH=${TAILSCALE_ARCH} GOTOOLCHAIN=auto
+    "${TAILSCALE_GO}" build -trimpath "-ldflags=-s -w -buildid="
+    -o "${TAILSCALE_HELPER}" ./cmd/flutter-tailscale
+  COMMAND ${CMAKE_COMMAND} -E env CGO_ENABLED=0 GOOS=linux GOARCH=${TAILSCALE_ARCH} GOTOOLCHAIN=auto
+    "${Python3_EXECUTABLE}" "${TAILSCALE_SOURCE}/../scripts/collect-licenses.py" "${TAILSCALE_HELPER}.NOTICES.txt"
+  WORKING_DIRECTORY "${TAILSCALE_SOURCE}"
+  DEPENDS ${TAILSCALE_INPUTS} "${TAILSCALE_SOURCE}/go.mod" "${TAILSCALE_SOURCE}/go.sum"
+    "${TAILSCALE_SOURCE}/../scripts/collect-licenses.py"
+  VERBATIM)
+add_custom_target(tailscale_helper DEPENDS "${TAILSCALE_HELPER}" "${TAILSCALE_HELPER}.NOTICES.txt")
+add_dependencies(${BINARY_NAME} tailscale_helper)
+
 
 # === Installation ===
 # By default, "installing" just makes a relocatable bundle in the build
@@ -97,6 +122,8 @@ set(INSTALL_BUNDLE_LIB_DIR "${CMAKE_INSTALL_PREFIX}/lib")
 
 install(TARGETS ${BINARY_NAME} RUNTIME DESTINATION "${CMAKE_INSTALL_PREFIX}"
   COMPONENT Runtime)
+install(PROGRAMS "${TAILSCALE_HELPER}" DESTINATION "${CMAKE_INSTALL_PREFIX}" COMPONENT Runtime)
+install(FILES "${TAILSCALE_HELPER}.NOTICES.txt" DESTINATION "${CMAKE_INSTALL_PREFIX}" COMPONENT Runtime)
 
 install(FILES "${FLUTTER_ICU_DATA_FILE}" DESTINATION "${INSTALL_BUNDLE_DATA_DIR}"
   COMPONENT Runtime)

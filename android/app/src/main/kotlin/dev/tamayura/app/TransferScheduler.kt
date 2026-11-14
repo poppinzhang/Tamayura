@@ -55,13 +55,16 @@ internal object TransferScheduler {
     }
 
     /** Called from the visible Activity, including after an old engine drains. */
-    fun schedule(context: Context, taskId: String) {
+    fun schedule(context: Context, taskId: String, allowRemote: Boolean = false) {
         val id = jobId(context, taskId)
         val scheduler = scheduler(context)
         if (scheduler.getPendingJob(id)?.extras?.getString(TASK_ID) == taskId) return
         val network = NetworkRequest.Builder()
             .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
             .addTransportType(NetworkCapabilities.TRANSPORT_ETHERNET)
+            .apply {
+                if (allowRemote) addTransportType(NetworkCapabilities.TRANSPORT_CELLULAR)
+            }
             // A VPN over the LAN retains its Wi-Fi/Ethernet transport. Match
             // that default network too, just as foreground gRPC sync does.
             .removeCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
@@ -74,6 +77,7 @@ internal object TransferScheduler {
             .setExtras(PersistableBundle().apply {
                 putString(TASK_ID, taskId)
                 putString(RUN_ID, java.util.UUID.randomUUID().toString())
+                putBoolean("allowRemote", allowRemote)
             })
             .setBackoffCriteria(10_000, JobInfo.BACKOFF_POLICY_EXPONENTIAL)
             .build()

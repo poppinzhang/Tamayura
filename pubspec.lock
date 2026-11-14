@@ -179,6 +179,13 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "0.1.5"
+  flutter_tailscale:
+    dependency: "direct main"
+    description:
+      path: "third_party/flutter_tailscale"
+      relative: true
+    source: path
+    version: "0.1.0"
   flutter_test:
     dependency: "direct dev"
     description: flutter

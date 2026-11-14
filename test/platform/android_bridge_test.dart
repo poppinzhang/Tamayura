@@ -434,6 +434,16 @@ void main() {
     );
   });
 
+  test(
+    'only an explicitly remote transfer enables cellular scheduling',
+    () async {
+      await bridge.scheduleTransfer('lan');
+      await bridge.scheduleRemoteTransfer('remote');
+      expect(calls[0].arguments, {'taskId': 'lan'});
+      expect(calls[1].arguments, {'taskId': 'remote', 'allowRemote': true});
+    },
+  );
+
   test('persistent transfer directory must be provided by Android', () async {
     await expectLater(
       bridge.transferDirectory(),

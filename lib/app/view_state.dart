@@ -19,18 +19,42 @@ class DeviceView {
     required this.name,
     required this.address,
     required this.online,
+    bool? lanOnline,
+    this.tailscaleOnline = false,
     this.lastSync,
     this.lastSuccessfulSync,
     this.syncApproval = PeerSyncApproval.approved,
-  });
+  }) : lanOnline = lanOnline ?? online;
   final String id, name, address;
   final bool online;
+  final bool lanOnline, tailscaleOnline;
   final DateTime? lastSync;
   final DateTime? lastSuccessfulSync;
 
   /// Discovered devices synchronize only after the user approves them.
   final PeerSyncApproval syncApproval;
   bool get syncEnabled => syncApproval == PeerSyncApproval.approved;
+}
+
+enum TailscaleConnectionState {
+  signedOut,
+  connecting,
+  needsLogin,
+  needsApproval,
+  connected,
+  unavailable,
+}
+
+class TailscaleDeviceView {
+  const TailscaleDeviceView({
+    required this.key,
+    required this.deviceId,
+    required this.name,
+    required this.nodeId,
+    required this.existingDevice,
+  });
+  final String key, deviceId, name, nodeId;
+  final bool existingDevice;
 }
 
 class MediaView {
@@ -96,6 +120,23 @@ class TransferView {
 }
 
 abstract class TamayuraModel extends ChangeNotifier {
+  TailscaleConnectionState get tailscaleState =>
+      TailscaleConnectionState.signedOut;
+  bool get tailscaleEnabled => false;
+  bool get tailscaleBusy => false;
+  bool get tailscaleCanOpenLogin => false;
+  bool get tailscaleControlDisconnected => false;
+  String? get tailscaleLocalDeviceId => null;
+  String? get tailscaleNodeId => null;
+  String? get tailscaleError => null;
+  List<TailscaleDeviceView> get tailscaleCandidates => const [];
+  List<String> get tailscaleAuthorizedDeviceIds => const [];
+  Future<void> loginTailscale() async {}
+  Future<void> openTailscaleLogin() async {}
+  Future<void> retryTailscale() async {}
+  Future<void> logoutTailscale() async {}
+  Future<void> confirmTailscaleDevice(String key) async {}
+  Future<void> revokeTailscaleDevice(String deviceId) async {}
   ThemeMode get themeMode => ThemeMode.system;
   bool get themeModeSaving => false;
   AppLanguage get language => AppLanguage.system;

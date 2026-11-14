@@ -16,7 +16,7 @@ UI 使用 Flutter Hero、InteractiveViewer 与 PredictiveBack 页面转场。双
 
 UIDT 服务仍须调用 `JobService.setNotification`，由系统依据用户设置控制通知栏展示；不能因通知关闭而省略此调用，否则系统可能停止任务。关闭通知时不显示普通下载提醒，系统任务管理器仍可能显示运行中的应用。任务停止后的普通通知仅在权限和通知频道均允许时发送。[JobService.setNotification 官方说明](https://developer.android.com/reference/android/app/job/JobService#setNotification(android.app.job.JobParameters,int,android.app.Notification,int))
 
-任务要求 Wi-Fi 或以太网，但不要求网络能访问互联网。JobService 创建独立 FlutterEngine，运行 `backgroundTransferMain`；不会依赖相册 Activity 存活。`tamayura/background` 的 ready/progress/complete/stop 通道用于任务身份、通知和中断。
+当前下载调度要求 Wi-Fi 或以太网，但不要求网络能访问互联网；蜂窝网络适配尚未实现，见 [互联网访问规划](互联网访问规划.md)。JobService 创建独立 FlutterEngine，运行 `backgroundTransferMain`；不会依赖相册 Activity 存活。`tamayura/background` 的 ready/progress/complete/stop 通道用于任务身份、通知和中断。
 
 1.0.1 显式移除 `NetworkRequest.Builder` 默认的 `NET_CAPABILITY_NOT_VPN` 条件，允许基于 Wi-Fi / 以太网的 VPN 或 TUN。Android 的 VPN 网络会包含底层网络的 transport；只解除“非 VPN”限制，仍保留 Wi-Fi / 以太网条件，不单独添加 `TRANSPORT_VPN`，因此纯蜂窝和纯蜂窝 VPN 仍不匹配。旧条件可能导致相册同步正常、下载一直等待：前台同步直接建立 gRPC 连接，下载则先经过 JobScheduler 的网络匹配。此修复不修改系统路由，代理仍须允许局域网设备互通。[Android 网络能力说明](https://developer.android.com/reference/android/net/NetworkCapabilities#NET_CAPABILITY_NOT_VPN)、[VPN 与底层 transport](https://developer.android.com/develop/connectivity/network-ops/reading-network-state)。
 

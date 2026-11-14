@@ -3,9 +3,11 @@
 #include <flutter/standard_method_codec.h>
 #include <flutter/event_stream_handler_functions.h>
 #include <objbase.h>
+#include <shellapi.h>
 
 #include <algorithm>
 #include <cwctype>
+#include <regex>
 #include <set>
 
 #include "app_text.h"
@@ -431,6 +433,18 @@ void WindowsPlatform::Handle(const flutter::MethodCall<Value>& call,
       // The tray refreshes its tooltip; its menu is built in the current language.
       PostMessageW(window_, kLanguageChangedMessage, 0, 0);
       result->Success();
+    } else if (method == "openTailscaleLogin") {
+      const auto url = ArgumentString(args, "url");
+      static const std::regex allowed(R"(^https://login\.tailscale\.com/a/[A-Za-z0-9_/?=&%.-]+$)");
+      if (url.size() > 4096 || !std::regex_match(url, allowed)) {
+        result->Error("TAILSCALE_LOGIN_URL");
+      } else {
+        const auto wide = Wide(url);
+        const auto opened = reinterpret_cast<INT_PTR>(
+            ShellExecuteW(window_, L"open", wide.c_str(), nullptr, nullptr, SW_SHOWNORMAL));
+        if (opened <= 32) result->Error("TAILSCALE_LOGIN_OPEN");
+        else result->Success();
+      }
     } else if (method == "setTransferActivity" || method == "openBatteryOptimizationSettings" ||
                method == "scheduleTransfer" || method == "cancelTransfer") {
       result->Success();

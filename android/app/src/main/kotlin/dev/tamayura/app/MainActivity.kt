@@ -61,6 +61,21 @@ class MainActivity : FlutterActivity() {
                 startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
                 result.success(null)
             }
+            "openTailscaleLogin" -> {
+                val value = call.requiredString("url")
+                val uri = Uri.parse(value)
+                if (uri.scheme != "https" || uri.host != "login.tailscale.com" ||
+                    uri.port != -1 || uri.userInfo != null || !uri.path.orEmpty().startsWith("/a/")) {
+                    result.error("TAILSCALE_LOGIN_URL", null, null)
+                } else {
+                    try {
+                        startActivity(Intent(Intent.ACTION_VIEW, uri))
+                        result.success(null)
+                    } catch (_: Exception) {
+                        result.error("TAILSCALE_LOGIN_OPEN", null, null)
+                    }
+                }
+            }
             else -> result.notImplemented()
         }
     }

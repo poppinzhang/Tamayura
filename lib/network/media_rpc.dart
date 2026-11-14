@@ -7,6 +7,7 @@ import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
 import 'package:fixnum/fixnum.dart';
 import 'package:grpc/grpc.dart';
+import 'package:grpc/service_api.dart' as grpc_api;
 
 import '../core/models.dart';
 import '../core/catalog_repository.dart';
@@ -45,6 +46,19 @@ class MediaRpcServer {
   Object? get restoreError => _service.restoreError;
   bool get scanning => _service.scanning;
   int get completedFullScans => _service.completedFullScans;
+
+  /// A separately owned server for authenticated transports. Discovery has a
+  /// restricted service of its own, so even an authorized discovery socket
+  /// cannot request thumbnails, a catalog, or original files.
+  Server createTransportServer({bool identityOnly = false}) =>
+      _InterruptibleServer(
+        services: [
+          if (identityOnly)
+            _IdentityService(() => _service.identity)
+          else
+            _service,
+        ],
+      );
 
   /// Completes when the current catalog work finishes or is superseded. Errors
   /// are exposed by [scanError] and [restoreError], never by this future.
@@ -171,6 +185,48 @@ class _CatalogWork {
   void finish() {
     if (!completed.isCompleted) completed.complete();
   }
+}
+
+class _IdentityService extends wire.MediaLibraryServiceBase {
+  _IdentityService(this.identity);
+  final Peer Function() identity;
+
+  @override
+  Future<wire.DeviceIdentity> getIdentity(
+    ServiceCall call,
+    wire.Empty request,
+  ) async {
+    final peer = identity();
+    return wire.DeviceIdentity(
+      id: peer.id,
+      name: peer.name,
+      protocolVersion: mediaProtocolVersion,
+    );
+  }
+
+  @override
+  Future<wire.CatalogResponse> listMediaPage(
+    ServiceCall call,
+    wire.CatalogRequest request,
+  ) async => throw const GrpcError.permissionDenied(
+    'Discovery does not authorize media access',
+  );
+
+  @override
+  Future<wire.ThumbnailResponse> getThumbnail(
+    ServiceCall call,
+    wire.ThumbnailRequest request,
+  ) async => throw const GrpcError.permissionDenied(
+    'Discovery does not authorize media access',
+  );
+
+  @override
+  Stream<wire.FileChunk> readFile(ServiceCall call, wire.ReadRequest request) =>
+      Stream.error(
+        const GrpcError.permissionDenied(
+          'Discovery does not authorize media access',
+        ),
+      );
 }
 
 class _MediaService extends wire.MediaLibraryServiceBase {
@@ -557,28 +613,64 @@ class MediaRpcClient implements MediaTransferClient {
   MediaRpcClient(
     this.peer, {
     Duration metadataTimeout = const Duration(minutes: 2),
+    grpc_api.ClientChannel? channel,
+    grpc_api.ClientChannel Function()? fallbackChannel,
+    bool usesTailscale = false,
+    void Function()? onClosed,
+    Object Function(Object error)? translateTransportError,
   }) : _metadataTimeout = metadataTimeout,
-       _channel = ClientChannel(
-         peer.host,
-         port: peer.port,
-         options: const ChannelOptions(
-           credentials: ChannelCredentials.insecure(),
-         ),
-       ) {
+       _usesTailscale = usesTailscale,
+       _onClosed = onClosed,
+       _translateTransportError = translateTransportError,
+       _fallbackChannel = fallbackChannel,
+       _channel =
+           channel ??
+           ClientChannel(
+             peer.host,
+             port: peer.port,
+             options: const ChannelOptions(
+               credentials: ChannelCredentials.insecure(),
+             ),
+           ) {
     _client = wire.MediaLibraryClient(_channel);
   }
 
   final Peer peer;
   final Duration _metadataTimeout;
-  final ClientChannel _channel;
-  late final wire.MediaLibraryClient _client;
+  grpc_api.ClientChannel _channel;
+  grpc_api.ClientChannel Function()? _fallbackChannel;
+  bool _usesTailscale;
+  bool get usesTailscale => _usesTailscale;
+  final void Function()? _onClosed;
+  final Object Function(Object error)? _translateTransportError;
+  bool _closed = false;
+  Future<void>? _closing;
+  late wire.MediaLibraryClient _client;
   Peer? _identity;
 
   Future<Peer> identity() async {
-    final response = await _client.getIdentity(
-      wire.Empty(),
-      options: CallOptions(timeout: const Duration(seconds: 8)),
-    );
+    wire.DeviceIdentity response;
+    try {
+      response = await _requestIdentity();
+    } catch (error) {
+      final fallback = _fallbackChannel;
+      final transient =
+          error is SocketException ||
+          error is TimeoutException ||
+          (error is GrpcError &&
+              (error.code == StatusCode.unavailable ||
+                  error.code == StatusCode.deadlineExceeded));
+      // Only a failed initial connection can choose another route. Identity,
+      // protocol and authorization failures must never be hidden by fallback.
+      if (_closed || fallback == null || !transient) rethrow;
+      _fallbackChannel = null;
+      await _channel.terminate();
+      if (_closed) throw const GrpcError.cancelled('Client was closed');
+      _channel = fallback();
+      _usesTailscale = true;
+      _client = wire.MediaLibraryClient(_channel);
+      response = await _requestIdentity();
+    }
     if (response.protocolVersion != mediaProtocolVersion ||
         response.id.isEmpty ||
         response.name.isEmpty) {
@@ -598,6 +690,24 @@ class MediaRpcClient implements MediaTransferClient {
     );
   }
 
+  Future<T> _rpc<T>(Future<T> Function() call) async {
+    try {
+      return await call();
+    } catch (error, stack) {
+      Error.throwWithStackTrace(
+        _translateTransportError?.call(error) ?? error,
+        stack,
+      );
+    }
+  }
+
+  Future<wire.DeviceIdentity> _requestIdentity() => _rpc(
+    () => _client.getIdentity(
+      wire.Empty(),
+      options: CallOptions(timeout: const Duration(seconds: 8)),
+    ),
+  );
+
   Future<CatalogPage> listMediaPage({
     String? revision,
     String? pageToken,
@@ -608,14 +718,16 @@ class MediaRpcClient implements MediaTransferClient {
       throw ArgumentError.value(pageSize, 'pageSize');
     }
     final device = _identity ?? await identity();
-    final response = await _client.listMediaPage(
-      wire.CatalogRequest(
-        revision: revision,
-        pageToken: pageToken,
-        pageSize: pageSize,
-        knownRevision: knownRevision,
+    final response = await _rpc(
+      () => _client.listMediaPage(
+        wire.CatalogRequest(
+          revision: revision,
+          pageToken: pageToken,
+          pageSize: pageSize,
+          knownRevision: knownRevision,
+        ),
+        options: CallOptions(timeout: _metadataTimeout),
       ),
-      options: CallOptions(timeout: _metadataTimeout),
     );
     if (response.revision.isEmpty ||
         (revision != null && revision != response.revision) ||
@@ -661,9 +773,11 @@ class MediaRpcClient implements MediaTransferClient {
 
   Future<Uint8List> thumbnail(String id, {required String revision}) async {
     _identity ??= await identity();
-    final response = await _client.getThumbnail(
-      wire.ThumbnailRequest(id: id, revision: revision),
-      options: CallOptions(timeout: _metadataTimeout),
+    final response = await _rpc(
+      () => _client.getThumbnail(
+        wire.ThumbnailRequest(id: id, revision: revision),
+        options: CallOptions(timeout: _metadataTimeout),
+      ),
     );
     if (response.id != id ||
         response.revision != revision ||
@@ -898,7 +1012,7 @@ class MediaRpcClient implements MediaTransferClient {
           : end;
       // No total deadline: a window on slow Wi-Fi may legitimately take longer
       // than any fixed bound. MediaDownloader's idle watchdog ends stalls.
-      final response = _client.readFile(
+      final response = _readFileRpc(
         wire.ReadRequest(
           id: id,
           offset: Int64(cursor),
@@ -920,8 +1034,24 @@ class MediaRpcClient implements MediaTransferClient {
     } while (cursor < end);
   }
 
+  Stream<wire.FileChunk> _readFileRpc(wire.ReadRequest request) async* {
+    try {
+      yield* _client.readFile(request);
+    } catch (error, stack) {
+      Error.throwWithStackTrace(
+        _translateTransportError?.call(error) ?? error,
+        stack,
+      );
+    }
+  }
+
   @override
-  Future<void> close() => _channel.terminate();
+  Future<void> close() {
+    _closed = true;
+    return _closing ??= _channel.terminate().whenComplete(
+      () => _onClosed?.call(),
+    );
+  }
 }
 
 bool _validMetadata(MediaMetadata item) {

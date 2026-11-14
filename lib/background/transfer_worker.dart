@@ -3,6 +3,8 @@ import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:uuid/uuid.dart';
 import '../app/errors.dart';
+import '../app/tailscale_runtime.dart';
+import '../app/tailscale_service.dart';
 import '../core/models.dart';
 import '../core/transfer_task.dart';
 import '../data/repository.dart';
@@ -27,6 +29,7 @@ Future<void> runBackgroundTransfer() async {
   });
   TransferStore? store;
   TamayuraRepository? repository;
+  TamayuraTailscaleService? tailscale;
   String? taskId;
   int? attempt;
   try {
@@ -40,11 +43,26 @@ Future<void> runBackgroundTransfer() async {
     attempt = (await store.get(id))?.attempt;
     cancellation.check();
     repository = await TamayuraRepository.open();
+    tailscale = TamayuraTailscaleService(
+      repository: repository,
+      openNode: () => openTamayuraTailscaleNode(''),
+      // This owner never publishes or discovers. Its node identity is restored
+      // from the shared private state, without requiring a live Activity.
+      identity: () => const Peer(id: '', name: '', host: '', port: 0),
+      server: () => null,
+      lanOnline: (_) => false,
+      onPeer: (_, _) async {},
+      onChanged: () {},
+      discoveryEnabled: false,
+      preferUnverifiedLan: true,
+    );
+    await tailscale.initialize();
     final runner = TransferRunner(
       store: store,
       repository: repository,
       bridge: bridge,
       directory: Directory(await bridge.transferDirectory()),
+      clientFactory: tailscale.createClient,
       progress: (received, total, name) async {
         await channel.invokeMethod<void>('progress', {
           'received': received,
@@ -59,6 +77,8 @@ Future<void> runBackgroundTransfer() async {
       isUserCancelled: () => userCancelled,
     );
     final result = await store.get(id);
+    await tailscale.shutdown();
+    tailscale = null;
     await store.close();
     store = null;
     await repository.close();
@@ -78,6 +98,8 @@ Future<void> runBackgroundTransfer() async {
         !(error is PlatformException && error.code == 'TRANSFER_STOPPED')) {
       await store.failSetup(taskId, attempt, describeError(error));
     }
+    await tailscale?.shutdown();
+    tailscale = null;
     await store?.close();
     store = null;
     await repository?.close();
@@ -88,6 +110,7 @@ Future<void> runBackgroundTransfer() async {
     });
   } finally {
     channel.setMethodCallHandler(null);
+    await tailscale?.shutdown();
     await store?.close();
     await repository?.close();
   }

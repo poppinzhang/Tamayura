@@ -3075,6 +3075,174 @@ abstract class AppLocalizations {
   /// In zh, this message translates to:
   /// **'更新页面地址无效'**
   String get updateErrorReleaseUrl;
+
+  /// No description provided for @tailscaleTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'Tailscale 远程连接'**
+  String get tailscaleTitle;
+
+  /// No description provided for @tailscaleDescription.
+  ///
+  /// In zh, this message translates to:
+  /// **'可选登录。登录后可通过互联网连接其它 Tamayura；局域网功能始终可用。'**
+  String get tailscaleDescription;
+
+  /// No description provided for @tailscaleSignedOut.
+  ///
+  /// In zh, this message translates to:
+  /// **'未登录'**
+  String get tailscaleSignedOut;
+
+  /// No description provided for @tailscaleConnecting.
+  ///
+  /// In zh, this message translates to:
+  /// **'正在连接'**
+  String get tailscaleConnecting;
+
+  /// No description provided for @tailscaleNeedsLogin.
+  ///
+  /// In zh, this message translates to:
+  /// **'请在浏览器中完成登录'**
+  String get tailscaleNeedsLogin;
+
+  /// No description provided for @tailscaleNeedsApproval.
+  ///
+  /// In zh, this message translates to:
+  /// **'等待 Tailscale 管理员批准设备'**
+  String get tailscaleNeedsApproval;
+
+  /// No description provided for @tailscaleConnected.
+  ///
+  /// In zh, this message translates to:
+  /// **'Tailscale 已连接'**
+  String get tailscaleConnected;
+
+  /// No description provided for @tailscaleUnavailable.
+  ///
+  /// In zh, this message translates to:
+  /// **'Tailscale 暂不可用'**
+  String get tailscaleUnavailable;
+
+  /// No description provided for @tailscaleLogin.
+  ///
+  /// In zh, this message translates to:
+  /// **'登录 Tailscale'**
+  String get tailscaleLogin;
+
+  /// No description provided for @tailscaleOpenLogin.
+  ///
+  /// In zh, this message translates to:
+  /// **'打开登录页面'**
+  String get tailscaleOpenLogin;
+
+  /// No description provided for @tailscaleRetry.
+  ///
+  /// In zh, this message translates to:
+  /// **'重新连接与检查设备'**
+  String get tailscaleRetry;
+
+  /// No description provided for @tailscaleLogout.
+  ///
+  /// In zh, this message translates to:
+  /// **'退出 Tailscale'**
+  String get tailscaleLogout;
+
+  /// No description provided for @tailscaleLogoutMessage.
+  ///
+  /// In zh, this message translates to:
+  /// **'退出会断开远程连接并清除本机登录凭据。保留设备、离线相册、下载文件及可恢复的下载进度。'**
+  String get tailscaleLogoutMessage;
+
+  /// No description provided for @tailscaleDataNotice.
+  ///
+  /// In zh, this message translates to:
+  /// **'远程同步和下载会使用当前网络，包括移动数据，可能产生流量费用。自动相册同步沿用现有间隔。远端媒体共享仍需逐台确认。'**
+  String get tailscaleDataNotice;
+
+  /// No description provided for @tailscaleCandidates.
+  ///
+  /// In zh, this message translates to:
+  /// **'发现的远程设备'**
+  String get tailscaleCandidates;
+
+  /// No description provided for @tailscaleConfirm.
+  ///
+  /// In zh, this message translates to:
+  /// **'确认并允许远程共享'**
+  String get tailscaleConfirm;
+
+  /// No description provided for @tailscaleConfirmMessage.
+  ///
+  /// In zh, this message translates to:
+  /// **'请确认这是你的设备。允许后，该 Tailscale 节点可以读取本机共享目录中的媒体。相册同步仍需另行确认，对端也需要允许本机访问。'**
+  String get tailscaleConfirmMessage;
+
+  /// No description provided for @tailscaleExistingDevice.
+  ///
+  /// In zh, this message translates to:
+  /// **'将与已有设备记录关联；请核对两端的设备身份。'**
+  String get tailscaleExistingDevice;
+
+  /// No description provided for @tailscaleRevoke.
+  ///
+  /// In zh, this message translates to:
+  /// **'撤销远程共享'**
+  String get tailscaleRevoke;
+
+  /// No description provided for @tailscaleAuthorized.
+  ///
+  /// In zh, this message translates to:
+  /// **'已允许远程共享的设备'**
+  String get tailscaleAuthorized;
+
+  /// No description provided for @tailscaleLanOnline.
+  ///
+  /// In zh, this message translates to:
+  /// **'局域网在线'**
+  String get tailscaleLanOnline;
+
+  /// No description provided for @tailscalePeerOnline.
+  ///
+  /// In zh, this message translates to:
+  /// **'Tailscale 在线'**
+  String get tailscalePeerOnline;
+
+  /// No description provided for @tailscaleError.
+  ///
+  /// In zh, this message translates to:
+  /// **'远程连接失败，请重试并检查网络、登录及对端的共享授权。局域网和离线相册仍可使用。'**
+  String get tailscaleError;
+
+  /// No description provided for @tailscaleLoginOpenError.
+  ///
+  /// In zh, this message translates to:
+  /// **'无法打开登录页面，请确认已安装可用的浏览器后重试。'**
+  String get tailscaleLoginOpenError;
+
+  /// No description provided for @tailscaleRuntimeMissing.
+  ///
+  /// In zh, this message translates to:
+  /// **'此安装缺少 Tailscale 组件。请使用包含该组件的完整构建。'**
+  String get tailscaleRuntimeMissing;
+
+  /// No description provided for @tailscaleControlDisconnected.
+  ///
+  /// In zh, this message translates to:
+  /// **'管控连接暂时中断；已建立的设备连接可能仍可使用，在线状态以实际检查为准。'**
+  String get tailscaleControlDisconnected;
+
+  /// No description provided for @tailscaleLocalIdentity.
+  ///
+  /// In zh, this message translates to:
+  /// **'本机设备与 Tailscale 节点身份'**
+  String get tailscaleLocalIdentity;
+
+  /// No description provided for @errorPeerAccessDenied.
+  ///
+  /// In zh, this message translates to:
+  /// **'远端访问被拒绝或节点身份验证失败。请核对两端设备身份和共享授权后重试。'**
+  String get errorPeerAccessDenied;
 }
 
 class _AppLocalizationsDelegate

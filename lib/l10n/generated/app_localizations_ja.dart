@@ -1715,4 +1715,97 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get updateErrorReleaseUrl => 'アップデートページのアドレスが無効です';
+
+  @override
+  String get tailscaleTitle => 'Tailscale リモート接続';
+
+  @override
+  String get tailscaleDescription =>
+      '任意でログインし、インターネット経由で Tamayura に接続できます。LAN 機能はそのまま使えます。';
+
+  @override
+  String get tailscaleSignedOut => '未ログイン';
+
+  @override
+  String get tailscaleConnecting => '接続中';
+
+  @override
+  String get tailscaleNeedsLogin => 'ブラウザーでログインを完了してください';
+
+  @override
+  String get tailscaleNeedsApproval => 'Tailscale 管理者による端末の承認待ち';
+
+  @override
+  String get tailscaleConnected => 'Tailscale に接続済み';
+
+  @override
+  String get tailscaleUnavailable => 'Tailscale を利用できません';
+
+  @override
+  String get tailscaleLogin => 'Tailscale にログイン';
+
+  @override
+  String get tailscaleOpenLogin => 'ログインページを開く';
+
+  @override
+  String get tailscaleRetry => '再接続して端末を確認';
+
+  @override
+  String get tailscaleLogout => 'Tailscale からログアウト';
+
+  @override
+  String get tailscaleLogoutMessage =>
+      'ログアウトするとリモート接続を終了し、この端末の認証情報を消去します。端末、オフラインアルバム、保存済みファイル、再開可能なダウンロードは保持されます。';
+
+  @override
+  String get tailscaleDataNotice =>
+      'リモート同期とダウンロードではモバイルデータを含む現在の回線を使用し、通信料がかかる場合があります。自動アルバム同期は既存の間隔に従います。リモート共有は端末ごとの確認が必要です。';
+
+  @override
+  String get tailscaleCandidates => '検出されたリモート端末';
+
+  @override
+  String get tailscaleConfirm => '確認してリモート共有を許可';
+
+  @override
+  String get tailscaleConfirmMessage =>
+      '自分の端末であることを確認してください。許可すると、この Tailscale ノードはこの端末の共有フォルダー内のメディアを読み取れます。アルバム同期は別途確認し、相手側でもこの端末のアクセスを許可する必要があります。';
+
+  @override
+  String get tailscaleExistingDevice => '既存の端末に関連付けます。両側の端末情報を確認してください。';
+
+  @override
+  String get tailscaleRevoke => 'リモート共有を取り消す';
+
+  @override
+  String get tailscaleAuthorized => 'リモート共有を許可した端末';
+
+  @override
+  String get tailscaleLanOnline => 'LAN オンライン';
+
+  @override
+  String get tailscalePeerOnline => 'Tailscale オンライン';
+
+  @override
+  String get tailscaleError =>
+      'リモート接続に失敗しました。再試行し、ネットワーク、ログイン、相手の共有許可を確認してください。LAN とオフラインアルバムは利用できます。';
+
+  @override
+  String get tailscaleLoginOpenError =>
+      'ログインページを開けません。利用できるブラウザーを確認して再試行してください。';
+
+  @override
+  String get tailscaleRuntimeMissing =>
+      'このインストールには Tailscale コンポーネントがありません。コンポーネントを含む完全なビルドを使用してください。';
+
+  @override
+  String get tailscaleControlDisconnected =>
+      '管理サーバーへの接続が中断しています。既存の端末接続は使える場合があり、実際の接続確認に基づいて表示します。';
+
+  @override
+  String get tailscaleLocalIdentity => 'この端末と Tailscale ノードの識別情報';
+
+  @override
+  String get errorPeerAccessDenied =>
+      'リモートアクセスが拒否されたか、ノードの認証に失敗しました。両端末の識別情報と共有許可を確認してください。';
 }

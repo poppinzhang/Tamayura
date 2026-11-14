@@ -21,14 +21,14 @@
     <string name="sharing_error_stopped">后台共享服务已停止，请打开应用后重试</string>
 
     <string name="transfer_channel_name">媒体下载</string>
-    <string name="transfer_channel_description">局域网媒体下载进度与完成结果</string>
+    <string name="transfer_channel_description">媒体下载进度与完成结果</string>
     <string name="transfer_default_name">媒体文件</string>
     <string name="transfer_waiting_title">等待上一下载停止</string>
     <string name="transfer_waiting_text">正在保存下载进度</string>
-    <string name="transfer_preparing">正在准备局域网下载</string>
-    <string name="transfer_downloading">正在通过局域网下载</string>
+    <string name="transfer_preparing">正在准备媒体下载</string>
+    <string name="transfer_downloading">正在下载媒体</string>
     <string name="transfer_paused">下载已暂停</string>
-    <string name="transfer_waiting_network">下载暂停，等待局域网恢复</string>
+    <string name="transfer_waiting_network">下载暂停，等待连接恢复</string>
     <string name="transfer_completed">下载完成，可以打开应用查看或分享</string>
     <string name="transfer_retry_later">对端暂时不可用，稍后自动重试</string>
     <string name="transfer_failed">下载失败，请打开应用重试</string>

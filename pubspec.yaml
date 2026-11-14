@@ -11,6 +11,8 @@ dependencies:
     sdk: flutter
   flutter_localizations:
     sdk: flutter
+  flutter_tailscale:
+    path: third_party/flutter_tailscale
   intl: ^0.20.3
   crypto: ^3.0.7
   grpc: ^4.0.4

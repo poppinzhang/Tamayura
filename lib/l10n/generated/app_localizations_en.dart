@@ -1866,4 +1866,100 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get updateErrorReleaseUrl => 'The update page address is invalid.';
+
+  @override
+  String get tailscaleTitle => 'Tailscale remote access';
+
+  @override
+  String get tailscaleDescription =>
+      'Sign in optionally to reach Tamayura over the internet. LAN features remain available.';
+
+  @override
+  String get tailscaleSignedOut => 'Signed out';
+
+  @override
+  String get tailscaleConnecting => 'Connecting';
+
+  @override
+  String get tailscaleNeedsLogin => 'Complete sign-in in your browser';
+
+  @override
+  String get tailscaleNeedsApproval =>
+      'Waiting for device approval by your Tailscale administrator';
+
+  @override
+  String get tailscaleConnected => 'Connected to Tailscale';
+
+  @override
+  String get tailscaleUnavailable => 'Tailscale is unavailable';
+
+  @override
+  String get tailscaleLogin => 'Sign in to Tailscale';
+
+  @override
+  String get tailscaleOpenLogin => 'Open sign-in page';
+
+  @override
+  String get tailscaleRetry => 'Reconnect and check devices';
+
+  @override
+  String get tailscaleLogout => 'Sign out of Tailscale';
+
+  @override
+  String get tailscaleLogoutMessage =>
+      'Signing out disconnects remote access and removes local sign-in credentials. Devices, offline albums, saved files, and resumable downloads are kept.';
+
+  @override
+  String get tailscaleDataNotice =>
+      'Remote sync and downloads use your current connection, including mobile data, and may incur charges. Automatic album sync follows your existing interval. Remote sharing requires separate approval for each device.';
+
+  @override
+  String get tailscaleCandidates => 'Discovered remote devices';
+
+  @override
+  String get tailscaleConfirm => 'Confirm and allow remote sharing';
+
+  @override
+  String get tailscaleConfirmMessage =>
+      'Verify that this is your device. This Tailscale node will be able to read media in your shared folders. Album sync needs separate approval, and the other device must also allow access from this device.';
+
+  @override
+  String get tailscaleExistingDevice =>
+      'This will link to an existing device record. Check the identity on both devices.';
+
+  @override
+  String get tailscaleRevoke => 'Revoke remote sharing';
+
+  @override
+  String get tailscaleAuthorized => 'Devices allowed remote sharing';
+
+  @override
+  String get tailscaleLanOnline => 'LAN online';
+
+  @override
+  String get tailscalePeerOnline => 'Tailscale online';
+
+  @override
+  String get tailscaleError =>
+      'Remote access failed. Retry and check the network, sign-in, and sharing permission on the other device. LAN and offline albums remain available.';
+
+  @override
+  String get tailscaleLoginOpenError =>
+      'Could not open sign-in. Check that a browser is available and try again.';
+
+  @override
+  String get tailscaleRuntimeMissing =>
+      'This installation is missing the Tailscale component. Use a complete build that includes it.';
+
+  @override
+  String get tailscaleControlDisconnected =>
+      'The control connection is interrupted. Existing device connections may still work; device status is based on actual checks.';
+
+  @override
+  String get tailscaleLocalIdentity =>
+      'This device and Tailscale node identity';
+
+  @override
+  String get errorPeerAccessDenied =>
+      'Remote access was denied or node verification failed. Check both device identities and sharing permissions before retrying.';
 }

@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_tailscale/flutter_tailscale.dart';
 import 'package:material_ui/material_ui.dart' show ThemeMode;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:tamayura/app/app_controller.dart';
@@ -13,6 +14,21 @@ import 'package:tamayura/network/media_rpc.dart';
 import 'package:tamayura/platform/android_bridge.dart';
 
 import 'controller_test.dart' show FakeBridge, GatedRepository;
+
+class _DormantTailscaleNode implements TailscaleNode {
+  static const state = NodeStatus(
+    sessionEpoch: 'test-session',
+    state: NodeState.signedOut,
+  );
+  @override
+  Future<NodeStatus> start() async => state;
+  @override
+  Future<NodeStatus> status() async => state;
+  @override
+  Future<void> dispose() async {}
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
 
 /// Models the native service's contract: foreground-service acceptance grants a
 /// session, but the original enable call waits for Dart's readiness report.
@@ -208,6 +224,7 @@ void main() {
         return repository;
       },
       openTransfers: () async => transfers,
+      openTailscaleNode: () async => _DormantTailscaleNode(),
     );
     await model.setForeground(false);
   });
@@ -397,6 +414,32 @@ void main() {
       await expectUsableCatalog();
     },
   );
+
+  test(
+    'opted-in background sharing remains ready when only mDNS fails',
+    () async {
+      await repository.setSetting('tailscale_enabled_v1', 'true');
+      bridge.beforeDiscovery = () async => throw StateError('mDNS unavailable');
+      await model.initialize();
+      expect(model.backgroundSharingRunning, true);
+      expect(bridge.readyRequests, ['restored']);
+      expect(bridge.failures, isEmpty);
+      expect(model.error, contains('mDNS unavailable'));
+      await expectUsableCatalog();
+    },
+  );
+
+  test('Tailscale opt-in never bypasses local source readiness', () async {
+    await repository.setSetting('tailscale_enabled_v1', 'true');
+    bridge.beforeScan = () async =>
+        throw StateError('shared source unavailable');
+    bridge.beforeDiscovery = () async => throw StateError('mDNS unavailable');
+    await model.initialize();
+    expect(model.backgroundSharingRunning, false);
+    expect(bridge.readyRequests, isEmpty);
+    expect(bridge.failures.single.error, contains('shared source unavailable'));
+    expect(model.port, 0);
+  });
 
   test(
     'foreground retry reinitializes discovery before acknowledging an existing gRPC server',

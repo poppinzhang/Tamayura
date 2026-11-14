@@ -57,6 +57,25 @@ add_subdirectory("runner")
 # them to the application.
 include(flutter/generated_plugins.cmake)
 
+find_program(TAILSCALE_GO go REQUIRED)
+find_package(Python3 COMPONENTS Interpreter REQUIRED)
+set(TAILSCALE_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/../third_party/flutter_tailscale/native")
+set(TAILSCALE_HELPER "${CMAKE_BINARY_DIR}/tailscale/flutter-tailscale-bridge.exe")
+file(GLOB_RECURSE TAILSCALE_INPUTS CONFIGURE_DEPENDS "${TAILSCALE_SOURCE}/*.go")
+add_custom_command(OUTPUT "${TAILSCALE_HELPER}" "${TAILSCALE_HELPER}.NOTICES.txt"
+  COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/tailscale"
+  COMMAND ${CMAKE_COMMAND} -E env CGO_ENABLED=0 GOOS=windows GOARCH=amd64 GOTOOLCHAIN=auto
+    "${TAILSCALE_GO}" build -trimpath "-ldflags=-s -w -buildid="
+    -o "${TAILSCALE_HELPER}" ./cmd/flutter-tailscale
+  COMMAND ${CMAKE_COMMAND} -E env CGO_ENABLED=0 GOOS=windows GOARCH=amd64 GOTOOLCHAIN=auto
+    "${Python3_EXECUTABLE}" "${TAILSCALE_SOURCE}/../scripts/collect-licenses.py" "${TAILSCALE_HELPER}.NOTICES.txt"
+  WORKING_DIRECTORY "${TAILSCALE_SOURCE}"
+  DEPENDS ${TAILSCALE_INPUTS} "${TAILSCALE_SOURCE}/go.mod" "${TAILSCALE_SOURCE}/go.sum"
+    "${TAILSCALE_SOURCE}/../scripts/collect-licenses.py"
+  VERBATIM)
+add_custom_target(tailscale_helper DEPENDS "${TAILSCALE_HELPER}" "${TAILSCALE_HELPER}.NOTICES.txt")
+add_dependencies(${BINARY_NAME} tailscale_helper)
+
 
 # === Installation ===
 # Support files are copied into place next to the executable, so that it can
@@ -74,6 +93,8 @@ set(INSTALL_BUNDLE_LIB_DIR "${CMAKE_INSTALL_PREFIX}")
 
 install(TARGETS ${BINARY_NAME} RUNTIME DESTINATION "${CMAKE_INSTALL_PREFIX}"
   COMPONENT Runtime)
+install(PROGRAMS "${TAILSCALE_HELPER}" DESTINATION "${CMAKE_INSTALL_PREFIX}" COMPONENT Runtime)
+install(FILES "${TAILSCALE_HELPER}.NOTICES.txt" DESTINATION "${CMAKE_INSTALL_PREFIX}" COMPONENT Runtime)
 
 install(FILES "runner/tamayura-update.ps1" DESTINATION "${CMAKE_INSTALL_PREFIX}"
   COMPONENT Runtime)

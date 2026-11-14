@@ -103,6 +103,24 @@ try {
         Assert-Throws { Invoke-WindowsPackagePubGet 'Invoke-BrokenFlutter' $pluginSource }
         $global:LASTEXITCODE = 0
     }
+    Invoke-Case 'Require the Tailscale helper and notices in the complete runtime bundle' {
+        $bundle = Join-Path $root 'runtime-bundle'
+        foreach ($name in @('Tamayura.exe', 'flutter_windows.dll', 'sqlite3.dll', 'flutter-tailscale-bridge.exe', 'flutter-tailscale-bridge.exe.NOTICES.txt', 'data/icudtl.dat', 'data/app.so')) {
+            Write-Fixture "runtime-bundle/$name" | Out-Null
+        }
+        [IO.Directory]::CreateDirectory((Join-Path $bundle 'data/flutter_assets')) | Out-Null
+        Assert-WindowsPackageRuntime $bundle
+        foreach ($name in @('flutter-tailscale-bridge.exe', 'flutter-tailscale-bridge.exe.NOTICES.txt')) {
+            $path = Join-Path $bundle $name
+            [IO.File]::Delete($path)
+            Assert-Throws { Assert-WindowsPackageRuntime $bundle }
+            [IO.Directory]::CreateDirectory($path) | Out-Null
+            Assert-Throws { Assert-WindowsPackageRuntime $bundle }
+            [IO.Directory]::Delete($path)
+            Write-Fixture "runtime-bundle/$name" | Out-Null
+        }
+        Assert-WindowsPackageRuntime $bundle
+    }
     Invoke-Case 'Reject UTF-8 and UTF-16 checkout paths, URI and JSON forms across read boundaries' {
         $bundle = Join-Path $root 'bundle'
         $artifact = Write-Fixture 'bundle/data/app.so' 'neutral'

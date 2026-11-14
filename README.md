@@ -7,7 +7,7 @@
 ### Your photos, within reach.
 
 **Browse the photos and videos on your own devices.**<br>
-Share folders over your local network, browse previews even when a device is offline,<br>
+Share folders between your devices, browse previews even when a device is offline,<br>
 and save the originals you want with a tap.
 
 ![Android](https://img.shields.io/badge/Android-16%2B-3DDC84?logo=android&logoColor=white)
@@ -34,7 +34,9 @@ Your phone holds the everyday photos. Your computer holds the trips, videos, and
 - **Browse before downloading.** Previously synced previews stay available when the source device is offline.
 - **Keep the originals you want.** Tap a photo or video to download it into your chosen folder.
 
-It is for browsing and transferring media between your own devices on the same local network. It does not automatically copy entire albums or track edits to file contents.
+It is for browsing and transferring media between your own devices. It does not automatically copy entire albums or track edits to file contents.
+
+The [unreleased source](CHANGELOG.md#unstaged) now integrates optional in-app Tailscale sign-in through Flutter-Tailscale, with separate LAN / Tailscale status and explicit remote sharing approval. In Settings, sign in on both devices, then confirm the discovered device under Devices on each side. Album sync approval remains separate. This is not included in the 1.1.0 packages; embedded-node internet, cellular background, and platform acceptance are still pending. See [implementation and validation](docs/Tailscale实现.md).
 
 ## Quick start
 
@@ -42,7 +44,7 @@ It is for browsing and transferring media between your own devices on the same l
 
 **1.1.0** reuses the saved Windows folder index on startup and when returning to the foreground, monitors active shared directories for batched incremental updates, and adds **Settings → Shared folder full check interval** (1–8760 whole hours, defaulting to 24, retaining the last successful check time across restarts). Changes made while Tamayura is closed or sharing is stopped may wait until you refresh manually or a full check becomes due. It also fixes Windows discovery locking, full-frame fallback decoding, UI responsiveness, updater helper checks, and clean neutral-directory packaging while keeping compatibility with 1.0.0 and 1.0.1 data.
 
-**1 · Install and connect.** Choose the package for your platform from [GitHub Releases](https://github.com/poppinzhang/Tamayura/releases) and read the [installation notes](docs/releases/1.1.0.md#安装与数据). Android keeps the release certificate used since 0.6.1 and can update an app with the same signature. A debug or older differently signed app must be uninstalled first, which clears its app data and folder permissions. Connect both devices to the same local network and open Tamayura. Allow local network access when prompted; on Windows, allow the app through the firewall on your trusted private network.
+**1 · Install and connect.** Choose the package for your platform from [GitHub Releases](https://github.com/poppinzhang/Tamayura/releases) and read the [installation notes](docs/releases/1.1.0.md#安装与数据). Android keeps the release certificate used since 0.6.1 and can update an app with the same signature. A debug or older differently signed app must be uninstalled first, which clears its app data and folder permissions. For the current 1.1.0 packages, connect both devices to the same local network and open Tamayura. Allow local network access when prompted; on Windows, allow the app through the firewall on your trusted private network.
 
 **2 · Choose your folders.** In **Settings (设置)**, add the folders you want to share and choose where downloaded files should go. For example, share `DCIM` and receive files in `Pictures/Tamayura`. Subfolders are included automatically. On Android, choose a subfolder rather than the storage root or the `Download` root.
 
@@ -138,9 +140,9 @@ Most detailed documentation is currently in Chinese.
 
 ## Privacy
 
-Media and previews travel directly between devices on your local network. Each device stores the synced media information and thumbnails locally so you can browse them offline. You choose which folders to share and where to save downloads.
+Media and previews are transferred between your devices. Each device stores the synced media information and thumbnails locally so you can browse them offline. You choose which folders to share and where to save downloads.
 
-Tamayura currently uses **IPv4 local networks without authentication or transport encryption (TLS)**. Use it only on a trusted network. Guest Wi-Fi and client isolation may prevent devices from connecting.
+The LAN transport has **no application-level authentication or transport encryption (TLS)**. Restrict access to trusted devices and do not expose its service port directly to the public internet. The unreleased Tailscale integration encrypts its remote path and restricts it to approved node identities; this does not protect the separate LAN listener. Local mDNS discovery still depends on multicast; guest Wi-Fi and client isolation may prevent discovery or connections.
 
 Stable updates within the same major version must preserve settings, cached albums, and download records. Unsupported database versions are left intact and reported as an error. Earlier 0.x database formats are outside the migration baseline; back up app data before changing installations. Shared originals and saved receiving-folder files are never deleted by an upgrade.
 

@@ -1,0 +1,90 @@
+# Tailscale 接入实现
+
+状态：2026-11-15，未发布源码。独立 Tailscale 客户端在用户的台式机与手机之间已验证互联网直连；本次内嵌节点、实际账号登录、蜂窝后台和两端文件传输仍须独立验收。1.1.0 安装包不包含本次功能。本文记录已写入代码的行为，测试结果与未验证范围见末节。
+
+## 组件与依赖
+
+通用实现由独立 `Flutter-Tailscale` 项目维护。Tamayura 依赖其 `flutter_tailscale` Dart 包及 Go tsnet 运行时，不复制组网逻辑到媒体业务中。为在 SDK 尚未发布版本时保持检出和 CI 可构建，`third_party/flutter_tailscale` 保存该项目的源码快照；`SOURCE_SNAPSHOT.json` 逐文件记录 SHA-256，不记录开发机路径。
+
+修改通用实现后，在 Tamayura 根目录执行 `python3 scripts/sync-flutter-tailscale.py <SDK 检出目录>` 更新快照；默认查找相邻 `Flutter-Tailscale`。快照不含编译产物、节点状态、开发机配置或凭据。不要直接修改快照；后续发布独立 SDK 后可改为固定的包版本或 Git 提交依赖。
+
+固定输入：Flutter 3.47.6 / Dart 3.13.5、Dart gRPC 4.2.0、HTTP/2 2.3.1、Tailscale 1.104.7、Go 1.27.4。Go 依据 `go.mod` 自动选择工具链，依赖由 `go.sum` 固定。Android 使用 JDK 21 或更新版本与 NDK 28.2；原生库编译 API 35，应用安装最低要求仍是 API 36。桌面通过继承管道控制应用内打包的 Go helper；Android 用 Go C ABI 和 Dart FFI，不运行系统 VPN 或另装 Tailscale 客户端。
+
+## 登录和数据生命周期
+
+- 设置显示本机 Tamayura ID 与 Tailscale 节点 ID，以便另一端核对。登录操作先提示移动数据消耗，再打开 `https://login.tailscale.com/a/…` 官方认证链接。链接只在内存与受限浏览器调用中使用，不写入媒体库、日志或二维码。等待审批、登录中、已连接、错误及退出分别展示。
+- 未启用时只读取本地配置，不创建 helper、不启动节点、不探测远端。LAN 启动不等待 Tailscale，登录失败只影响 Tailscale 设置状态。
+- 节点凭据在应用私有数据库目录下独立的 `tailscale-node` 子目录保存；目录加独占锁，Android 各 Flutter Engine 附着同一原生节点，使用所有者租约管理资源。一个下载引擎释放自己不会退出其他引擎。
+- Android 初始化通过平台后台线程原子登记所有者；Flutter Engine 在初始化期间或之后销毁，都会释放它持有的原生资源。之后的控制请求在独立 isolate 经 FFI 执行。
+- 退出先禁用持久恢复，撤销当前会话的监听、转发与连接，然后清理 SDK 节点凭据；清理失败可见，不恢复旧登录。不声称已从管理后台删除云端节点。
+- 退出保留设备、目录、缩略图、下载记录、接收文件和分片。重启 / 重新登录保留业务数据，但旧注册范围的绑定不能自动用于新的节点身份。
+- 原生与 SDK 的异常只暴露稳定错误码；界面使用本地化提示。缺少 helper 是组件缺失，不显示成已连接。
+
+原生启动前禁用上游 logtail 的记录与上传，避免仅丢弃应用日志回调仍将认证链接写入上游日志。macOS 内嵌节点遵循系统路由，不强制绑定物理接口，避免绕过本机其他 VPN 的可用线路；此设置只影响 helper，不修改系统网络配置。
+
+当前控制协议是 1 MiB 上限的 NDJSON 请求 / 响应和 owner / session 校验，状态使用周期快照，管控连接异常单独提示，不据此抹除仍可用的数据路径。设计文档中的有序推送事件总线、请求级取消尚未实现，不能据此声称已支持。
+
+## 发现与访问控制
+
+LAN 使用现有 mDNS / DNS-SD。Tailscale 每 15 秒取得本机可见候选快照，最多处理 256 个候选、4 个并发探测，每次身份 RPC 有 8 秒截止时间。普通 Tailscale 节点不会成为 Tamayura 设备。重复在线快照不直接触发相册同步；已批准设备的恢复边沿和原自动间隔共用既有任务互斥。
+
+| 入口 | 策略 | 提供的能力 |
+| --- | --- | --- |
+| LAN 默认 `50728`，占用时原有动态回退 | 原 LAN 信任边界 | 完整媒体 gRPC |
+| Tailscale 虚拟 `50729` | 当前可见 peer 的显式来源列表，Go WhoIs 核验 | 仅 `GetIdentity`，不能列相册或读取媒体 |
+| Tailscale 虚拟 `50728` | 用户确认过的注册范围与稳定节点 ID，Go WhoIs 核验 | 完整媒体 gRPC |
+| 本机临时回环入口 | 会话证书固定、CONNECT capability、固定目标和会话；入站目标双向 TLS | SDK 与 Go 之间的字节流 |
+
+Tailnet 策略须允许所需的两个虚拟端口；媒体权限同时受本应用的来源列表限制。固定端口监听失败必须报错，不能悄悄换成发现端未知的端口。
+
+第一次发现只显示待关联候选，用户确认该节点及 Tamayura 设备 ID 后才建立绑定并允许其读取本机共享媒体。关联已有 LAN 设备也必须确认，不根据同名、自报 ID 或地址静默继承信任。随后按原规则独立决定是否同步相册；对端也需要批准本机，才能读取其媒体。设置可撤销远程共享；停止既有远端连接后保留缓存。忘记设备清除绑定及原有设备缓存，但不删除接收文件 / 下载历史；迟到回调不得写回已忘记设备。
+
+`networkScope` 是 SDK 根据本地注册身份生成的范围标识，不是可在多个应用之间共享的全局 tailnet ID。它与远端稳定节点 ID 一起使用，防止退出、账号切换或 IP 复用继承旧授权。
+
+本机 TLS 先认证 Go 服务，再发送 capability；转发绑定固定 peer 和端口。入站由 Go 查询真实 Tailscale 来源，然后连接由 Dart 持有的会话双向 TLS 入口；不会对回环地址做 WhoIs，也不会向匿名回环端口透传媒体。撤销来源策略会关闭该来源已建立的流。通用层不自动重放业务字节，不承诺任意 TCP 协议的无限半关闭语义。
+
+停止发布先关闭 Dart 本机监听与已建立的应用连接，再等待原生取消请求，避免原生响应迟缓继续暴露媒体。Dart `SecureServerSocket` 不暴露尚未完成认证的底层握手连接；关闭后它们不能交付应用流，但恶意本机进程制造的半握手可能持续到对端或进程结束。合法 Go 入口的握手有 5 秒截止时间；此限制属于本机资源耗尽边界。
+
+## 双路径与原业务
+
+设备主键仍是 Tamayura ID。原 LAN host / port 不被临时回环端口、虚拟 IP 或未知远端覆盖；无 LAN 地址的远端记录保留为空，由绑定解析实际 tsnet 连接。`LAN 在线` 与 `Tailscale 在线` 来自各自身份 RPC，控制面 Online 标志不能点亮业务在线状态。
+
+新操作优先已核验 LAN；初次连接遇到临时网络错误 / 截止超时才使用已确认 Tailscale 绑定。身份不符、协议不兼容和明确权限拒绝不换路掩盖错误。已建立媒体流保持当前连接；失效后由既有任务恢复机制新建连接和重验文件，不迁移 TCP、不重放已消费的数据。
+
+相册分页、完整快照删除提交、独立缩略图缓存、超过 50 MiB 的四路范围下载、空间预检、30 秒停滞重连及分片恢复继续沿用原业务。gRPC v4、媒体库 schema 7、下载库 schema 3 不变。绑定配置在现有 settings 表保存，格式 `version: 1`；未知版本、损坏或冲突记录保留并拒绝远程模块，不清空重建媒体库。
+
+Android 仅对启用 Tailscale 且已有确认绑定的用户发起任务，在原 Wi-Fi / 以太网网络约束上增加蜂窝网络。UIDT 工作引擎读取同一设置和身份并附着原生节点；没有启用时继续使用 LAN 逻辑。首次登录提示自动相册同步仍沿用当前间隔和移动数据可能消耗；当前没有独立的计费网络自动同步开关。
+
+后台共享仍受原设置、应用存活和系统电源策略约束。关闭桌面窗口是否保留共享由托盘及后台共享设置决定；真正退出、睡眠或 Android 执行限制不能保证持续可达。不新增开机自启、系统服务或远程唤醒。
+
+## 构建与分发
+
+- Android Flutter 插件 Gradle 任务从固定 Go 源码编译 arm64-v8a、armeabi-v7a、x86_64 原生库；原生通知材料放入 assets。没有 SDK 编译产物时构建必须生成，不以空插件冒充实现。
+- macOS Xcode 构建阶段调用 `scripts/build-tailscale-macos.sh`，生成 Universal helper 到 App 的 `Contents/MacOS`，随主应用签名；helper 继承应用沙盒。保持既有 ad-hoc / 未公证分发边界。
+- Windows / Linux CMake 编译并安装 helper 与许可证材料到应用目录，随完整目录归档。Windows 打包缺少 `flutter-tailscale-bridge.exe` 或其 `.NOTICES.txt` 时拒绝归档；许可证收集明确使用 UTF-8，不依赖 Windows 系统区域编码。Windows / Linux 对应系统运行验收不能由 macOS 交叉编译代替。
+- Windows 打包在构建后自动调用 `scripts/test-windows-tailscale.ps1 -HelperPath <本次 Release 目录中的 helper 绝对路径>`，执行 Go 单元测试、SDK 锁文件依赖解析、静态分析及完整 Dart 测试；真实 helper 测试由此启用，任何命令失败都会停止打包。脚本仅临时设置本进程的 Go 目标、`CGO_ENABLED=0` 和 helper 路径，结束时恢复环境与工作目录，不修改系统设置；这些检查不代替账号登录和跨设备验收。
+- 工作流增加 Go 工具链输入；分支推送会触发验证，实际结果须单独核对，配置存在不表示 CI 已通过。源码提交与推送不等于创建版本 Tag 或正式 Release。
+
+可按根 AGENTS 的 Flutter / 原生检查入口验证。SDK 独立检查从其目录执行 `flutter analyze`、`flutter test`，Go 检查从 `native` 执行 `go test -race ./...`。构建需要下载固定依赖，完整离线缓存之外不能保证离线首构建。
+
+## 验证记录与剩余范围
+
+本轮实际执行结果：
+
+| 检查 | 结果与边界 |
+| --- | --- |
+| Tamayura 公共检查 | macOS 与 Windows 的格式、静态分析及全量 1,160 项 Flutter 测试分别通过；macOS 测试生成覆盖率 |
+| 固定 SDK 快照 | macOS 与 Windows 的静态分析、22 项 Flutter 测试分别通过；包括真实 helper 的 2 项检查及本机 TLS / 四种 gRPC 流模式、取消、期限、重新连接和即时撤销 |
+| Go 核心 | macOS 的 17 项测试及 race 检查通过；Windows 的 17 项测试以 `CGO_ENABLED=0` 通过；授权 / 故障测试使用受控后端和真实本机 TLS |
+| 真实官方认证入口 | 最终 macOS helper 与 Windows ZIP 解压后的 helper 分别使用全新临时状态取得官方认证链接，确认链接未写入节点日志并清理临时凭据；未打开认证页面或登录账号 |
+| Android | 应用 151 项与 SDK 4 项 JVM 测试通过；最终 debug APK 构建成功，三种 ABI 的 FFI / JNI 导出和许可证资产齐全，arm64 / x64 加载段 16 KiB 对齐 |
+| macOS | 原生检查通过；最终 debug App 构建、深度签名完整性核验通过，包内 helper 为 arm64 / x64 Universal，包含许可证材料 |
+| Windows | 在现有用户桌面会话执行原生 CTest 13/13、打包脚本 8 项回归及完整 `package-windows.ps1`；Release 模式完整 ZIP 构建成功，33 个文件与更新清单及逐文件 SHA-256 一致，应用 / helper 均为 x64，许可证 UTF-8、环境路径隐私和独立归档 SHA-256 核验通过 |
+| 原生交叉编译 | macOS arm64 / x64、Windows x64、Linux arm64 / x64、Android arm64 / armv7 / x64 全部通过；交叉编译不能代替对应系统的本机运行验收，Linux 本机应用构建与运行仍待完成 |
+| 发布工具与工作流 | macOS Python 回归 83 项中 82 项通过，Windows junction 项按主机条件跳过；Windows 源码交接 9 项回归全部通过；actionlint 通过；SDK 快照 55 个文件与独立源码和 SHA-256 清单一致 |
+
+Windows 首次在 SSH 会话 0 执行时，两项窗口可见性断言失败；确认该会话桌面不可见后，在同一用户已有桌面会话中重跑原有测试全部通过，没有跳过或放宽断言。临时执行任务已清理，未修改系统 PATH、应用安装或用户媒体数据。
+
+上述调试构建与 Windows Release 模式 ZIP 均为未发布测试产物。Windows 包版本沿用源码的 `1.1.0+18`，包含 `unstaged` 改动，不能视为 GitHub 已发布的 1.1.0 安装包。此处记录本地验证结果，远端 CI 须按具体提交另行核对；未创建版本 Tag / Release，未执行应用安装升级或正常应用 GUI 验收。公开的本机测试证书及私钥仅作为测试夹具纳入快照，不参与真实节点认证。
+
+仍需用户账号与真实设备完成：官方登录 / 审批 / 到期、两端逐台授权、Android 蜂窝 UIDT 与锁屏、Wi-Fi 切换、桌面睡眠恢复、直连及 DERP、中大文件校验与真实升级。当前不宣称这些场景通过。Headscale、iOS、Flutter Web、UDP、Funnel、exit node、自建控制服务器和直接公网服务均未实现。

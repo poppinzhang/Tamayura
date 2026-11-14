@@ -1,11 +1,17 @@
 import 'dart:io';
 import 'package:flutter/services.dart';
+import 'package:flutter_tailscale/flutter_tailscale.dart';
 import 'package:grpc/grpc.dart';
 import '../l10n/app_locale.dart';
 import '../network/downloader.dart' show TransferStalled;
 
 String describeError(Object error) {
   final text = AppLocale.strings;
+  if (error is TailscaleException) {
+    return error.code == 'runtimeUnavailable'
+        ? text.tailscaleRuntimeMissing
+        : text.tailscaleError;
+  }
   if (error is TransferStalled) return text.errorPeerStalled;
   if (error is FormatException) return error.message;
   if (error is PlatformException) {
@@ -24,6 +30,10 @@ String describeError(Object error) {
     };
   }
   if (error is GrpcError) {
+    if (error.code == StatusCode.permissionDenied ||
+        error.code == StatusCode.unauthenticated) {
+      return text.errorPeerAccessDenied;
+    }
     if (error.code == StatusCode.notFound) return text.errorPeerFileMissing;
     if (error.code == StatusCode.failedPrecondition) {
       return text.errorPeerFolderUnavailable;

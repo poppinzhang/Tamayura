@@ -1,0 +1,54 @@
+group = 'dev.fluttertailscale'
+version = '0.1.0'
+
+buildscript {
+    repositories { google(); mavenCentral() }
+    dependencies {
+        classpath 'com.android.tools.build:gradle:8.13.2'
+        classpath 'org.jetbrains.kotlin:kotlin-gradle-plugin:2.2.21'
+    }
+}
+apply plugin: 'com.android.library'
+apply plugin: 'kotlin-android'
+
+android {
+    namespace = 'dev.fluttertailscale'
+    compileSdk = 36
+    ndkVersion = '28.2.13676358'
+    defaultConfig { minSdk = 36 }
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+    kotlinOptions { jvmTarget = '17' }
+    sourceSets.main.jniLibs.srcDir(layout.buildDirectory.dir('tailscale-jni'))
+    sourceSets.main.assets.srcDir(layout.buildDirectory.dir('tailscale-assets'))
+}
+
+def sdkRoot = projectDir.parentFile
+def nativeBuild = tasks.register('buildTailscaleNative') {
+    inputs.dir(new File(sdkRoot, 'native'))
+    inputs.file(new File(sdkRoot, 'scripts/build-native.sh'))
+    inputs.file(new File(sdkRoot, 'scripts/collect-licenses.py'))
+    outputs.dir(layout.buildDirectory.dir('tailscale-jni'))
+    outputs.dir(layout.buildDirectory.dir('tailscale-assets'))
+    doLast {
+        ['arm64-v8a', 'armeabi-v7a', 'x86_64'].each { abi ->
+            def output = layout.buildDirectory.file("tailscale-jni/${abi}/libflutter_tailscale.so").get().asFile
+            output.parentFile.mkdirs()
+            project.exec {
+                environment 'ANDROID_NDK_HOME', android.ndkDirectory.absolutePath
+                commandLine 'bash', new File(sdkRoot, 'scripts/build-native.sh').absolutePath,
+                    'android', abi, output.absolutePath
+            }
+            def notices = layout.buildDirectory.file("tailscale-assets/flutter_tailscale/THIRD_PARTY_NOTICES-${abi}.txt").get().asFile
+            notices.parentFile.mkdirs()
+            notices.bytes = new File(output.absolutePath + '.NOTICES.txt').bytes
+            new File(output.absolutePath + '.NOTICES.txt').delete()
+            new File(output.parentFile, 'libflutter_tailscale.h').delete()
+        }
+    }
+}
+tasks.named('preBuild').configure { dependsOn(nativeBuild) }
+
+dependencies { testImplementation 'junit:junit:4.13.2' }

@@ -30,8 +30,12 @@ OPTIONAL_FILES = (
     # the same protocol. These are test inputs, not additional build targets.
     "android/app/src/main/kotlin/dev/tamayura/app/LanDiscovery.kt",
     "macos/Runner/LanDiscovery.swift",
+    # Public TLS fixtures used only by the reusable SDK's local tests.
+    "third_party/flutter_tailscale/test/fixtures/test-cert.pem",
+    "third_party/flutter_tailscale/test/fixtures/test-key.pem",
 )
 SOURCE_SUFFIXES = {
+    "third_party/flutter_tailscale": {".dart", ".go", ".c", ".h", ".mod", ".sum", ".yaml", ".lock", ".txt", ".json", ".md", ".gradle", ".kt", ".xml", ".sh", ".py"},
     "lib": {".dart", ".arb"},
     "test": {".dart"},
     "tool": {".dart"},

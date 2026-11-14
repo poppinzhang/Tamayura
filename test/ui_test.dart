@@ -1880,9 +1880,9 @@ void main() {
       await tester.tap(find.byKey(const Key('devices-tab')));
       await tester.pumpAndSettle();
       for (final (id, details) in [
-        ('phone-b', '在线\n192.0.2.11:50728\n最后成功同步：2026-01-02 03:04:05'),
+        ('phone-b', '局域网在线\n192.0.2.11:50728\n最后成功同步：2026-01-02 03:04:05'),
         ('offline', '离线 · 可浏览缓存\n192.0.2.12:50728\n最后成功同步：2025-12-31 23:59:58'),
-        ('never-synced', '在线\n192.0.2.13:50728\n最后成功同步：尚未成功同步'),
+        ('never-synced', '局域网在线\n192.0.2.13:50728\n最后成功同步：尚未成功同步'),
       ]) {
         final tile = find.byKey(Key('device-$id'));
         await _scrollDevicesTo(tester, tile);

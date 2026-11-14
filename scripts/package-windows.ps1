@@ -57,11 +57,8 @@ try {
 
     $releaseDir = Join-Path $sourceDir 'build\windows\x64\runner\Release'
     $executable = Join-Path $releaseDir 'Tamayura.exe'
-    foreach ($required in @($executable, (Join-Path $releaseDir 'flutter_windows.dll'), (Join-Path $releaseDir 'sqlite3.dll'), (Join-Path $releaseDir 'data\icudtl.dat'), (Join-Path $releaseDir 'data\app.so'), (Join-Path $releaseDir 'data\flutter_assets'))) {
-        if (-not (Test-Path -LiteralPath $required)) {
-            throw "The release bundle is incomplete: $required"
-        }
-    }
+    Assert-WindowsPackageRuntime $releaseDir
+    & (Join-Path $sourceDir 'scripts/test-windows-tailscale.ps1') -HelperPath (Join-Path $releaseDir 'flutter-tailscale-bridge.exe')
     if (Test-Path -LiteralPath (Join-Path $releaseDir 'native_assets.json')) {
         throw 'The release bundle contains the host-only Flutter test native-assets manifest.'
     }

@@ -24,6 +24,7 @@ import 'media_preview.dart';
 import 'sync_notices.dart';
 import 'sync_notice_transition.dart';
 import 'update_page.dart';
+import 'tailscale_settings.dart';
 
 class TamayuraApp extends StatelessWidget {
   const TamayuraApp({super.key, required this.model});
@@ -1278,7 +1279,7 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
               style: const TextStyle(fontWeight: FontWeight.w600),
             ),
             subtitle: Text(
-              '${device.online ? l10n.commonOnline : l10n.deviceOfflineCached}'
+              '${device.online ? [if (device.lanOnline) l10n.tailscaleLanOnline, if (device.tailscaleOnline) l10n.tailscalePeerOnline].join(" · ") : l10n.deviceOfflineCached}'
               '\n${device.address}\n$syncStatus',
               style: const TextStyle(height: 1.6, fontSize: 12),
             ),
@@ -1531,6 +1532,7 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
           ),
         ),
       for (final device in model.devices) _deviceCard(device),
+      TailscaleCandidates(model: model),
       const SizedBox(height: 12),
       Text(
         // The Windows wording is not Windows-specific and applies to Linux.
@@ -1703,6 +1705,8 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
       ),
       const SizedBox(height: 12),
       _languageCard(),
+      const SizedBox(height: 12),
+      TailscaleSettings(model: model),
       const SizedBox(height: 28),
       _SectionLabel(context.l10n.settingsAlbum),
       _SurfaceCard(

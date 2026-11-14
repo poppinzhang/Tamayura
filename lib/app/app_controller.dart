@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/services.dart';
+import 'package:flutter_tailscale/flutter_tailscale.dart';
 import 'package:material_ui/material_ui.dart' show ThemeMode;
 import 'package:uuid/uuid.dart';
 
@@ -21,6 +22,9 @@ import '../background/transfer_scheduler.dart';
 import 'endpoint.dart';
 import 'local_catalog_maintenance.dart';
 import 'view_state.dart';
+import 'tailscale_service.dart';
+import 'tailscale_runtime.dart';
+import 'tailscale_bindings.dart' show TailscaleBindings;
 
 class AppController extends TamayuraModel {
   AppController({
@@ -29,6 +33,7 @@ class AppController extends TamayuraModel {
     Future<TamayuraRepository> Function()? openRepository,
     Future<TransferStore> Function()? openTransfers,
     MediaRpcClient Function(Peer)? clientFactory,
+    Future<TailscaleNode> Function()? openTailscaleNode,
     int preferredPort = LanEndpoint.defaultPort,
     DateTime Function()? clock,
     Duration resumeRescanInterval = const Duration(seconds: 30),
@@ -37,13 +42,191 @@ class AppController extends TamayuraModel {
        _preferredPort = preferredPort,
        _openRepository = openRepository ?? TamayuraRepository.open,
        _openTransfers = openTransfers ?? TransferStore.open,
-       _clientFactory = clientFactory ?? MediaRpcClient.new,
+       _customClientFactory = clientFactory,
+       _openTailscaleNode = openTailscaleNode,
        _clock = clock ?? DateTime.now,
        _resumeRescanInterval = resumeRescanInterval;
   final PlatformBridge _bridge;
   TransferScheduler? _transferScheduler;
   final int _preferredPort;
-  final MediaRpcClient Function(Peer) _clientFactory;
+  final MediaRpcClient Function(Peer)? _customClientFactory;
+  final Future<TailscaleNode> Function()? _openTailscaleNode;
+  TamayuraTailscaleService? _tailscale;
+  Future<void>? _tailscaleInitializing;
+  String? _tailscaleFailure;
+  bool _openLoginWhenReady = false;
+  Uri? _openedLoginUrl;
+  final Set<String> _tailscaleAnnounced = {};
+  MediaRpcClient _clientFactory(Peer peer) =>
+      _customClientFactory?.call(peer) ??
+      _tailscale?.createClient(peer) ??
+      MediaRpcClient(peer);
+
+  @override
+  bool get tailscaleEnabled => _tailscale?.enabled ?? false;
+  @override
+  bool get tailscaleBusy => _tailscale?.busy ?? false;
+  @override
+  bool get tailscaleCanOpenLogin => _tailscale?.status?.authUrl != null;
+  @override
+  bool get tailscaleControlDisconnected =>
+      _tailscale?.status?.controlState == NodeControlState.disconnected;
+  @override
+  String? get tailscaleLocalDeviceId => tailscaleEnabled ? _id : null;
+  @override
+  String? get tailscaleNodeId => _tailscale?.status?.selfNodeId;
+  @override
+  String? get tailscaleError =>
+      _tailscaleFailure ??
+      (_tailscale?.error == null ? null : describeError(_tailscale!.error!));
+  @override
+  TailscaleConnectionState get tailscaleState {
+    if (tailscaleError != null) return TailscaleConnectionState.unavailable;
+    return switch (_tailscale?.status?.state) {
+      NodeState.connected => TailscaleConnectionState.connected,
+      NodeState.authorizing => TailscaleConnectionState.needsLogin,
+      NodeState.awaitingApproval => TailscaleConnectionState.needsApproval,
+      NodeState.connecting => TailscaleConnectionState.connecting,
+      NodeState.error ||
+      NodeState.unknown => TailscaleConnectionState.unavailable,
+      _ => TailscaleConnectionState.signedOut,
+    };
+  }
+
+  @override
+  List<TailscaleDeviceView> get tailscaleCandidates => [
+    for (final candidate in _tailscale?.candidates ?? [])
+      TailscaleDeviceView(
+        key: candidate.key,
+        deviceId: candidate.peer.id,
+        name: candidate.peer.name,
+        nodeId: candidate.ref.nodeId,
+        existingDevice: candidate.existingDevice,
+      ),
+  ];
+  @override
+  List<String> get tailscaleAuthorizedDeviceIds => [
+    for (final binding in _tailscale?.bindings ?? [])
+      if (binding.ref.networkScope == _tailscale?.status?.networkScope)
+        binding.deviceId,
+  ];
+
+  Future<void> _ensureTailscale() =>
+      _tailscaleInitializing ??= _initializeTailscale();
+
+  Future<void> _initializeTailscale() async {
+    if (_tailscale != null || _repository == null || _disposed) return;
+    _tailscale = TamayuraTailscaleService(
+      repository: _repository!,
+      openNode: _openTailscaleNode ?? () => openTamayuraTailscaleNode(_id),
+      identity: () => Peer(id: _id, name: deviceName, host: '', port: port),
+      server: () => _server,
+      lanOnline: _online.contains,
+      onPeer: _onTailscalePeer,
+      onChanged: _tailscaleChanged,
+    );
+    await _tailscale!.initialize();
+  }
+
+  void _tailscaleChanged() {
+    if (_disposed) return;
+    _notify();
+    final url = _tailscale?.status?.authUrl;
+    if (_openLoginWhenReady && url != null && url != _openedLoginUrl) {
+      _openLoginWhenReady = false;
+      unawaited(openTailscaleLogin());
+    }
+  }
+
+  Future<void> _onTailscalePeer(Peer peer, bool online) async {
+    if (_disposed || _forgetting.contains(peer.id) || peer.id == _id) return;
+    final db = _repository;
+    if (db == null) return;
+    if (!_peers.containsKey(peer.id)) {
+      _syncApprovals[peer.id] = await db.rememberDiscoveredPeer(peer);
+      if (_disposed || _forgetting.contains(peer.id)) return;
+      _peers[peer.id] = peer;
+      _requestSyncApproval(peer.id);
+    }
+    final edge = online ? _tailscaleAnnounced.add(peer.id) : false;
+    if (!online) _tailscaleAnnounced.remove(peer.id);
+    _notify();
+    final remembered = _peers[peer.id]!;
+    if (online &&
+        _shouldShare &&
+        _syncApproved(peer.id) &&
+        (_autoSyncDue(remembered) || (edge && _syncFailed.contains(peer.id)))) {
+      unawaited(
+        _syncPeer(
+          remembered,
+          automatic: !(edge && _syncFailed.contains(peer.id)),
+        ),
+      );
+    }
+  }
+
+  Future<void> _tailscaleOperation(Future<void> Function() operation) async {
+    if (_disposed || !_initialized) return;
+    _tailscaleFailure = null;
+    try {
+      await _ensureTailscale();
+      await operation();
+    } catch (_) {
+      _tailscaleFailure = _text.tailscaleError;
+    }
+    _notify();
+  }
+
+  Future<void> _restoreTailscale() async {
+    try {
+      await _ensureTailscale();
+    } catch (_) {
+      _tailscaleFailure = _text.tailscaleError;
+      _notify();
+    }
+  }
+
+  @override
+  Future<void> loginTailscale() => _tailscaleOperation(() async {
+    _openLoginWhenReady = true;
+    _openedLoginUrl = null;
+    await _tailscale?.login();
+    _tailscaleChanged();
+  });
+  @override
+  Future<void> openTailscaleLogin() async {
+    final url = _tailscale?.status?.authUrl;
+    if (url == null || _disposed) return;
+    _openedLoginUrl = url;
+    try {
+      await _bridge.openTailscaleLogin(url);
+    } catch (_) {
+      _tailscaleFailure = _text.tailscaleLoginOpenError;
+      _notify();
+    }
+  }
+
+  @override
+  Future<void> retryTailscale() => _tailscaleOperation(() async {
+    await _tailscale?.retry();
+  });
+  @override
+  Future<void> logoutTailscale() => _tailscaleOperation(() async {
+    _openLoginWhenReady = false;
+    _openedLoginUrl = null;
+    await _tailscale?.logout();
+    _tailscaleAnnounced.clear();
+  });
+  @override
+  Future<void> confirmTailscaleDevice(String key) =>
+      _tailscaleOperation(() async {
+        await _tailscale?.confirmCandidate(key);
+      });
+  @override
+  Future<void> revokeTailscaleDevice(String deviceId) =>
+      _tailscaleOperation(() async {
+        await _tailscale?.forgetDevice(deviceId);
+      });
   final DateTime Function() _clock;
   final Duration _resumeRescanInterval;
   final Map<String, Peer> _activePeers = {}, _pendingPeers = {};
@@ -64,6 +247,7 @@ class AppController extends TamayuraModel {
   String? _failedSharingSession, _sharingFailure;
   StreamSubscription<SharingStatus>? _sharingSubscription;
   Future<void>? _initializing;
+  Future<void>? _shutdown;
   bool _initialized = false;
   bool _initializationCancelled = false;
   _SharingStartup? _initializationStartup, _networkStartup;
@@ -240,8 +424,15 @@ class AppController extends TamayuraModel {
           (peer) => DeviceView(
             id: peer.id,
             name: peer.name,
-            address: '${peer.host}:${peer.port}',
-            online: _online.contains(peer.id),
+            address: peer.host.isEmpty
+                ? 'Tailscale'
+                : '${peer.host}:${peer.port}',
+            online:
+                _online.contains(peer.id) ||
+                (_tailscale?.onlineDeviceIds.contains(peer.id) ?? false),
+            lanOnline: _online.contains(peer.id),
+            tailscaleOnline:
+                _tailscale?.onlineDeviceIds.contains(peer.id) ?? false,
             lastSync: peer.lastSync,
             lastSuccessfulSync: peer.lastSuccessfulSync,
             syncApproval: _syncApprovals[peer.id] ?? PeerSyncApproval.pending,
@@ -612,26 +803,54 @@ class AppController extends TamayuraModel {
   }
 
   Future<void> _stopNetwork() async {
-    await _catalogMaintenance?.stop();
-    _invalidatePresenceChecks();
-    await _discovery?.cancel();
-    _discovery = null;
-    // A restarted discovery session reports each present device as a new edge.
-    _announced.clear();
-    try {
-      await _bridge.stopDiscovery();
-    } finally {
-      await _server?.stop();
+    final remoteStop = () async {
       try {
-        if (_bridge.supportsBackgroundCatalog) {
-          _source?.invalidate();
-          await _bridge.clearSharedDirectory();
-        }
-      } finally {
-        _online.clear();
-        _notify();
+        await _tailscale?.setSharing(false);
+      } catch (_) {
+        _tailscaleFailure = _text.tailscaleError;
+      }
+    }();
+    try {
+      await _stopLanNetwork();
+    } finally {
+      await remoteStop;
+    }
+  }
+
+  Future<void> _stopLanNetwork() async {
+    Object? failure;
+    StackTrace? failureStack;
+    Future<void> cleanup(Future<void> Function() action) async {
+      try {
+        await action();
+      } catch (error, stack) {
+        failure ??= error;
+        failureStack ??= stack;
       }
     }
+
+    await cleanup(() async {
+      await _catalogMaintenance?.stop();
+    });
+    _invalidatePresenceChecks();
+    final discovery = _discovery;
+    _discovery = null;
+    await cleanup(() async {
+      await discovery?.cancel();
+    });
+    // A restarted discovery session reports each present device as a new edge.
+    _announced.clear();
+    await cleanup(_bridge.stopDiscovery);
+    await cleanup(() async {
+      await _server?.stop();
+    });
+    if (_bridge.supportsBackgroundCatalog) {
+      _source?.invalidate();
+      await cleanup(_bridge.clearSharedDirectory);
+    }
+    _online.clear();
+    _notify();
+    if (failure != null) Error.throwWithStackTrace(failure!, failureStack!);
   }
 
   Future<void> _refreshTransfers() async {
@@ -1063,7 +1282,15 @@ class AppController extends TamayuraModel {
               clientFactory: _clientFactory,
               onChanged: _refreshTransfers,
             )
-          : NativeTransferScheduler(_bridge);
+          : NativeTransferScheduler(
+              _bridge,
+              allowRemoteTransfer: (taskId) async {
+                final task = await _taskStore?.get(taskId);
+                return tailscaleEnabled &&
+                    task != null &&
+                    tailscaleAuthorizedDeviceIds.contains(task.item.deviceId);
+              },
+            );
       final db = _repository!;
       _applyLanguage(
         AppLanguage.parse(await startup.wait(() => db.getSetting('language'))),
@@ -1188,6 +1415,11 @@ class AppController extends TamayuraModel {
       _notify();
     }
     // The UI can browse its cache and choose folders during network requests.
+    // A failed LAN listener/discovery must not prevent an opted-in node from
+    // restoring on cellular or another internet connection.
+    if (_initialized && !_disposed) {
+      unawaited(_restoreTailscale());
+    }
     if (_initialized && _foreground && !_disposed) {
       await _syncRemembered();
     }
@@ -1271,9 +1503,37 @@ class AppController extends TamayuraModel {
         _notify();
       },
     );
-    await wait(
+    final lanDiscovery = wait(
       () => _bridge.startDiscovery(id: _id, name: deviceName, port: port),
     );
+    // LAN discovery has been requested. Remote publication must still resume
+    // when mDNS fails or has no usable LAN interface.
+    if (_tailscale != null) {
+      unawaited(
+        _tailscaleOperation(() async {
+          await _tailscale?.setSharing(_shouldShare);
+          await _tailscale?.refresh();
+        }),
+      );
+    }
+    try {
+      await lanDiscovery;
+    } on _SharingStartupCancelled {
+      rethrow;
+    } catch (error) {
+      // On cellular an opted-in app can still serve its authenticated remote
+      // endpoint without mDNS. This first startup may precede node restoration,
+      // so consult the saved opt-in without making LAN wait for Tailscale.
+      final remoteEnabled =
+          _tailscale?.enabled ??
+          await wait(
+                () => _repository!.getSetting(TailscaleBindings.enabledKey),
+              ) ==
+              'true';
+      if (!remoteEnabled) rethrow;
+      _error = _text.errorDiscoveryUnavailable(describeError(error));
+      _notify();
+    }
     if (!_shouldShare) await _stopNetwork();
     _scheduleAutoSync();
     _catalogMaintenance?.reschedule();
@@ -1398,6 +1658,7 @@ class AppController extends TamayuraModel {
     if (_disposed ||
         !_shouldShare ||
         peer == null ||
+        peer.host.isEmpty ||
         _forgetting.contains(id) ||
         _presenceChecks.containsKey(id)) {
       return;
@@ -1412,7 +1673,9 @@ class AppController extends TamayuraModel {
         identical(_presenceChecks[id], check);
     MediaRpcClient? client;
     try {
-      client = _clientFactory(peer);
+      // This is a LAN presence check. Tailnet reachability is tracked by its
+      // own probe and must never turn the LAN badge on.
+      client = _customClientFactory?.call(peer) ?? MediaRpcClient(peer);
       _rpcClients.add(client);
       final identity = await client.identity().timeout(
         const Duration(seconds: 8),
@@ -2134,7 +2397,11 @@ class AppController extends TamayuraModel {
       );
       _peers[peer.id] = peer;
       _presenceChecks.remove(peer.id);
-      _online.add(peer.id);
+      if (!client.usesTailscale) {
+        _online.add(peer.id);
+      } else {
+        _online.remove(peer.id);
+      }
       _notify();
       final result = await client.synchronize(
         _repository!,
@@ -2151,7 +2418,11 @@ class AppController extends TamayuraModel {
           lastSuccessfulSync: peer.lastSuccessfulSync,
         );
         _presenceChecks.remove(peer.id);
-        _online.add(peer.id);
+        if (!client.usesTailscale) {
+          _online.add(peer.id);
+        } else {
+          _online.remove(peer.id);
+        }
       }
       progressChanged(
         SyncProgress(
@@ -2477,6 +2748,7 @@ class AppController extends TamayuraModel {
         if (client != null) unawaited(_closeRpcClient(client));
       }
       await Future.wait(runs.map((run) => run.done.future));
+      await _tailscale?.forgetDevice(id);
       await db.forgetPeer(id);
       _peers.remove(id);
       _syncApprovals.remove(id);
@@ -2765,7 +3037,9 @@ class AppController extends TamayuraModel {
   @override
   Future<void> shutdownForUpdate() => shutdown();
 
-  Future<void> shutdown() async {
+  Future<void> shutdown() => _shutdown ??= _shutdownAll();
+
+  Future<void> _shutdownAll() async {
     _disposed = true;
     _initializationStartup?.cancel();
     _networkStartup?.cancel();
@@ -2775,14 +3049,35 @@ class AppController extends TamayuraModel {
     try {
       await _networkOperation(_stopNetwork);
     } catch (_) {}
-    try {
+    // Failure in one subsystem must not leak another owner's node, listener,
+    // or database handle during process/update shutdown.
+    Future<void> cleanup(Future<void> Function() action) async {
+      try {
+        await action();
+      } catch (_) {}
+    }
+
+    await cleanup(() async {
       await _transferScheduler?.shutdown();
+    });
+    await cleanup(() async {
+      await _tailscale?.shutdown();
+    });
+    await cleanup(() async {
       await _reloadTail;
+    });
+    await cleanup(() async {
       await _scrollWorker;
+    });
+    await cleanup(() async {
       await _catalogMaintenance?.flushCheckpoint();
+    });
+    await cleanup(() async {
       await _repository?.close();
+    });
+    await cleanup(() async {
       await _taskStore?.close();
-    } catch (_) {}
+    });
   }
 
   @override

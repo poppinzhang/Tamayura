@@ -423,6 +423,16 @@ void LinuxPlatform::Handle(FlMethodCall* call) {
       const auto path = PrivateDirectory(area);
       return Reply([path] { return fl_value_new_string(path.c_str()); });
     });
+  } else if (method == "openTailscaleLogin") {
+    const auto url = String(args, "url");
+    static const std::regex allowed(R"(^https://login\.tailscale\.com/a/[A-Za-z0-9_/?=&%.-]+$)");
+    if (url.size() > 4096 || !std::regex_match(url, allowed)) {
+      fl_method_call_respond_error(call, "TAILSCALE_LOGIN_URL", nullptr, nullptr, nullptr);
+    } else if (!ShowUri(url)) {
+      fl_method_call_respond_error(call, "TAILSCALE_LOGIN_OPEN", nullptr, nullptr, nullptr);
+    } else {
+      RespondSuccess(call, nullptr);
+    }
   } else if (method == "open" || method == "share") {
     Launch(call, String(args, "uri"), method == "share");
   } else {

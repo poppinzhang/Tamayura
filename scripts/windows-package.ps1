@@ -2,8 +2,9 @@
 # Keep source selection aligned with package-windows-source.py. The two other
 # platform discovery sources are also needed by protocol_version_test.dart.
 $script:WindowsPackageRequiredFiles = @('AGENTS.md', 'CHANGELOG.md', 'LICENSE', 'README.md', 'analysis_options.yaml', 'l10n.yaml', 'pubspec.yaml', 'pubspec.lock')
-$script:WindowsPackageOptionalFiles = @('.gitignore', '.metadata', '.github/workflows/windows.yml', 'assets/branding/hibiki/license/ATTRIBUTION.txt', 'assets/branding/hibiki/license/Nagino-OFL.txt', 'android/app/src/main/kotlin/dev/tamayura/app/LanDiscovery.kt', 'macos/Runner/LanDiscovery.swift')
+$script:WindowsPackageOptionalFiles = @('.gitignore', '.metadata', '.github/workflows/windows.yml', 'assets/branding/hibiki/license/ATTRIBUTION.txt', 'assets/branding/hibiki/license/Nagino-OFL.txt', 'android/app/src/main/kotlin/dev/tamayura/app/LanDiscovery.kt', 'macos/Runner/LanDiscovery.swift', 'third_party/flutter_tailscale/test/fixtures/test-cert.pem', 'third_party/flutter_tailscale/test/fixtures/test-key.pem')
 $script:WindowsPackageSuffixes = @{
+    'third_party/flutter_tailscale' = @('.dart', '.go', '.c', '.h', '.mod', '.sum', '.yaml', '.lock', '.txt', '.json', '.md', '.gradle', '.kt', '.xml', '.sh', '.py')
     lib = @('.dart', '.arb'); test = @('.dart'); tool = @('.dart'); proto = @('.proto')
     assets = @('.png', '.jpg', '.jpeg', '.webp', '.ico', '.svg'); docs = @('.md')
     windows = @('.cc', '.cpp', '.h', '.hpp', '.cmake', '.txt', '.manifest', '.rc', '.ico', '.ps1')
@@ -157,6 +158,17 @@ function Invoke-WindowsPackagePubGet([string]$Flutter, [string]$Source) {
     New-WindowsPackagePluginJunctions $Source
     & $Flutter pub get --enforce-lockfile
     if ($LASTEXITCODE -ne 0) { throw 'Flutter dependency resolution failed after creating Windows plugin junctions.' }
+}
+
+function Assert-WindowsPackageRuntime([string]$Bundle) {
+    foreach ($name in @('Tamayura.exe', 'flutter_windows.dll', 'sqlite3.dll', 'flutter-tailscale-bridge.exe', 'flutter-tailscale-bridge.exe.NOTICES.txt', 'data\icudtl.dat', 'data\app.so')) {
+        if (-not (Test-Path -LiteralPath (Join-Path $Bundle $name) -PathType Leaf)) {
+            throw "The release bundle is incomplete: $name"
+        }
+    }
+    if (-not (Test-Path -LiteralPath (Join-Path $Bundle 'data\flutter_assets') -PathType Container)) {
+        throw 'The release bundle is incomplete: data\flutter_assets'
+    }
 }
 
 function Assert-WindowsPackagePrivacy([string]$Bundle, [string[]]$PrivateRoots) {

@@ -36,6 +36,10 @@ jobs:
           sudo systemctl start avahi-daemon
       # Flutter publishes Linux SDK archives for x64 only; both architectures
       # use the same tagged checkout, which downloads its own engine artifacts.
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: third_party/flutter_tailscale/native/go.mod
+          cache-dependency-path: third_party/flutter_tailscale/native/go.sum
       - name: Install Flutter 3.47.6
         run: |
           git clone --depth 1 --branch 3.47.6 https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"

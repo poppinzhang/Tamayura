@@ -26,7 +26,8 @@ internal class AndroidRuntime private constructor(private val context: Context) 
     private val sharing = BackgroundSharing.get(context)
     private var flutterEngine: FlutterEngine? = null
     var activity: MainActivity? = null
-    private data class TransferRequest(val taskId: String, val ticket: Long, val result: MethodChannel.Result)
+    private data class TransferRequest(val taskId: String, val ticket: Long,
+        val result: MethodChannel.Result, val allowRemote: Boolean)
 
     fun engine(): FlutterEngine {
         flutterEngine?.let { return it }
@@ -54,7 +55,7 @@ internal class AndroidRuntime private constructor(private val context: Context) 
     fun handleMethod(call: MethodCall, result: MethodChannel.Result, host: MainActivity? = activity) {
         try {
             when (call.method) {
-                "pickDirectory", "share", "open", "openBatteryOptimizationSettings" -> {
+                "pickDirectory", "share", "open", "openBatteryOptimizationSettings", "openTailscaleLogin" -> {
                     val current = host ?: throw IllegalStateException(text(R.string.error_open_app_first))
                     current.handleUiMethod(call, result)
                 }
@@ -102,7 +103,8 @@ internal class AndroidRuntime private constructor(private val context: Context) 
                 "transferSpace" -> background(result) { media.transferSpace(call.requiredString("directoryUri")) }
                 "temporaryDirectory" -> result.success(context.cacheDir.absolutePath)
                 "transferDirectory" -> background(result) { TransferScheduler.directory(context) }
-                "scheduleTransfer" -> requestTransfer(call.requiredString("taskId"), result)
+                "scheduleTransfer" -> requestTransfer(call.requiredString("taskId"), result,
+                    call.argument<Boolean>("allowRemote") == true)
                 "cancelTransfer" -> {
                     val taskId = call.requiredString("taskId")
                     TransferScheduler.cancel(context, taskId)
@@ -141,9 +143,9 @@ internal class AndroidRuntime private constructor(private val context: Context) 
         } catch (error: Exception) { report(result, error) }
     }
 
-    private fun requestTransfer(taskId: String, result: MethodChannel.Result) {
+    private fun requestTransfer(taskId: String, result: MethodChannel.Result, allowRemote: Boolean) {
         TransferPolicy.requireTaskId(taskId)
-        val request = TransferRequest(taskId, TransferScheduler.requestTicket(taskId), result)
+        val request = TransferRequest(taskId, TransferScheduler.requestTicket(taskId), result, allowRemote)
         // Notification permission controls visibility, not permission to download.
         scheduleTransfer(request)
     }
@@ -163,7 +165,7 @@ internal class AndroidRuntime private constructor(private val context: Context) 
             if (!TransferScheduler.requestCurrent(taskId, ticket)) {
                 result.error("TRANSFER_CANCELLED", text(R.string.error_download_cancelled), null)
             } else try {
-                TransferScheduler.schedule(context, taskId)
+                TransferScheduler.schedule(context, taskId, request.allowRemote)
                 result.success(null)
             } catch (error: Exception) {
                 result.error("TRANSFER_SCHEDULE_FAILED", error.message ?: text(R.string.error_schedule_failed), null)

@@ -32,7 +32,7 @@ Windows 原生 CTest 已 **2/2 通过**：`discovery_core_test` 与 `windows_sto
 - Flutter 复用相册、设备记忆、离线缩略图、渐进同步和相册断点恢复；沿用当前 gRPC v4、层级接收与超过 50 MiB 的四路并发下载，后续正式版兼容要求见 [兼容与升级](兼容与升级.md)。
 - Win32 系统文件夹选择器选择共享目录和接收目录；原生存储层递归扫描媒体、读取文件范围、生成预览并保存接收文件。Windows 文件名校验、父子目录重叠、路径穿越和重解析点等边界由原生层处理。媒体缩略图依赖系统的媒体处理能力，无法解码时允许占位并继续尝试原文件下载。与 macOS 一致，扫描后被删除、大小或修改时间变化的单个文件同样返回空缩略图；共享目录不可访问、共享冲突、权限及其他 I/O 错误仍报错，由接收端稍后重试。扫描跳过被其他程序独占、名称不合规或无法打开的文件以及无法列出的子目录，共享根目录本身无法读取时扫描失败。
 - 仅支持本机盘符下的普通目录与文件，不支持 UNC/网络路径、符号链接、目录联接或其它重解析点，包含 OneDrive 等云盘的占位文件/目录；请将媒体复制到普通本地目录后共享。图片预览使用 WIC，视频与部分图片格式使用 Windows Shell 缩略图提供者；HEIC、RAW、视频等能否预览取决于系统已安装的解码器，不能保证所有扩展名都有缩略图。
-- 自动发现调用 Windows 的 `DnsServiceRegister`、`DnsServiceBrowse` 与 `DnsServiceResolve`，使用 `_tamayura._tcp.local`，无需安装 Bonjour。连接后仍由 gRPC 校验设备身份；手动连接仅接受局域网 IPv4。设备身份在本机持久保存，名称使用 Windows 设备名。
+- 自动发现调用 Windows 的 `DnsServiceRegister`、`DnsServiceBrowse` 与 `DnsServiceResolve`，使用 `_tamayura._tcp.local`，无需安装 Bonjour。连接后仍由 gRPC 校验设备身份；当前手动连接的地址校验仅接受私有及链路本地 IPv4，跨网连接适配见 [互联网访问规划](互联网访问规划.md)。设备身份在本机持久保存，名称使用 Windows 设备名。
 - Windows SQLite 使用 `sqflite_common_ffi`；`sqlite3` 的 Windows 原生资产随 Flutter 构建输出打包，数据库不依赖另行手动安装 SQLite。目录、媒体缓存和下载任务与现有桌面控制器共用。
 - 桌面侧栏、可调整窗口及 Ctrl 快捷键：`Ctrl+1/2/3` 切换相册/设备/设置，`Ctrl+,` 打开设置，`Ctrl+R` 刷新。已下载文件可通过默认应用打开，或在资源管理器中定位；当前未接入 Windows 系统分享面板。
 - 保留本机连接二维码，Android 或 Mac 可扫码连接这台 Windows；Windows 不显示相机扫码入口，因为当前扫码插件没有 Windows 实现。Windows 可用自动发现或手动输入对端 `IP:端口`。
@@ -67,13 +67,15 @@ flutter run -d windows
 
 `flutter doctor -v` 中 Windows 和 Visual Studio 检查应通过，`flutter devices` 应出现 Windows desktop。Android 工具链不参与 Windows 构建，不必为 Windows 调试安装 Android Studio。原生测试脚本会优先使用 PATH 中的 CMake，否则查找 Visual Studio 2022 自带的 CMake 和 CTest。
 
+当前未发布的 Tailscale 接入还需要 **Go 1.27.4** 和 **Python 3.12+**（CI 使用 Python 3.13）。Windows CMake 从固定源码构建 x64 helper，并收集 UTF-8 许可证材料；构建目录中必须包含 helper 和许可证，否则打包失败。`package-windows.ps1` 在应用构建后自动调用 `test-windows-tailscale.ps1`，使用刚生成的 helper 执行 Go 与 SDK 测试；脚本临时设置的环境变量会在结束时恢复。完整实现、实际检查结果和尚未验收范围统一记录于 [Tailscale 实现](Tailscale实现.md)。
+
 也可安装 Visual Studio 2022 Build Tools 的 VCTools 工作负载及 MSVC、CMake、Windows SDK 组件；本次实际使用 Build Tools 17.14.42、MSVC 19.44.35229 与 SDK 10.0.26100.0，具体组件见 [发布与打包](发布.md)。打包脚本要求 x64 构建主机；Flutter 3.47.6 自动采用主机目标架构，不支持 `build windows --target-platform` 参数。
 
 环境准备依据 [Flutter Windows 开发环境说明](https://docs.flutter.dev/platform-integration/windows/setup)。Windows DNS-SD 使用微软的 [DnsServiceBrowse](https://learn.microsoft.com/en-us/windows/win32/api/windns/nf-windns-dnsservicebrowse)、[DnsServiceBrowseCancel](https://learn.microsoft.com/en-us/windows/win32/api/windns/nf-windns-dnsservicebrowsecancel)、[DnsServiceRegister](https://learn.microsoft.com/en-us/windows/win32/api/windns/nf-windns-dnsserviceregister) 与 [DnsServiceDeRegister](https://learn.microsoft.com/en-us/windows/win32/api/windns/nf-windns-dnsservicederegister)。停止浏览/注册后仍可能收到异步完成回调，原生层保留操作上下文到回调完成，并阻止旧会话再发送事件。发现丢失使用 TTL=0 提示和定期解析失败判定，受系统 DNS 缓存与重试间隔影响，离线状态可能延迟；应用仍会在连接和下载时重新确认对端身份与连通性。
 
 ## 首次连接与防火墙
 
-双方连接同一个可信局域网，在 Windows 中将该网络设置为「专用网络」。首次启动提示 Windows 防火墙访问时，仅允许应用访问专用网络；无需允许公用网络或关闭防火墙。应用无账号、鉴权或 TLS，仅适用于自己的可信局域网。
+当前安装包的本地网络用法：双方连接同一个可信局域网，在 Windows 中将该网络设置为「专用网络」。首次启动提示 Windows 防火墙访问时，允许应用访问该专用网络；无需为此开放公用网络或关闭防火墙。应用无应用层账号、鉴权或 TLS，应限制为可信设备访问。后续通过加密组网访问时，须按隧道接口、来源与服务端口配置防火墙，不能直接开放匿名公网访问；该场景尚待实现与验证，见 [互联网访问规划](互联网访问规划.md)。
 
 Windows 需要接收 gRPC TCP 连接：默认端口是 `50728`，占用时可使用其它端口，应以「设备」页展示的本机地址和端口为准。建议按应用程序路径允许专用网络入站连接，避免只放行固定 `50728` 后动态端口仍被阻止。Debug 和 Release 位于不同路径，换路径后可能需要重新确认防火墙规则。mDNS 依赖本地网络的 UDP `5353`，受 Windows 服务、防火墙、网络策略和路由器组播转发影响。
 
@@ -92,6 +94,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\test-windows-nativ
 ```
 
 最后一条仅对本次进程设置脚本执行策略，不更改全局策略。原生脚本以 Visual Studio 2022 / x64 配置 `windows/tests`，构建 Release 后执行 CTest；缺少测试或测试失败会报错。
+
+原生托盘和单实例测试包含真实窗口可见性断言。Windows SSH 的会话 0 使用不可见桌面，可能令这些断言失败；应在同一用户已登录的桌面会话执行原有测试，不能跳过失败项或放宽断言后声称通过。这些窗口级回归仍不能代替正常应用的 GUI 与跨设备验收。
 
 存储测试按文件系统身份核对保存文件与完整期望路径，不要求两者字符串逐字相同：系统临时目录可能使用 DOS 短路径或不同大小写，保存层会返回规范化路径。目录层级、同名后缀、两个独立文件和各自内容仍分别校验；同名保存使用不同内容，确保原文件未被覆盖。另用小写盘符输入稳定覆盖不同路径表示，无需依赖主机是否生成 DOS 短名。这些 Windows 存储回归需要在 Windows 原生 CTest 实际通过后才能记为完成验证。
 

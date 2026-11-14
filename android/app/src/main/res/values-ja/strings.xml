@@ -21,14 +21,14 @@
     <string name="sharing_error_stopped">バックグラウンド共有サービスが停止しました。アプリを開いて、もう一度お試しください</string>
 
     <string name="transfer_channel_name">メディアのダウンロード</string>
-    <string name="transfer_channel_description">ローカルネットワークでのメディアのダウンロード状況と結果</string>
+    <string name="transfer_channel_description">メディアのダウンロード状況と結果</string>
     <string name="transfer_default_name">メディアファイル</string>
     <string name="transfer_waiting_title">前のダウンロードの停止を待っています</string>
     <string name="transfer_waiting_text">ダウンロードの進行状況を保存中</string>
-    <string name="transfer_preparing">ローカルネットワークでのダウンロードを準備中</string>
-    <string name="transfer_downloading">ローカルネットワークでダウンロード中</string>
+    <string name="transfer_preparing">メディアのダウンロードを準備中</string>
+    <string name="transfer_downloading">メディアをダウンロード中</string>
     <string name="transfer_paused">ダウンロードを一時停止しました</string>
-    <string name="transfer_waiting_network">ダウンロードを一時停止し、ローカルネットワークの復旧を待っています</string>
+    <string name="transfer_waiting_network">ダウンロードを一時停止し、接続の復旧を待っています</string>
     <string name="transfer_completed">ダウンロードが完了しました。アプリを開いて表示・共有できます</string>
     <string name="transfer_retry_later">相手のデバイスは一時的に利用できません。しばらくすると自動で再試行します</string>
     <string name="transfer_failed">ダウンロードに失敗しました。アプリを開いて、もう一度お試しください</string>

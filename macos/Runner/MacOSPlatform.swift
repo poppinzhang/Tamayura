@@ -72,6 +72,17 @@ final class MacOSPlatform: NSObject, NSSharingServicePickerDelegate, NSSharingSe
     }
     do {
       switch call.method {
+      case "openTailscaleLogin":
+        guard let value = args["url"] as? String, let url = URL(string: value),
+              url.scheme == "https", url.host == "login.tailscale.com",
+              url.port == nil, url.user == nil, url.password == nil,
+              url.path.hasPrefix("/a/") else {
+          result(FlutterError(code: "TAILSCALE_LOGIN_URL", message: nil, details: nil)); return
+        }
+        guard NSWorkspace.shared.open(url) else {
+          result(FlutterError(code: "TAILSCALE_LOGIN_OPEN", message: nil, details: nil)); return
+        }
+        result(nil)
       case "isMainWindowVisible": result(viewController?.view.window?.isVisible ?? false)
       case "setLanguage":
         guard AppText.setLanguage(try string("language")) else { throw PlatformFailure.invalid(.invalidLanguage) }
