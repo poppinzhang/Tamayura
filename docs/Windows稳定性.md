@@ -1,6 +1,6 @@
 # Windows 稳定性检查
 
-本文记录 `CHANGELOG.md` 中 `unstaged` 的 Windows 稳定性修复，不代表已发布的安装包已包含这些改动。沿用 Flutter 3.47.6 / Dart 3.13.5、媒体库 schema 7、下载任务库 schema 3、配置格式和 gRPC v4，不清空或迁移用户数据。
+本文记录 1.1.0 的 Windows 稳定性与打包修复；发布准备时完整测试、打包、CI 与远端发布状态见 [1.1.0 发布记录](releases/1.1.0.md)。沿用 Flutter 3.47.6 / Dart 3.13.5、媒体库 schema 7、下载任务库 schema 3、配置格式和 gRPC v4，不清空或迁移用户数据。
 
 ## 已定位的路径
 

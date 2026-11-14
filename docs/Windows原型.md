@@ -1,6 +1,6 @@
 # Windows 实现与本机调试
 
-当前 `unstaged` 包含设备发现锁等待、原生通知调度、预览解码与空闲界面开销修复，详见 [Windows 稳定性检查](Windows稳定性.md)；同时优化大目录扫描：优先恢复索引、运行期间监听并批量局部更新，完整核对间隔可设置为 1–8760 的整数小时，默认 24 小时并跨重启计时。手动刷新、首次无缓存和通知丢失保留完整核对；退出或停止共享期间的增删可能等待手动刷新或到期处理，详见 [Windows 本机目录索引](Windows本机目录索引.md)。这些改动尚未包含在已发布安装包中。
+1.1.0 包含设备发现锁等待、原生通知调度、预览解码与空闲界面开销修复，详见 [Windows 稳定性检查](Windows稳定性.md)；同时优化大目录扫描：优先恢复索引、运行期间监听并批量局部更新，完整核对间隔可设置为 1–8760 的整数小时，默认 24 小时并跨重启计时。手动刷新、首次无缓存和通知丢失保留完整核对；退出或停止共享期间的增删可能等待手动刷新或到期处理，详见 [Windows 本机目录索引](Windows本机目录索引.md)。发布准备时完整测试、CI 与远端发布状态见 [1.1.0 发布记录](releases/1.1.0.md)。
 
 Windows 与 Android、macOS 统一使用 `0.5.0+8`，变更记录在 `CHANGELOG.md` 的 `0.5.0`。已完成 Windows x64 可执行 ZIP 构建与核验；源码交接包仅作辅助构建输入。目标系统为 **Windows 10 1809（build 17763）及以上、Windows 11，x64**。当前不提供 Windows ARM64、32 位或 MSIX 安装包。
 
@@ -101,7 +101,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\test-windows-nativ
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\package-windows.ps1
 ```
 
-输出为 `dist/<version>/Tamayura-<version>-windows-x64.zip` 和独立 `SHA256SUMS-windows`，版本始终取自 `pubspec.yaml`。当前 `unstaged` 脚本在中性源码副本中执行完整检查和构建，核对 EXE 数字版本、完整 Release 文件清单及个人路径泄露，再把 ZIP 写回原工作树；临时目录配置见 [发布与打包](发布.md)。包括 Flutter 引擎、插件、SQLite 原生资产与 `data`，不可只发送 `Tamayura.exe`。脚本不改已有 Android/macOS 产物的联合校验文件。
+输出为 `dist/<version>/Tamayura-<version>-windows-x64.zip` 和独立 `SHA256SUMS-windows`，版本始终取自 `pubspec.yaml`。1.1.0 起的脚本在中性源码副本中执行完整检查和构建，核对 EXE 数字版本、完整 Release 文件清单及个人路径泄露，再把 ZIP 写回原工作树；临时目录配置见 [发布与打包](发布.md)。包括 Flutter 引擎、插件、SQLite 原生资产与 `data`，不可只发送 `Tamayura.exe`。脚本不改已有 Android/macOS 产物的联合校验文件。
 
 Flutter 测试会在 `build/native_assets/windows/native_assets.json` 写入构建机绝对 DLL 路径，该清单只供测试使用。CMake 安装时排除它并清除旧 Release 目录的同名残留；正式程序继续使用 `data/flutter_assets/NativeAssetsManifest.json` 和包根目录的 `sqlite3.dll`。打包入口要求 SQLite 存在且测试清单未残留，解压启动时核验实际加载的 SQLite 来自解压目录。
 

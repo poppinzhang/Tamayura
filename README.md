@@ -50,7 +50,7 @@ It is for browsing and transferring media between your own devices on the same l
 
 **4 · Open an album.** In **Albums (相册)**, choose a shared collection and tap a photo or video to download its original. The source device must be online for downloads. After adding or removing media, refresh the source device and wait for its folder scan to finish, then refresh the receiving device to update its album.
 
-**Unreleased Windows source changes:** The `unstaged` version reuses the saved folder index and detects changes while sharing is active. **Settings → Shared folder full check interval** accepts 1–8760 whole hours, defaulting to 24, and retains the last successful check time across restarts. Changes made while the app is closed or sharing is stopped may wait until you refresh manually or a full check becomes due. This setting is not yet available in the v1.0.1 packages; see [CHANGELOG](CHANGELOG.md).
+**Upcoming 1.1.0 Windows changes:** Source for `1.1.0` reuses the saved folder index and detects changes while sharing is active. **Settings → Shared folder full check interval** accepts 1–8760 whole hours, defaulting to 24, and retains the last successful check time across restarts. Changes made while the app is closed or sharing is stopped may wait until you refresh manually or a full check becomes due. Release builds and validation status are tracked in the [1.1.0 release record](docs/releases/1.1.0.md) and [CHANGELOG](CHANGELOG.md); the current published release remains v1.0.1 until v1.1.0 is published.
 
 ## Check for updates
 
