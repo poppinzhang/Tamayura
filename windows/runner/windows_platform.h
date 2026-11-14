@@ -8,56 +8,24 @@
 #include <flutter/method_channel.h>
 #include <windows.h>
 
-#include <condition_variable>
-#include <deque>
 #include <functional>
 #include <memory>
-#include <mutex>
-#include <thread>
-#include <vector>
+
+#include "windows_executor.h"
 
 namespace tamayura {
 class WindowsStorage;
 class LanDiscovery;
 class WindowsUpdate;
 
-// Flutter's desktop messenger must only be called from its platform thread.
-// Queue ownership avoids posting heap pointers to a window that might close.
-class UiDispatcher {
- public:
-  static constexpr UINT kMessage = WM_APP + 77;
-  explicit UiDispatcher(HWND window) : window_(window) {}
-  void Post(std::function<void()> action);
-  void Drain();
-  void Shutdown();
- private:
-  std::mutex mutex_;
-  HWND window_;
-  std::deque<std::function<void()>> pending_;
-};
-
-class WorkerPool {
- public:
-  WorkerPool();
-  ~WorkerPool();
-  void Submit(std::function<void()> work);
-  void Stop();
-  // At least two workers so a background scan cannot queue every read on a
-  // single-core host; four when the hardware count cannot be determined.
-  static unsigned ThreadCount();
- private:
-  std::mutex mutex_;
-  std::condition_variable ready_;
-  bool stopped_ = false;
-  std::deque<std::function<void()>> pending_;
-  std::vector<std::thread> workers_;
-};
-
 class WindowsPlatform {
  public:
   WindowsPlatform(flutter::BinaryMessenger* messenger, HWND window);
   ~WindowsPlatform();
-  void Drain() { dispatcher_->Drain(); }
+  void Drain() {
+    const auto dispatcher = dispatcher_;
+    dispatcher->Drain();
+  }
   void Tick();
  private:
   using Value = flutter::EncodableValue;
@@ -66,7 +34,8 @@ class WindowsPlatform {
   void Handle(const flutter::MethodCall<Value>& call, std::unique_ptr<Result> result);
   void HandleUpdate(const flutter::MethodCall<Value>& call, std::unique_ptr<Result> result);
   Map SharingStatus() const;
-  void Background(std::shared_ptr<Result> result, std::function<Value()> operation);
+  void Background(std::shared_ptr<Result> result, std::function<Value()> operation,
+                  bool preview = false);
   HWND window_;
   bool sharing_enabled_ = false;
   std::shared_ptr<UiDispatcher> dispatcher_;
@@ -74,6 +43,9 @@ class WindowsPlatform {
   std::unique_ptr<LanDiscovery> discovery_;
   std::shared_ptr<WindowsUpdate> updates_;
   WorkerPool workers_;
+  // Shell thumbnail providers and WIC codecs can block inside third-party code.
+  // Keep their concurrency bounded and independent from scans and file transfer.
+  WorkerPool previews_{2};
   std::unique_ptr<flutter::EventSink<Value>> discovery_sink_;
   std::unique_ptr<flutter::EventSink<Value>> sharing_sink_;
   std::unique_ptr<flutter::MethodChannel<Value>> methods_;

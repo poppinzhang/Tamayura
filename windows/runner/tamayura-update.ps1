@@ -15,6 +15,21 @@ Import-Module ([IO.Path]::Combine($PSHOME, 'Modules', 'Microsoft.PowerShell.Mana
 Import-Module ([IO.Path]::Combine($PSHOME, 'Modules', 'Microsoft.PowerShell.Utility', 'Microsoft.PowerShell.Utility.psd1')) -Force -ErrorAction Stop
 Add-Type -AssemblyName System.IO.Compression
 Add-Type -AssemblyName System.IO.Compression.FileSystem
+if (-not ('TamayuraUpdate.ProcessImage' -as [type])) {
+    Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+using System.Text;
+namespace TamayuraUpdate {
+    public static class ProcessImage {
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool QueryFullProcessImageName(
+            IntPtr process, int flags, StringBuilder path, ref int size);
+    }
+}
+'@
+}
 $script:ManifestName = 'tamayura-bundle.json'
 $script:Utf8 = New-Object Text.UTF8Encoding($false)
 
@@ -31,6 +46,18 @@ function Get-UpdateErrorMessage($Failure) {
         $exception = $exception.InnerException
     }
     return 'The update could not be completed. Check free space, file permissions and Windows PowerShell policy, then retry. If it still fails, install the release manually.'
+}
+
+function Get-ProcessExecutablePath([Diagnostics.Process]$Process) {
+    # MainModule can be null when module enumeration is unavailable (including
+    # a process supervised by CTest). Query the kernel's process image instead,
+    # retaining the same process handle for the subsequent exit wait.
+    $path = New-Object Text.StringBuilder(32768)
+    [int]$size = $path.Capacity
+    if (-not [TamayuraUpdate.ProcessImage]::QueryFullProcessImageName($Process.Handle, 0, $path, [ref]$size)) {
+        Stop-Update 'The update installer could not identify the running application.'
+    }
+    return $path.ToString()
 }
 
 function Assert-PlainPath([string]$Path) {
@@ -316,6 +343,10 @@ function Prepare-Update {
         try {
             $deadline = [DateTime]::UtcNow.AddSeconds(30)
             while (-not [IO.File]::Exists((Join-Path $workPath 'ready'))) {
+                $helperFailure = $null
+                try { $helperFailure = [IO.File]::ReadAllText((Join-Path $workPath 'error.txt')) }
+                catch [IO.IOException] { } # Absent or still being written.
+                if ($helperFailure) { Stop-Update $helperFailure }
                 if ($helper.HasExited -or [DateTime]::UtcNow -gt $deadline) {
                     Stop-Update 'The update installer did not start. Check Windows PowerShell policy and retry.'
                 }
@@ -340,7 +371,7 @@ function Apply-Update {
         $parent = [Diagnostics.Process]::GetProcessById($state.parentProcessId)
         try {
             $null = $parent.Handle
-            if ($parent.MainModule.FileName -ne (Join-Path $state.target 'Tamayura.exe')) {
+            if ((Get-ProcessExecutablePath $parent) -ne (Join-Path $state.target 'Tamayura.exe')) {
                 Stop-Update 'The update installer could not identify the running application.'
             }
             [IO.File]::WriteAllText((Join-Path $workPath 'ready'), [string]$PID)
@@ -377,7 +408,9 @@ if ($MyInvocation.InvocationName -ne '.') {
         if ($Workspace -and [IO.Directory]::Exists($Workspace)) {
             [IO.File]::WriteAllText((Join-Path $Workspace 'error.txt'), $message, $script:Utf8)
         }
-        if ($Mode -eq 'Apply') {
+        # Before readiness the original app still owns error reporting. A modal
+        # dialog here would block helper exit and obscure the preparation error.
+        if ($Mode -eq 'Apply' -and [IO.File]::Exists((Join-Path $Workspace 'ready'))) {
             Add-Type -AssemblyName System.Windows.Forms
             [Windows.Forms.MessageBox]::Show($message, 'Tamayura update failed', 'OK', 'Error') | Out-Null
         } else { Write-Error $message -ErrorAction Continue }

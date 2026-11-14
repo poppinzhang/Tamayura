@@ -225,6 +225,29 @@ try {
         finally { $lock.Dispose() }
         $null = Assert-Bundle $directory '1.2.3' 4
     }
+    Invoke-Case 'Report helper identity failures and preserve the installed bundle' {
+        $script:Target = New-Bundle 'wrong-parent-old'
+        $new = New-Bundle 'wrong-parent-new' $true
+        $script:Archive = Join-Path $root 'wrong-parent.zip'
+        [IO.Compression.ZipFile]::CreateFromDirectory($new, $script:Archive)
+        $script:Sha256 = (Get-FileHash -LiteralPath $script:Archive -Algorithm SHA256).Hash
+        $script:Version = '1.2.4'
+        $script:BuildNumber = 5
+        $script:Workspace = Join-Path $root 'wrong-parent-work'
+        [IO.Directory]::CreateDirectory($script:Workspace) | Out-Null
+        Copy-Item -LiteralPath $updater -Destination (Join-Path $script:Workspace 'tamayura-update.ps1')
+        # This PowerShell process exists, but must never be accepted as the
+        # application just because its PID can be opened and waited upon.
+        $script:ParentProcessId = $PID
+        $failure = $null
+        try { Prepare-Update } catch { $failure = Get-UpdateErrorMessage $_ }
+        Assert-True ($failure -eq 'The update installer could not identify the running application.') 'The actual helper failure was replaced by a generic startup timeout.'
+        Assert-True (-not [IO.File]::Exists((Join-Path $script:Workspace 'ready'))) 'A mismatched process was accepted as the running application.'
+        $null = Assert-Bundle $script:Target '1.2.3' 4
+        $state = [IO.File]::ReadAllText((Join-Path $script:Workspace 'state.json')) | ConvertFrom-Json
+        Assert-True (-not [IO.Directory]::Exists($state.stage)) 'Failed preparation left its staged bundle behind.'
+        Assert-True (-not [IO.Directory]::Exists($state.backup)) 'Failed preparation moved the installed bundle.'
+    }
     Invoke-Case 'Prepare the real helper, wait for exit and replace the complete bundle' {
         $script:Target = New-Bundle 'portable app & update'
         $new = New-Bundle 'new-complete-bundle' $true

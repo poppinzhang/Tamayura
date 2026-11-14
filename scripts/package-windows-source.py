@@ -7,6 +7,7 @@ import hashlib
 import os
 from pathlib import Path
 import re
+import stat
 import tempfile
 import zipfile
 
@@ -25,6 +26,10 @@ OPTIONAL_FILES = (
     ".gitignore", ".metadata", ".github/workflows/windows.yml",
     "assets/branding/hibiki/license/ATTRIBUTION.txt",
     "assets/branding/hibiki/license/Nagino-OFL.txt",
+    # Shared Dart tests verify that every native discovery source advertises
+    # the same protocol. These are test inputs, not additional build targets.
+    "android/app/src/main/kotlin/dev/tamayura/app/LanDiscovery.kt",
+    "macos/Runner/LanDiscovery.swift",
 )
 SOURCE_SUFFIXES = {
     "lib": {".dart", ".arb"},
@@ -44,6 +49,17 @@ EXCLUDED_PARTS = {
 EXCLUDED_NAMES = {"key.properties", "local.properties", "CMakeCache.txt"}
 
 
+def is_source_link(path: Path) -> bool:
+    """Windows junctions are reparse points but are not Path.is_symlink()."""
+    try:
+        info = path.lstat()
+    except FileNotFoundError:
+        return False
+    return stat.S_ISLNK(info.st_mode) or bool(
+        getattr(info, "st_file_attributes", 0) & stat.FILE_ATTRIBUTE_REPARSE_POINT
+    )
+
+
 def source_files(root: Path) -> list[Path]:
     """Use a positive allowlist; never follow links out of the source tree."""
     selected: set[Path] = set()
@@ -51,18 +67,18 @@ def source_files(root: Path) -> list[Path]:
         path = root / name
         if not path.is_file():
             raise ValueError(f"Missing required source file: {name}")
-        if path.is_symlink():
+        if is_source_link(path):
             raise ValueError(f"Source symlinks are not allowed: {name}")
         selected.add(path)
     for name in OPTIONAL_FILES:
         path = root / name
-        if path.is_symlink() or any(parent.is_symlink() for parent in path.parents if parent != root):
+        if is_source_link(path) or any(is_source_link(parent) for parent in path.parents if parent != root):
             raise ValueError(f"Source symlinks are not allowed: {name}")
         if path.is_file():
             selected.add(path)
     for directory, suffixes in SOURCE_SUFFIXES.items():
         source_root = root / directory
-        if source_root.is_symlink():
+        if is_source_link(source_root):
             raise ValueError(f"Source symlinks are not allowed: {directory}")
         if not source_root.is_dir():
             if directory in {"lib", "test", "windows", "scripts"}:
@@ -72,7 +88,7 @@ def source_files(root: Path) -> list[Path]:
             parent = Path(current)
             directories[:] = sorted(name for name in directories if name not in EXCLUDED_PARTS)
             for name in directories:
-                if (parent / name).is_symlink():
+                if is_source_link(parent / name):
                     raise ValueError(f"Source symlinks are not allowed: {(parent / name).relative_to(root)}")
             for name in files:
                 path = parent / name
@@ -82,7 +98,7 @@ def source_files(root: Path) -> list[Path]:
                     continue
                 if directory == "scripts" and "windows" not in name:
                     continue
-                if path.is_symlink():
+                if is_source_link(path):
                     raise ValueError(f"Source symlinks are not allowed: {path.relative_to(root)}")
                 selected.add(path)
     return sorted(selected, key=lambda path: path.relative_to(root).as_posix())

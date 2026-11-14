@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart' show ThemeMode;
 import 'package:uuid/uuid.dart';
@@ -684,11 +685,20 @@ class AppController extends TamayuraModel {
         return;
       }
       _transferTaskKeys = keys;
+      var changed = false;
       for (final key in removals) {
-        _transfers.remove(key);
+        changed = _transfers.remove(key) != null || changed;
       }
-      _transfers.addAll(updates);
-      _notify();
+      for (final entry in updates.entries) {
+        if (!_sameTransferView(_transfers[entry.key], entry.value)) {
+          _transfers[entry.key] = entry.value;
+          changed = true;
+        }
+      }
+      // The foreground timer also polls when every transfer is unchanged (or
+      // there are none). Avoid rebuilding the application and album each second
+      // in that case, retaining the existing view and thumbnail byte objects.
+      if (changed) _notify();
     } catch (e) {
       if (!_disposed) {
         _error = describeError(e);
@@ -706,6 +716,32 @@ class AppController extends TamayuraModel {
   }
 
   Set<String> _transferTaskKeys = {};
+
+  static bool _sameTransferView(TransferView? previous, TransferView next) {
+    if (previous == null ||
+        previous.progress != next.progress ||
+        previous.savedUri != next.savedUri ||
+        previous.error != next.error ||
+        previous.receivedBytes != next.receivedBytes ||
+        previous.totalBytes != next.totalBytes ||
+        previous.attempt != next.attempt ||
+        previous.status != next.status) {
+      return false;
+    }
+    final before = previous.item;
+    final after = next.item;
+    if (before == null || after == null) return before == after;
+    return before.id == after.id &&
+        before.deviceId == after.deviceId &&
+        before.name == after.name &&
+        before.mimeType == after.mimeType &&
+        before.size == after.size &&
+        before.modified == after.modified &&
+        before.sharedFolderId == after.sharedFolderId &&
+        before.sharedFolderName == after.sharedFolderName &&
+        before.relativePath == after.relativePath &&
+        listEquals(before.thumbnail, after.thumbnail);
+  }
 
   Future<void> _cleanupTransferStaging() async {
     try {

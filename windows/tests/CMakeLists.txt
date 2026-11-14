@@ -8,6 +8,31 @@ target_include_directories(discovery_core_test PRIVATE ../runner)
 add_test(NAME discovery_core_test COMMAND discovery_core_test)
 
 if(WIN32)
+  add_executable(windows_executor_test windows_executor_test.cpp ../runner/windows_executor.cpp)
+  target_compile_features(windows_executor_test PRIVATE cxx_std_17)
+  target_include_directories(windows_executor_test PRIVATE ../runner)
+  target_compile_definitions(windows_executor_test PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN
+    UNICODE _UNICODE _WIN32_WINNT=0x0A00 WINVER=0x0A00)
+  target_link_libraries(windows_executor_test PRIVATE user32 ole32)
+  if(MSVC)
+    target_compile_options(windows_executor_test PRIVATE /W4 /WX /EHsc /utf-8)
+  endif()
+  add_test(NAME windows_executor_test COMMAND windows_executor_test)
+  set_tests_properties(windows_executor_test PROPERTIES TIMEOUT 30)
+  add_executable(windows_lan_discovery_test lan_discovery_test.cpp
+    ../runner/lan_discovery.cpp ../runner/discovery_core.cpp
+    ../runner/storage_core.cpp ../runner/app_text.cpp)
+  target_compile_features(windows_lan_discovery_test PRIVATE cxx_std_17)
+  target_include_directories(windows_lan_discovery_test PRIVATE ../runner)
+  target_compile_definitions(windows_lan_discovery_test PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN
+    UNICODE _UNICODE _WIN32_WINNT=0x0A00 WINVER=0x0A00)
+  target_link_libraries(windows_lan_discovery_test PRIVATE dnsapi iphlpapi ws2_32
+    shell32 ole32 windowscodecs bcrypt gdi32 uuid)
+  if(MSVC)
+    target_compile_options(windows_lan_discovery_test PRIVATE /W4 /WX /EHsc /utf-8)
+  endif()
+  add_test(NAME windows_lan_discovery_test COMMAND windows_lan_discovery_test)
+  set_tests_properties(windows_lan_discovery_test PROPERTIES TIMEOUT 60)
   add_executable(windows_update_old_fixture update_fixture.cpp update_fixture.rc)
   add_executable(windows_update_new_fixture update_fixture.cpp update_fixture.rc)
   target_compile_definitions(windows_update_old_fixture PRIVATE UPDATE_PATCH=3 UPDATE_BUILD=4)

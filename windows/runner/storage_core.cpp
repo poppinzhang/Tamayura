@@ -371,6 +371,26 @@ ComPtr<IWICBitmapSource> OrientedSource(IWICImagingFactory* factory,
   return source;
 }
 
+Bytes EncodeOrientedJpeg(IWICImagingFactory* factory, IWICBitmapSource* source,
+                         unsigned maximum, unsigned orientation) {
+  // Decode in stored row order before applying EXIF rotation/reflection. A
+  // rotator over a lazy JPEG/TIFF/RAW source can request columns or rows in
+  // reverse order, repeatedly decoding the original while workers stay busy.
+  // Scale first so materialization is bounded to maximum*maximum*3 bytes,
+  // including high-bit-depth sources and full-frame RAW fallback.
+  auto scaled = ScaledImage(factory, source, maximum);
+  ComPtr<IWICFormatConverter> pixels;
+  Check(factory->CreateFormatConverter(&pixels), "Cannot create preview pixel converter");
+  Check(pixels->Initialize(scaled.Get(), GUID_WICPixelFormat24bppBGR,
+                           WICBitmapDitherTypeNone, nullptr, 0,
+                           WICBitmapPaletteTypeCustom), "Cannot convert preview pixels");
+  ComPtr<IWICBitmap> materialized;
+  Check(factory->CreateBitmapFromSource(pixels.Get(), WICBitmapCacheOnLoad,
+                                        &materialized), "Cannot load preview pixels");
+  auto oriented = OrientedSource(factory, materialized.Get(), orientation);
+  return EncodeJpeg(factory, oriented.Get(), maximum);
+}
+
 }  // namespace
 
 std::wstring Wide(const std::string& value) {
@@ -1167,7 +1187,10 @@ std::vector<MediaEntry> MediaCatalog::Scan(const std::vector<SharedDirectory>& d
     try { pending->Commit(); }
     catch (const StorageError& error) { warning = std::make_pair(error.code, error.what()); }
   }
-  files_ = std::move(next);
+  // Keep publication constant-time. The old (potentially very large) map is
+  // destroyed with next after the lock is released, on this scan worker, so a
+  // UI-thread cancellation does not wait for every old entry to be freed.
+  files_.swap(next);
   catalog_warning_ = std::move(warning);
   PruneThumbnailsLocked();
   return metadata;
@@ -1234,7 +1257,8 @@ std::optional<std::vector<MediaEntry>> MediaCatalog::Restore(
   if (before_catalog_publish_) before_catalog_publish_();
   std::lock_guard<std::mutex> lock(mutex_);
   if (expected != ticket_) throw StorageError("SCAN_CANCELLED", "Shared directories changed; scan again");
-  files_ = std::move(next);
+  // Release the previous catalog outside the publication lock (see Scan).
+  files_.swap(next);
   catalog_warning_.reset();
   PruneThumbnailsLocked();
   return std::move(saved->entries);
@@ -1564,25 +1588,10 @@ Bytes WicJpegPreview(IWICImagingFactory* factory, IWICBitmapDecoder* decoder,
         // apply exactly one transform rather than composing both tags.
         const auto embedded_orientation = orientation ? std::nullopt
                                                       : FrameOrientation(source.Get());
-        // Rotating a lazy RAW thumbnail can request a source scanline for
-        // every output column, repeatedly decoding the embedded image. First
-        // scale in its stored orientation, then materialize once. Converting
-        // to 24bpp bounds this bitmap to 2560*2560*3 bytes, even when the camera
-        // embeds a full-resolution or high-bit-depth preview.
-        auto scaled = ScaledImage(factory, source.Get(), maximum);
-        ComPtr<IWICFormatConverter> pixels;
-        Check(factory->CreateFormatConverter(&pixels), "Cannot create embedded pixel converter");
-        Check(pixels->Initialize(scaled.Get(), GUID_WICPixelFormat24bppBGR,
-                                 WICBitmapDitherTypeNone, nullptr, 0,
-                                 WICBitmapPaletteTypeCustom), "Cannot convert embedded image pixels");
-        ComPtr<IWICBitmap> materialized;
-        Check(factory->CreateBitmapFromSource(pixels.Get(), WICBitmapCacheOnLoad,
-                                              &materialized), "Cannot load embedded image pixels");
-        auto oriented = OrientedSource(factory, materialized.Get(),
-            orientation.value_or(embedded_orientation.value_or(1)));
         // GetThumbnail/GetPreview can succeed while CopyPixels fails later.
         // Only accept a complete JPEG; a broken optional preview falls back.
-        return EncodeJpeg(factory, oriented.Get(), maximum);
+        return EncodeOrientedJpeg(factory, source.Get(), maximum,
+            orientation.value_or(embedded_orientation.value_or(1)));
       } catch (const StorageError& error) {
         if (error.code != "PREVIEW_FAILED") throw;
       }
@@ -1590,8 +1599,7 @@ Bytes WicJpegPreview(IWICImagingFactory* factory, IWICBitmapDecoder* decoder,
   }
   Check(frame_status, "Cannot decode image frame");
   if (!frame) throw StorageError("PREVIEW_FAILED", "The image codec returned no frame");
-  auto oriented = OrientedSource(factory, frame.Get(), orientation.value_or(1));
-  return EncodeJpeg(factory, oriented.Get(), maximum);
+  return EncodeOrientedJpeg(factory, frame.Get(), maximum, orientation.value_or(1));
 }
 
 Bytes JpegPreview(const SafeFile& file, unsigned maximum, bool video) {

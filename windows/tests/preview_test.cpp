@@ -349,6 +349,50 @@ int main() {
       Expect(full->copies > 0 && decoder->thumbnails == 0 && decoder->previews == 0,
              "Ordinary photos must not switch to embedded thumbnails");
     });
+    test("full frames decode once in forward rows before every EXIF transform", [&] {
+      const std::array<std::array<unsigned, 4>, 8> corners = {{{0, 1, 2, 3}, {1, 0, 3, 2},
+          {3, 2, 1, 0}, {2, 3, 0, 1}, {0, 2, 1, 3}, {2, 0, 3, 1}, {3, 1, 2, 0}, {1, 3, 0, 2}}};
+      // Exercise both ordinary photos and the fallback when a RAW provider
+      // exposes no embedded image, at reduced, original and no-upscale bounds.
+      for (bool prefer_embedded : {false, true}) {
+        for (UINT maximum : {48u, 192u, 2560u}) {
+          for (unsigned orientation = 1; orientation <= 8; ++orientation) {
+            auto full = Make<Frame>(large.Get(), orientation);
+            full->record_reads = true;
+            auto decoder = Make<Decoder>(); decoder->frame = full;
+            const UINT long_edge = maximum < 192 ? maximum : 192;
+            const UINT short_edge = long_edge * 2 / 3;
+            const bool swap = orientation >= 5;
+            ExpectJpeg(factory.Get(), WicJpegPreview(factory.Get(), decoder.Get(), maximum,
+                                                     prefer_embedded),
+                       swap ? short_edge : long_edge, swap ? long_edge : short_edge,
+                       corners[orientation - 1]);
+            INT next_row = 0;
+            for (const auto& rect : full->reads) {
+              Expect(rect.X == 0 && rect.Width == 192 && rect.Y == next_row &&
+                         rect.Height > 0 && rect.Height <= 128 - next_row,
+                     "Full frame must decode forward rows once, without column or repeated reads");
+              next_row += rect.Height;
+            }
+            Expect(next_row == 128, "Full-frame materialization must read every source row once");
+          }
+        }
+      }
+    });
+    test("full-frame materialization preserves resource and I/O errors", [&] {
+      const std::array<std::pair<HRESULT, const char*>, 4> failures = {{{E_OUTOFMEMORY, "RESOURCE_EXHAUSTED"},
+          {E_ACCESSDENIED, "PERMISSION_LOST"}, {STG_E_READFAULT, "IO_ERROR"},
+          {WINCODEC_ERR_STREAMREAD, "IO_ERROR"}}};
+      for (const auto& failure : failures) {
+        auto full = Make<Frame>(large.Get(), 6);
+        full->pixels_status = failure.first;
+        auto decoder = Make<Decoder>(); decoder->frame = full;
+        bool rejected = false;
+        try { WicJpegPreview(factory.Get(), decoder.Get(), 96, false); }
+        catch (const StorageError& error) { rejected = error.code == failure.second; }
+        Expect(rejected && full->copies > 0, "Full-frame transient errors must remain retryable");
+      }
+    });
     test("all supported RAW extensions enable real WIC embedded extraction", [&] {
       wchar_t temporary[MAX_PATH + 1]{};
       Expect(GetTempPathW(MAX_PATH, temporary) != 0, "Temporary folder unavailable");

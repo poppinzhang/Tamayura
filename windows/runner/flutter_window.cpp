@@ -74,7 +74,8 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
       return *result;
     }
   }
-  if (platform_ && message == tamayura::UiDispatcher::kMessage) {
+  if (platform_ && (message == tamayura::UiDispatcher::kMessage ||
+      (message == WM_TIMER && wparam == tamayura::UiDispatcher::kTimer))) {
     platform_->Drain();
     return 0;
   }

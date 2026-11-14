@@ -11,19 +11,19 @@
 #include <cwctype>
 #include <map>
 #include <mutex>
+#include <optional>
 #include <set>
+#include <tuple>
 #include <utility>
 #include <vector>
 
 #include "app_text.h"
 #include "discovery_core.h"
+#include "dns_service_api.h"
 #include "storage_core.h"
-#include "windows_platform.h"
 
 namespace tamayura {
 namespace {
-using Value = flutter::EncodableValue;
-using Map = flutter::EncodableMap;
 using Clock = std::chrono::steady_clock;
 constexpr wchar_t kServiceType[] = L"_tamayura._tcp.local";
 
@@ -55,16 +55,25 @@ std::string AddressText(IP4_ADDRESS address) {
   return IsPrivateIPv4(text) ? text : std::string();
 }
 
-Map ErrorEvent(const char* stage, DWORD status) {
-  return {{Value("type"), Value("error")}, {Value("stage"), Value(stage)},
-          {Value("code"), Value(static_cast<int64_t>(status))},
-          {Value("message"), Value(app_text::Utf8(TextId::kDiscoveryFailed))}};
+DiscoveryEvent ErrorEvent(const char* stage, DWORD status) {
+  DiscoveryEvent event;
+  event.type = "error";
+  event.stage = stage;
+  event.code = status;
+  event.message = app_text::Utf8(TextId::kDiscoveryFailed);
+  return event;
 }
 }  // namespace
 
+bool DiscoveryEvent::operator==(const DiscoveryEvent& other) const {
+  return std::tie(type, id, name, host, port, stage, code, message) ==
+      std::tie(other.type, other.id, other.name, other.host, other.port,
+               other.stage, other.code, other.message);
+}
+
 struct LanDiscovery::State : std::enable_shared_from_this<State> {
   struct Peer {
-    Map event;
+    std::optional<DiscoveryEvent> event;
     Clock::time_point expires;
     Clock::time_point next_resolve;
     unsigned failures = 0;
@@ -72,28 +81,33 @@ struct LanDiscovery::State : std::enable_shared_from_this<State> {
   std::recursive_mutex mutex;
   bool active = true;
   std::string id;
-  std::shared_ptr<UiDispatcher> dispatcher;
+  Dispatch dispatch;
+  std::shared_ptr<const DnsServiceApi> api;
   Event emit_event;
   std::shared_ptr<Browse> browse;
   std::shared_ptr<Registration> registration;
   std::map<std::wstring, Peer> peers;
   std::map<std::wstring, std::shared_ptr<Resolve>> resolves;
 
-  void Emit(Map value) {
+  void Emit(DiscoveryEvent value) {
     std::weak_ptr<State> weak = shared_from_this();
-    dispatcher->Post([weak, value = std::move(value)] {
+    dispatch([weak, value = std::move(value)] {
       if (auto state = weak.lock()) {
-        std::lock_guard<std::recursive_mutex> lock(state->mutex);
-        if (state->active && state->emit_event) state->emit_event(value);
+        Event emit;
+        {
+          std::lock_guard<std::recursive_mutex> lock(state->mutex);
+          if (state->active) emit = state->emit_event;
+        }
+        if (emit) emit(value);
       }
     });
   }
   void Error(const char* stage, DWORD status) { Emit(ErrorEvent(stage, status)); }
   void Lost(Peer& peer) {
-    if (peer.event.empty()) return;
-    Map event = peer.event;
-    event[Value("type")] = Value("lost");
-    peer.event.clear();
+    if (!peer.event) return;
+    auto event = *peer.event;
+    event.type = "lost";
+    peer.event.reset();
     Emit(std::move(event));
   }
   void ResolvePeer(const std::wstring& key);
@@ -104,14 +118,48 @@ struct LanDiscovery::State : std::enable_shared_from_this<State> {
 // events or keep the Flutter window alive. Never free a context merely because
 // a cancel call returned: the cancellation callback may still be in flight.
 struct LanDiscovery::Resolve : std::enable_shared_from_this<Resolve> {
+  std::mutex mutex;
   std::weak_ptr<State> state;
+  std::shared_ptr<const DnsServiceApi> api;
   std::shared_ptr<Resolve> pending_lifetime;
   std::wstring key;
   DNS_SERVICE_RESOLVE_REQUEST request{};
   DNS_SERVICE_CANCEL cancel{};
+  bool starting = true;
+  bool finished = false;
+  bool stopping = false;
+  bool cancel_sent = false;
+
+  void Cancel() {
+    bool send = false;
+    {
+      std::lock_guard<std::mutex> lock(mutex);
+      stopping = true;
+      send = !starting && !finished && !cancel_sent;
+      if (send) cancel_sent = true;
+    }
+    if (send) api->cancel_resolve(&cancel);
+  }
+
+  void Start() {
+    const DWORD status = api->resolve(&request, &cancel);
+    bool stop = false;
+    {
+      std::lock_guard<std::mutex> lock(mutex);
+      starting = false;
+      stop = stopping;
+    }
+    if (status != DNS_REQUEST_PENDING) Complete(status, this, nullptr);
+    else if (stop) Cancel();
+  }
 
   static void WINAPI Complete(DWORD status, void* context, DNS_SERVICE_INSTANCE* instance) {
     auto operation = static_cast<Resolve*>(context)->shared_from_this();
+    {
+      std::lock_guard<std::mutex> lock(operation->mutex);
+      operation->finished = true;
+      operation->pending_lifetime.reset();
+    }
     std::unique_ptr<DNS_SERVICE_INSTANCE, decltype(&DnsServiceFreeInstance)> owned(instance, DnsServiceFreeInstance);
     try {
       if (auto owner = operation->state.lock()) {
@@ -137,10 +185,13 @@ struct LanDiscovery::Resolve : std::enable_shared_from_this<Resolve> {
               const auto host = AddressText(*instance->ip4Address);
               if (IsPeerId(id) && id != owner->id && !host.empty() && IsCompatibleVersion(version)) {
                 if (name.empty()) name = id;
-                Map event{{Value("type"), Value("found")}, {Value("id"), Value(id)},
-                    {Value("name"), Value(LimitUtf8(name, 512))}, {Value("host"), Value(host)},
-                    {Value("port"), Value(static_cast<int32_t>(instance->wPort))}};
-                if (peer.event != event) {
+                DiscoveryEvent event;
+                event.type = "found";
+                event.id = id;
+                event.name = LimitUtf8(name, 512);
+                event.host = host;
+                event.port = instance->wPort;
+                if (!peer.event || !(*peer.event == event)) {
                   peer.event = event;
                   owner->Emit(std::move(event));
                 }
@@ -166,12 +217,10 @@ struct LanDiscovery::Resolve : std::enable_shared_from_this<Resolve> {
     } catch (...) {
       // A malformed remote record must not unwind across a Win32 callback.
     }
-    operation->pending_lifetime.reset();
   }
 };
 
 void LanDiscovery::State::ResolvePeer(const std::wstring& key) {
-  if (!active || resolves.count(key) || resolves.size() >= 64) return;
   auto operation = std::make_shared<Resolve>();
   operation->state = shared_from_this();
   operation->key = key;
@@ -180,25 +229,23 @@ void LanDiscovery::State::ResolvePeer(const std::wstring& key) {
   operation->request.pResolveCompletionCallback = Resolve::Complete;
   operation->request.pQueryContext = operation.get();
   operation->pending_lifetime = operation;
-  resolves[key] = operation;
-  const DWORD status = DnsServiceResolve(&operation->request, &operation->cancel);
-  if (status != DNS_REQUEST_PENDING) {
-    resolves.erase(key);
-    operation->pending_lifetime.reset();
-    auto found = peers.find(key);
-    if (found != peers.end()) {
-      auto& peer = found->second;
-      ++peer.failures;
-      peer.next_resolve = Clock::now() + (peer.failures < 3
-          ? std::chrono::seconds(1) : std::chrono::seconds(30));
-      if (peer.failures == 3) Lost(peer);
+  operation->api = api;
+  {
+    std::lock_guard<std::recursive_mutex> lock(mutex);
+    const auto peer = peers.find(key);
+    if (!active || peer == peers.end() || peer->second.next_resolve > Clock::now() ||
+        resolves.count(key) || resolves.size() >= 64) {
+      operation->pending_lifetime.reset();
+      return;
     }
-    Error("resolve", status);
+    resolves[key] = operation;
   }
+  operation->Start();
 }
 
 struct LanDiscovery::Browse : std::enable_shared_from_this<Browse> {
   std::weak_ptr<State> state;
+  std::shared_ptr<const DnsServiceApi> api;
   std::shared_ptr<Browse> pending_lifetime;
   DNS_SERVICE_BROWSE_REQUEST request{};
   DNS_SERVICE_CANCEL cancel{};
@@ -209,38 +256,45 @@ struct LanDiscovery::Browse : std::enable_shared_from_this<Browse> {
     std::unique_ptr<DNS_RECORD, decltype(free_records)> owned(records, free_records);
     try {
       if (auto owner = operation->state.lock()) {
-        std::lock_guard<std::recursive_mutex> lock(owner->mutex);
-        if (owner->active) {
-          if (status != ERROR_SUCCESS && status != ERROR_CANCELLED) owner->Error("discover", status);
-          if (status == ERROR_SUCCESS) {
-            for (auto* record = records; record; record = record->pNext) {
-              if (record->wType != DNS_TYPE_PTR) continue;
-              const auto record_key = ServiceKey(record->Data.PTR.pNameHost);
-              if (record_key.empty()) continue;
-              auto peer = owner->peers.find(record_key);
-              if (record->dwTtl == 0) {
-                if (peer != owner->peers.end()) {
-                  owner->Lost(peer->second);
-                  owner->peers.erase(peer);
+        std::vector<std::shared_ptr<Resolve>> cancelled;
+        std::vector<std::wstring> requested;
+        {
+          std::lock_guard<std::recursive_mutex> lock(owner->mutex);
+          if (owner->active) {
+            if (status != ERROR_SUCCESS && status != ERROR_CANCELLED) owner->Error("discover", status);
+            if (status == ERROR_SUCCESS) {
+              for (auto* record = records; record; record = record->pNext) {
+                if (record->wType != DNS_TYPE_PTR) continue;
+                const auto record_key = ServiceKey(record->Data.PTR.pNameHost);
+                if (record_key.empty()) continue;
+                auto peer = owner->peers.find(record_key);
+                if (record->dwTtl == 0) {
+                  if (peer != owner->peers.end()) {
+                    owner->Lost(peer->second);
+                    owner->peers.erase(peer);
+                  }
+                  auto pending = owner->resolves.find(record_key);
+                  if (pending != owner->resolves.end()) {
+                    cancelled.push_back(pending->second);
+                    owner->resolves.erase(pending);
+                  }
+                } else {
+                  if (peer == owner->peers.end()) {
+                    if (owner->peers.size() >= 256) continue;
+                    peer = owner->peers.emplace(record_key, State::Peer{}).first;
+                  }
+                  peer->second.expires = Clock::now() + std::chrono::seconds(
+                      std::min<DWORD>(record->dwTtl, 4500));
+                  if (peer->second.next_resolve <= Clock::now()) requested.push_back(record_key);
                 }
-                auto pending = owner->resolves.find(record_key);
-                if (pending != owner->resolves.end()) {
-                  auto resolving = pending->second;
-                  owner->resolves.erase(pending);
-                  DnsServiceResolveCancel(&resolving->cancel);
-                }
-              } else {
-                if (peer == owner->peers.end()) {
-                  if (owner->peers.size() >= 256) continue;
-                  peer = owner->peers.emplace(record_key, State::Peer{}).first;
-                }
-                peer->second.expires = Clock::now() + std::chrono::seconds(
-                    std::min<DWORD>(record->dwTtl, 4500));
-                if (peer->second.next_resolve <= Clock::now()) owner->ResolvePeer(record_key);
               }
             }
           }
         }
+        // DNS may complete on another thread before a start/cancel call returns.
+        // Never enter the OS while holding the state needed by that callback.
+        for (const auto& resolve : cancelled) resolve->Cancel();
+        for (const auto& key : requested) owner->ResolvePeer(key);
       }
     } catch (...) {
       // OS callbacks must not propagate C++ exceptions.
@@ -252,6 +306,7 @@ struct LanDiscovery::Browse : std::enable_shared_from_this<Browse> {
 struct LanDiscovery::Registration : std::enable_shared_from_this<Registration> {
   std::recursive_mutex mutex;
   std::weak_ptr<State> state;
+  std::shared_ptr<const DnsServiceApi> api;
   std::shared_ptr<Registration> pending_lifetime;
   DNS_SERVICE_REGISTER_REQUEST request{};
   DNS_SERVICE_CANCEL cancel{};
@@ -259,31 +314,42 @@ struct LanDiscovery::Registration : std::enable_shared_from_this<Registration> {
   bool registering = true;
   bool registered = false;
   bool deregistering = false;
+  bool cancel_sent = false;
 
   ~Registration() {
     if (request.pServiceInstance) DnsServiceFreeInstance(request.pServiceInstance);
   }
 
   void Deregister() {
-    if (!registered || deregistering) return;
-    deregistering = true;
-    const DWORD status = DnsServiceDeRegister(&request, nullptr);
+    {
+      std::lock_guard<std::recursive_mutex> lock(mutex);
+      if (!registered || deregistering) return;
+      deregistering = true;
+    }
+    const DWORD status = api->deregister_service(&request, nullptr);
     if (status != DNS_REQUEST_PENDING) {
       // Registration is also tied to the process lifetime by Windows.
+      std::lock_guard<std::recursive_mutex> lock(mutex);
       pending_lifetime.reset();
     }
   }
 
   void Stop() {
-    std::lock_guard<std::recursive_mutex> lock(mutex);
-    stopped = true;
-    if (registered) Deregister();
-    else if (registering) DnsServiceRegisterCancel(&cancel);
+    bool cancel_registration = false;
+    {
+      std::lock_guard<std::recursive_mutex> lock(mutex);
+      stopped = true;
+      cancel_registration = registering && !cancel_sent;
+      if (cancel_registration) cancel_sent = true;
+    }
+    if (cancel_registration) api->cancel_registration(&cancel);
+    Deregister();
   }
 
   static void WINAPI Complete(DWORD status, void* context, DNS_SERVICE_INSTANCE* instance) {
     auto operation = static_cast<Registration*>(context)->shared_from_this();
     bool report_error = false;
+    bool deregister = false;
     {
       std::lock_guard<std::recursive_mutex> lock(operation->mutex);
       if (operation->deregistering) {
@@ -298,7 +364,7 @@ struct LanDiscovery::Registration : std::enable_shared_from_this<Registration> {
             DnsServiceFreeInstance(operation->request.pServiceInstance);
             operation->request.pServiceInstance = instance;
           }
-          if (operation->stopped) operation->Deregister();
+          deregister = operation->stopped;
         } else {
           if (instance && instance != operation->request.pServiceInstance) DnsServiceFreeInstance(instance);
           report_error = !operation->stopped && status != ERROR_CANCELLED;
@@ -306,6 +372,7 @@ struct LanDiscovery::Registration : std::enable_shared_from_this<Registration> {
         }
       }
     }
+    if (deregister) operation->Deregister();
     if (report_error) {
       if (auto owner = operation->state.lock()) {
         std::lock_guard<std::recursive_mutex> lock(owner->mutex);
@@ -315,8 +382,10 @@ struct LanDiscovery::Registration : std::enable_shared_from_this<Registration> {
   }
 };
 
-LanDiscovery::LanDiscovery(std::shared_ptr<UiDispatcher> dispatcher, Event event)
-    : dispatcher_(std::move(dispatcher)), event_(std::move(event)) {}
+LanDiscovery::LanDiscovery(Dispatch dispatch, Event event,
+                           std::shared_ptr<const DnsServiceApi> api)
+    : dispatch_(std::move(dispatch)), event_(std::move(event)),
+      api_(api ? std::move(api) : std::make_shared<DnsServiceApi>()) {}
 LanDiscovery::~LanDiscovery() { Stop(); }
 
 void LanDiscovery::Start(const std::string& id, const std::string& name, uint16_t port) {
@@ -326,10 +395,10 @@ void LanDiscovery::Start(const std::string& id, const std::string& name, uint16_
   Stop();
   auto state = std::make_shared<State>();
   state->id = id;
-  state->dispatcher = dispatcher_;
+  state->dispatch = dispatch_;
+  state->api = api_;
   state->emit_event = event_;
   state_ = state;
-  std::lock_guard<std::recursive_mutex> lock(state->mutex);
   const std::wstring instance_name = L"Tamayura-" + Wide(id.substr(0, 54)) + L"." + kServiceType;
   const auto host = ComputerName() + L".local";
   const auto wide_id = Wide(id);
@@ -339,6 +408,7 @@ void LanDiscovery::Start(const std::string& id, const std::string& name, uint16_
   const wchar_t* values[] = {wide_id.c_str(), wide_name.c_str(), wide_version.c_str()};
   auto registration = std::make_shared<Registration>();
   registration->state = state;
+  registration->api = api_;
   registration->request.Version = DNS_QUERY_REQUEST_VERSION1;
   registration->request.pServiceInstance = DnsServiceConstructInstance(instance_name.c_str(),
       host.c_str(), nullptr, nullptr, port, 0, 0, 3, keys, values);
@@ -352,9 +422,9 @@ void LanDiscovery::Start(const std::string& id, const std::string& name, uint16_
   registration->pending_lifetime = registration;
   state->registration = registration;
   {
-    std::lock_guard<std::recursive_mutex> registration_lock(registration->mutex);
-    const DWORD status = DnsServiceRegister(&registration->request, &registration->cancel);
+    const DWORD status = api_->register_service(&registration->request, &registration->cancel);
     if (status != DNS_REQUEST_PENDING) {
+      std::lock_guard<std::recursive_mutex> registration_lock(registration->mutex);
       registration->registering = false;
       registration->pending_lifetime.reset();
       state->Error("register", status);
@@ -363,15 +433,20 @@ void LanDiscovery::Start(const std::string& id, const std::string& name, uint16_
 
   auto browse = std::make_shared<Browse>();
   browse->state = state;
+  browse->api = api_;
   browse->request.Version = DNS_QUERY_REQUEST_VERSION1;
   browse->request.QueryName = kServiceType;
   browse->request.pBrowseCallback = Browse::Complete;
   browse->request.pQueryContext = browse.get();
   browse->pending_lifetime = browse;
-  state->browse = browse;
-  const DWORD status = DnsServiceBrowse(&browse->request, &browse->cancel);
+  {
+    std::lock_guard<std::recursive_mutex> lock(state->mutex);
+    state->browse = browse;
+  }
+  const DWORD status = api_->browse(&browse->request, &browse->cancel);
   if (status != DNS_REQUEST_PENDING) {
     browse->pending_lifetime.reset();
+    std::lock_guard<std::recursive_mutex> lock(state->mutex);
     state->browse.reset();
     state->Error("discover", status);
   }
@@ -380,40 +455,51 @@ void LanDiscovery::Start(const std::string& id, const std::string& name, uint16_
 void LanDiscovery::Stop() {
   auto state = std::move(state_);
   if (!state) return;
-  std::lock_guard<std::recursive_mutex> lock(state->mutex);
-  state->active = false;
-  state->emit_event = nullptr;
-  if (state->browse) DnsServiceBrowseCancel(&state->browse->cancel);
-  if (state->registration) state->registration->Stop();
-  auto pending_resolves = std::move(state->resolves);
-  for (const auto& pending : pending_resolves) DnsServiceResolveCancel(&pending.second->cancel);
-  state->peers.clear();
+  std::shared_ptr<Browse> browse;
+  std::shared_ptr<Registration> registration;
+  std::map<std::wstring, std::shared_ptr<Resolve>> pending_resolves;
+  {
+    std::lock_guard<std::recursive_mutex> lock(state->mutex);
+    state->active = false;
+    state->emit_event = nullptr;
+    browse = std::move(state->browse);
+    registration = std::move(state->registration);
+    pending_resolves.swap(state->resolves);
+    state->peers.clear();
+  }
+  if (browse) api_->cancel_browse(&browse->cancel);
+  if (registration) registration->Stop();
+  for (const auto& pending : pending_resolves) pending.second->Cancel();
 }
 
 void LanDiscovery::Replay() {
   auto state = state_;
   if (!state) return;
   std::lock_guard<std::recursive_mutex> lock(state->mutex);
-  for (const auto& peer : state->peers) if (!peer.second.event.empty()) state->Emit(peer.second.event);
+  for (const auto& peer : state->peers) if (peer.second.event) state->Emit(*peer.second.event);
 }
 
 void LanDiscovery::Sweep() {
   auto state = state_;
   if (!state) return;
-  std::lock_guard<std::recursive_mutex> lock(state->mutex);
-  const auto now = Clock::now();
-  for (auto peer = state->peers.begin(); peer != state->peers.end();) {
-    if (peer->second.expires < now && peer->second.failures >= 3) {
-      state->Lost(peer->second);
-      peer = state->peers.erase(peer);
-    } else {
-      if (peer->second.next_resolve <= now) state->ResolvePeer(peer->first);
-      ++peer;
+  std::vector<std::wstring> requested;
+  {
+    std::lock_guard<std::recursive_mutex> lock(state->mutex);
+    const auto now = Clock::now();
+    for (auto peer = state->peers.begin(); peer != state->peers.end();) {
+      if (peer->second.expires < now && peer->second.failures >= 3) {
+        state->Lost(peer->second);
+        peer = state->peers.erase(peer);
+      } else {
+        if (peer->second.next_resolve <= now) requested.push_back(peer->first);
+        ++peer;
+      }
     }
   }
+  for (const auto& key : requested) state->ResolvePeer(key);
 }
 
-Map LanDiscovery::LocalInfo() {
+LocalNetworkInfo LanDiscovery::LocalInfo() {
   ULONG length = 16 * 1024;
   std::vector<unsigned char> buffer(length);
   ULONG status = ERROR_BUFFER_OVERFLOW;
@@ -438,8 +524,6 @@ Map LanDiscovery::LocalInfo() {
       }
     }
   }
-  flutter::EncodableList addresses;
-  for (const auto& host : hosts) addresses.emplace_back(host);
-  return {{Value("name"), Value(Utf8(ComputerName()))}, {Value("addresses"), Value(addresses)}};
+  return {Utf8(ComputerName()), {hosts.begin(), hosts.end()}};
 }
 }  // namespace tamayura

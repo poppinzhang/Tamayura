@@ -75,85 +75,27 @@ std::string DeviceId() {
 }
 }  // namespace
 
-void UiDispatcher::Post(std::function<void()> action) {
-  std::lock_guard<std::mutex> lock(mutex_);
-  if (!window_) return;
-  pending_.push_back(std::move(action));
-  if (!PostMessageW(window_, kMessage, 0, 0)) pending_.pop_back();
-}
-
-void UiDispatcher::Drain() {
-  std::deque<std::function<void()>> tasks;
-  {
-    std::lock_guard<std::mutex> lock(mutex_);
-    tasks.swap(pending_);
-  }
-  for (auto& task : tasks) task();
-}
-
-void UiDispatcher::Shutdown() {
-  std::lock_guard<std::mutex> lock(mutex_);
-  window_ = nullptr;
-  pending_.clear();
-}
-
-unsigned WorkerPool::ThreadCount() {
-  const unsigned hardware = std::thread::hardware_concurrency();
-  return hardware == 0 ? 4 : std::max(2u, hardware);
-}
-
-// Scans, thumbnails, peer reads and saves share this pool. Sizing it to the
-// machine keeps one slow provider or a long save from queueing every request.
-WorkerPool::WorkerPool() {
-  const unsigned count = ThreadCount();
-  for (unsigned i = 0; i < count; ++i) {
-    workers_.emplace_back([this] {
-      const HRESULT com = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-      for (;;) {
-        std::function<void()> task;
-        {
-          std::unique_lock<std::mutex> lock(mutex_);
-          ready_.wait(lock, [this] { return stopped_ || !pending_.empty(); });
-          if (stopped_) break;
-          task = std::move(pending_.front());
-          pending_.pop_front();
-        }
-        task();
-      }
-      if (SUCCEEDED(com)) CoUninitialize();
-    });
-  }
-}
-
-WorkerPool::~WorkerPool() { Stop(); }
-
-void WorkerPool::Submit(std::function<void()> work) {
-  {
-    std::lock_guard<std::mutex> lock(mutex_);
-    if (stopped_) return;
-    pending_.push_back(std::move(work));
-  }
-  ready_.notify_one();
-}
-
-void WorkerPool::Stop() {
-  {
-    std::lock_guard<std::mutex> lock(mutex_);
-    stopped_ = true;
-    pending_.clear();
-  }
-  ready_.notify_all();
-  for (auto& worker : workers_) if (worker.joinable()) worker.join();
-  workers_.clear();
-}
-
 WindowsPlatform::WindowsPlatform(flutter::BinaryMessenger* messenger, HWND window)
     : window_(window), sharing_enabled_(ReadSharingEnabled()),
       dispatcher_(std::make_shared<UiDispatcher>(window)),
       storage_(std::make_shared<WindowsStorage>()),
-      discovery_(std::make_unique<LanDiscovery>(dispatcher_, [this](const Map& event) {
-        if (discovery_sink_) discovery_sink_->Success(Value(event));
-      })), updates_(std::make_shared<WindowsUpdate>()) {
+      discovery_(std::make_unique<LanDiscovery>(
+          [dispatcher = dispatcher_](auto action) { dispatcher->Post(std::move(action)); },
+          [this](const DiscoveryEvent& event) {
+            if (!discovery_sink_) return;
+            Map value{{Value("type"), Value(event.type)}};
+            if (event.type == "error") {
+              value[Value("stage")] = Value(event.stage);
+              value[Value("code")] = Value(static_cast<int64_t>(event.code));
+              value[Value("message")] = Value(event.message);
+            } else {
+              value[Value("id")] = Value(event.id);
+              value[Value("name")] = Value(event.name);
+              value[Value("host")] = Value(event.host);
+              value[Value("port")] = Value(static_cast<int32_t>(event.port));
+            }
+            discovery_sink_->Success(Value(value));
+          })), updates_(std::make_shared<WindowsUpdate>()) {
   const auto* codec = &flutter::StandardMethodCodec::GetInstance();
   methods_ = std::make_unique<flutter::MethodChannel<Value>>(messenger, "tamayura/platform", codec);
   methods_->SetMethodCallHandler([this](const auto& call, auto result) {
@@ -196,6 +138,7 @@ WindowsPlatform::~WindowsPlatform() {
   storage_->Handle("clearSharedDirectory", {}, window_);
   dispatcher_->Shutdown();
   workers_.Stop();
+  previews_.Stop();
   discovery_channel_->SetStreamHandler(nullptr);
   sharing_channel_->SetStreamHandler(nullptr);
 }
@@ -206,12 +149,19 @@ Map WindowsPlatform::SharingStatus() const {
           {Value("batteryExempt"), Value(true)}};
 }
 
-void WindowsPlatform::Tick() { discovery_->Sweep(); }
+void WindowsPlatform::Tick() {
+  // A native result may enter a nested message loop and destroy this platform.
+  // Keep the dispatcher alive and do not touch members after dispatching it.
+  const auto dispatcher = dispatcher_;
+  discovery_->Sweep();
+  dispatcher->Drain();
+}
 
 void WindowsPlatform::Background(std::shared_ptr<Result> result,
-                                 std::function<Value()> operation) {
+                                 std::function<Value()> operation, bool preview) {
   const auto dispatcher = dispatcher_;
-  workers_.Submit([dispatcher, result, operation = std::move(operation)] {
+  auto& pool = preview ? previews_ : workers_;
+  pool.Submit([dispatcher, result, operation = std::move(operation)] {
     try {
       auto value = operation();
       dispatcher->Post([result, value = std::move(value)] { result->Success(value); });
@@ -280,7 +230,13 @@ void WindowsPlatform::Handle(const flutter::MethodCall<Value>& call,
     if (method == "deviceId") {
       result->Success(Value(DeviceId()));
     } else if (method == "localInfo") {
-      Background(result, [] { return Value(LanDiscovery::LocalInfo()); });
+      Background(result, [] {
+        const auto info = LanDiscovery::LocalInfo();
+        flutter::EncodableList addresses;
+        for (const auto& address : info.addresses) addresses.emplace_back(address);
+        return Value(Map{{Value("name"), Value(info.name)},
+                         {Value("addresses"), Value(addresses)}});
+      });
     } else if (method == "sharingStatus") {
       result->Success(Value(SharingStatus()));
     } else if (method == "setBackgroundSharing") {
@@ -344,7 +300,7 @@ void WindowsPlatform::Handle(const flutter::MethodCall<Value>& call,
         const HWND window = window_;
         Background(result, [storage, method, args, window] {
           return storage->Handle(method, args, window);
-        });
+        }, method == "thumbnail" || method == "readPreview");
       }
     }
   } catch (const StorageError& error) {

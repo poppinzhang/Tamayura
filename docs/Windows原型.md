@@ -1,5 +1,7 @@
 # Windows 实现与本机调试
 
+当前 `unstaged` 包含设备发现锁等待、原生通知调度、预览解码与空闲界面开销修复，详见 [Windows 稳定性检查](Windows稳定性.md)；尚未包含在已发布安装包中。
+
 Windows 与 Android、macOS 统一使用 `0.5.0+8`，变更记录在 `CHANGELOG.md` 的 `0.5.0`。已完成 Windows x64 可执行 ZIP 构建与核验；源码交接包仅作辅助构建输入。目标系统为 **Windows 10 1809（build 17763）及以上、Windows 11，x64**。当前不提供 Windows ARM64、32 位或 MSIX 安装包。
 
 Windows 构建必须在 Windows 主机执行。本次 Windows x64 构建与测试已通过，发布记录仅保留通用工具链要求和脱敏结果；GUI、自动发现和真实设备互传验收仍需分别执行，不能由编译或单元测试代替。最终产物状态与实际验收范围见 [0.5.0 发布记录](releases/0.5.0.md)。
@@ -38,7 +40,7 @@ Windows 原生 CTest 已 **2/2 通过**：`discovery_core_test` 与 `windows_sto
 
 Windows 的平台通道 `uri` 字段实际传递本机绝对路径，不转为 `file://`；这些路径只供本机存储与打开操作，不发送给对端。对端使用不透明媒体 ID 与相对目录元信息，通过 gRPC 请求文件。数据库位于 `%LOCALAPPDATA%\Tamayura\databases`，预览/临时文件位于 `cache`，未完成下载分片位于 `transfers`。设备 UUID 和后台共享设置保存于当前用户的 `HKEY_CURRENT_USER\Software\Tamayura`；移动源码或 EXE 不会改变这些位置。清理应用数据库会失去缓存、目录配置与记录，清理 `transfers` 会失去未完成续传；外部共享目录和接收目录里的原文件不属于这些缓存。
 
-原生入口为 `windows/runner/windows_platform.cpp`，发现由 `lan_discovery.cpp` 与 `discovery_core.cpp` 处理，目录/文件与预览由 `windows_storage.cpp`、`storage_core.cpp` 处理；扫描、缩略图、对端分块读取、保存与删除等耗时操作在 `WorkerPool` 中执行，线程数取本机 `std::thread::hardware_concurrency()` 报告值与 2 的较大值（无法取得时为 4），避免长扫描或大文件保存让其它请求排队；单次分块读取上限为 `kMaxReadChunkBytes`（2 MiB，见 [传输恢复](传输恢复.md#分块大小)）；`lib/data/platform_database.dart` 在 Windows 配置共享的 FFI 数据库工厂。`windows/tests` 独立测试发现元数据校验及原生存储边界，`test` 保留跨平台业务与界面回归。
+原生入口为 `windows/runner/windows_platform.cpp`，发现由 `lan_discovery.cpp` 与 `discovery_core.cpp` 处理，目录/文件与预览由 `windows_storage.cpp`、`storage_core.cpp` 处理；扫描、对端分块读取、保存与删除等耗时操作在 `WorkerPool` 中执行；当前未发布源码将普通工作线程数限制为 2–8（无法取得硬件数量时为 4），缩略图与本地预览另用两个独立线程，避免慢解码器占满传输队列，详见 [Windows 稳定性检查](Windows稳定性.md)；单次分块读取上限为 `kMaxReadChunkBytes`（2 MiB，见 [传输恢复](传输恢复.md#分块大小)）；`lib/data/platform_database.dart` 在 Windows 配置共享的 FFI 数据库工厂。`windows/tests` 独立测试发现元数据校验及原生存储边界，`test` 保留跨平台业务与界面回归。
 
 实际 Windows Runner 编译还需要显式包含命令行解析与 COM 的系统头文件，避免借用其他头文件的间接包含；局部变量避开 Windows RPC 的 `small` 宏。资源管理器定位使用的 PIDL 保留 SDK 的指针限定符和所有权，并在结束时调用 `CoTaskMemFree`。这些接入由完整 Runner 构建验证，独立存储 CTest 不覆盖 Flutter 宿主编译。
 
@@ -99,7 +101,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\test-windows-nativ
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\package-windows.ps1
 ```
 
-输出为 `dist/0.5.0/Tamayura-0.5.0-windows-x64.zip` 和独立 `SHA256SUMS-windows`，版本始终取自 `pubspec.yaml`。脚本核对 EXE 的数字版本，并打包、核对完整 `build/windows/x64/runner/Release` 文件清单，包括 Flutter 引擎、插件、SQLite 原生资产与 `data`。不可只发送 `Tamayura.exe`。脚本不改已有 Android/macOS 产物的联合校验文件。
+输出为 `dist/<version>/Tamayura-<version>-windows-x64.zip` 和独立 `SHA256SUMS-windows`，版本始终取自 `pubspec.yaml`。当前 `unstaged` 脚本在中性源码副本中执行完整检查和构建，核对 EXE 数字版本、完整 Release 文件清单及个人路径泄露，再把 ZIP 写回原工作树；临时目录配置见 [发布与打包](发布.md)。包括 Flutter 引擎、插件、SQLite 原生资产与 `data`，不可只发送 `Tamayura.exe`。脚本不改已有 Android/macOS 产物的联合校验文件。
 
 Flutter 测试会在 `build/native_assets/windows/native_assets.json` 写入构建机绝对 DLL 路径，该清单只供测试使用。CMake 安装时排除它并清除旧 Release 目录的同名残留；正式程序继续使用 `data/flutter_assets/NativeAssetsManifest.json` 和包根目录的 `sqlite3.dll`。打包入口要求 SQLite 存在且测试清单未残留，解压启动时核验实际加载的 SQLite 来自解压目录。
 

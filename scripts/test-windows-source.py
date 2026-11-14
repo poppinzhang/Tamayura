@@ -3,7 +3,9 @@
 
 import hashlib
 import importlib.util
+import os
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -74,6 +76,19 @@ class WindowsSourceTests(unittest.TestCase):
             names = {name.split("/", 1)[1] for name in bundle.namelist()}
             self.assertTrue(set(required).issubset(names))
 
+    def test_shared_protocol_test_inputs_are_included(self):
+        required = ("android/app/src/main/kotlin/dev/tamayura/app/LanDiscovery.kt", "macos/Runner/LanDiscovery.swift")
+        for name in required:
+            self.write(name, "source\n")
+        self.write("android/local.properties", "LOCAL_ONLY\n")
+        self.write("macos/Runner/private.swift", "LOCAL_ONLY\n")
+        archive, _ = PACKAGE.package_source(self.root)
+        with zipfile.ZipFile(archive) as bundle:
+            names = {name.split("/", 1)[1] for name in bundle.namelist()}
+            self.assertTrue(set(required).issubset(names))
+            self.assertNotIn("android/local.properties", names)
+            self.assertNotIn("macos/Runner/private.swift", names)
+
     def test_symlink_is_rejected(self):
         target = self.write("private.dart", "LOCAL_ONLY\n")
         try:
@@ -82,6 +97,24 @@ class WindowsSourceTests(unittest.TestCase):
             self.skipTest("Creating symlinks is not permitted on this host")
         with self.assertRaisesRegex(ValueError, "symlinks"):
             PACKAGE.package_source(self.root)
+
+    @unittest.skipUnless(os.name == "nt", "Windows junction regression")
+    def test_optional_protocol_source_does_not_follow_a_junction(self):
+        target = self.root / "private-platform"
+        private = self.write("private-platform/app/src/main/kotlin/dev/tamayura/app/LanDiscovery.kt", "LOCAL_ONLY\n")
+        link = self.root / "android"
+        subprocess.run(
+            ["powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-Command",
+             "New-Item -ItemType Junction -Path $env:TAMAYURA_TEST_LINK -Target $env:TAMAYURA_TEST_TARGET -ErrorAction Stop | Out-Null"],
+            env={**os.environ, "TAMAYURA_TEST_LINK": str(link), "TAMAYURA_TEST_TARGET": str(target)},
+            check=True, capture_output=True,
+        )
+        try:
+            with self.assertRaisesRegex(ValueError, "symlinks"):
+                PACKAGE.package_source(self.root)
+            self.assertEqual(private.read_text(), "LOCAL_ONLY\n")
+        finally:
+            link.rmdir()
 
     def test_themed_logos_and_their_licenses_are_included(self):
         required = (
