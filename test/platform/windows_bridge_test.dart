@@ -32,6 +32,10 @@ void main() {
     );
     expect(bridge.usesInProcessTransfers, isTrue);
     expect(bridge.supportsBackgroundCatalog, isTrue);
+    expect(bridge.supportsLocalCatalogScheduling, isTrue);
+    expect(const AndroidBridge().supportsLocalCatalogScheduling, isFalse);
+    expect(const MacOSBridge().supportsLocalCatalogScheduling, isFalse);
+    expect(const LinuxBridge().supportsLocalCatalogScheduling, isFalse);
     expect(const AndroidBridge().supportsBackgroundCatalog, isFalse);
     expect(const MacOSBridge().supportsBackgroundCatalog, isFalse);
     expect(const LinuxBridge().supportsBackgroundCatalog, isFalse);
@@ -237,6 +241,41 @@ void main() {
     expect(calls, 0);
     expect(await bridge.readRange('id', 5000000000, 3), [1, 2, 3]);
   });
+
+  test(
+    'watch lifecycle and partial scan preserve relative paths and generations',
+    () async {
+      const folder = SharedFolder(
+        id: 'photos',
+        uri: r'C:\Photos',
+        name: 'Photos',
+      );
+      final calls = <MethodCall>[];
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        calls.add(call);
+        return call.method == 'scanChangedDirectoriesMetadata' ? [] : null;
+      });
+      await bridge.startWatchingDirectories([folder], generation: 7);
+      await bridge.scanChangedDirectoriesMetadata(
+        [folder],
+        [const LocalCatalogChange('photos', '2026/写真.ARW')],
+      );
+      await bridge.stopWatchingDirectories();
+      expect(calls[0].method, 'startWatchingDirectories');
+      expect(calls[0].arguments, {
+        'directories': [folder.toJson()],
+        'generation': 7,
+      });
+      expect(calls[1].method, 'scanChangedDirectoriesMetadata');
+      expect(calls[1].arguments, {
+        'directories': [folder.toJson()],
+        'changes': [
+          {'sharedFolderId': 'photos', 'relativePath': '2026/写真.ARW'},
+        ],
+      });
+      expect(calls[2].method, 'stopWatchingDirectories');
+    },
+  );
 
   test(
     'background sharing and service port are forwarded without job scheduling',

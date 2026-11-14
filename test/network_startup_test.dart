@@ -77,6 +77,21 @@ class _RestorableSource extends _ControlledSource
   Future<void> close() => _scanEvents.close();
 }
 
+class _IncrementalSource extends _RestorableSource
+    implements IncrementalLocalMediaSource {
+  final partials = <List<LocalCatalogChange>>[];
+  List<MediaMetadata> next = [];
+  bool requiresFullScan = false;
+  @override
+  Future<List<MediaMetadata>> scanChanges(
+    List<LocalCatalogChange> changes,
+  ) async {
+    partials.add(changes);
+    if (requiresFullScan) throw const FullCatalogScanRequired();
+    return next;
+  }
+}
+
 Matcher _grpcCode(int code) =>
     isA<GrpcError>().having((error) => error.code, 'code', code);
 
@@ -131,6 +146,83 @@ void main() {
     addTearDown(client.close);
     return client;
   }
+
+  test(
+    'a restored complete catalog can skip a full check without changing the protocol',
+    () async {
+      final local = restorable();
+      await server.start(backgroundScan: true, scanAfterRestore: () => false);
+      local.restores.single.complete([_photo('cached')]);
+      await server.catalogReady;
+      expect(local.scans, isEmpty);
+      expect(server.completedFullScans, 0);
+      expect((await connect().identity()).id, _identity.id);
+      await expectServing('cached');
+    },
+  );
+
+  test(
+    'a recent deadline cannot skip a missing or broken native cache',
+    () async {
+      for (final corrupt in [false, true]) {
+        final local = restorable();
+        await server.start(backgroundScan: true, scanAfterRestore: () => false);
+        if (corrupt) {
+          local.restores.single.completeError(StateError('cache unavailable'));
+        } else {
+          local.restores.single.complete(null);
+        }
+        await local.waitForScans(1);
+        local.scans.single.complete([_photo('checked')]);
+        await server.catalogReady;
+        expect(server.completedFullScans, 1);
+        await expectServing('checked');
+        await server.stop();
+      }
+    },
+  );
+
+  test(
+    'partial refresh publishes a complete revision without counting as a full scan',
+    () async {
+      final local = _IncrementalSource();
+      source = local;
+      server = MediaRpcServer(identity: _identity, source: source);
+      addTearDown(local.close);
+      await server.start(backgroundScan: true, scanAfterRestore: () => false);
+      local.restores.single.complete([_photo('old')]);
+      await server.catalogReady;
+      final oldRevision = server.revision;
+      local.next = [_photo('old'), _photo('new')];
+      await server.refreshChanges([
+        const LocalCatalogChange('photos', 'new.jpg'),
+      ]);
+      expect(local.partials.single.single.relativePath, 'new.jpg');
+      expect(server.localMedia.map((item) => item.id).toSet(), {'old', 'new'});
+      expect(server.revision, isNot(oldRevision));
+      expect(local.scans, isEmpty);
+      expect(server.completedFullScans, 0);
+    },
+  );
+
+  test('a lost incremental baseline falls back to one complete scan', () async {
+    final local = _IncrementalSource()..requiresFullScan = true;
+    source = local;
+    server = MediaRpcServer(identity: _identity, source: source);
+    addTearDown(local.close);
+    await server.start(backgroundScan: true, scanAfterRestore: () => false);
+    local.restores.single.complete([_photo('old')]);
+    await server.catalogReady;
+    final refreshing = server.refreshChanges([
+      const LocalCatalogChange('photos', 'new.jpg'),
+    ]);
+    await local.waitForScans(1);
+    local.scans.single.complete([_photo('new')]);
+    await refreshing;
+    expect(server.completedFullScans, 1);
+    expect(server.scanError, isNull);
+    await expectServing('new');
+  });
 
   test(
     'background cold start serves identity and preserves a receiver until a real empty scan completes',

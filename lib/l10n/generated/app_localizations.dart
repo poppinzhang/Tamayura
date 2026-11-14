@@ -1144,6 +1144,72 @@ abstract class AppLocalizations {
   /// **'正在检查共享目录，其他功能仍可使用。'**
   String get settingsSharedFoldersScanning;
 
+  /// No description provided for @settingsLocalScanInterval.
+  ///
+  /// In zh, this message translates to:
+  /// **'共享文件夹完整核对间隔'**
+  String get settingsLocalScanInterval;
+
+  /// No description provided for @settingsLocalScanSaving.
+  ///
+  /// In zh, this message translates to:
+  /// **'正在保存完整核对间隔…'**
+  String get settingsLocalScanSaving;
+
+  /// No description provided for @settingsLocalScanDescription.
+  ///
+  /// In zh, this message translates to:
+  /// **'每 {hours} 小时完整核对本机共享文件夹，重启后继续计时。运行期间自动检查文件增删。'**
+  String settingsLocalScanDescription(int hours);
+
+  /// No description provided for @localScanDialogDescription.
+  ///
+  /// In zh, this message translates to:
+  /// **'从上次完整核对成功开始计时，重启后继续。应用关闭期间的文件增删可能等待下次核对，点击右上角刷新可立即检查。此设置不改变其他设备相册的同步间隔。'**
+  String get localScanDialogDescription;
+
+  /// No description provided for @localScanDialogLabel.
+  ///
+  /// In zh, this message translates to:
+  /// **'间隔小时数'**
+  String get localScanDialogLabel;
+
+  /// No description provided for @localScanDialogHelper.
+  ///
+  /// In zh, this message translates to:
+  /// **'1–8760 小时，默认 24 小时'**
+  String get localScanDialogHelper;
+
+  /// No description provided for @localScanDialogSaveFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'完整核对间隔未能保存，请重试。'**
+  String get localScanDialogSaveFailed;
+
+  /// No description provided for @errorLocalScanInterval.
+  ///
+  /// In zh, this message translates to:
+  /// **'请输入 1–8760 之间的整数小时'**
+  String get errorLocalScanInterval;
+
+  /// No description provided for @errorLocalScanSave.
+  ///
+  /// In zh, this message translates to:
+  /// **'完整核对间隔保存失败，请重试'**
+  String get errorLocalScanSave;
+
+  /// No description provided for @errorLocalScanCheckpoint.
+  ///
+  /// In zh, this message translates to:
+  /// **'无法保存上次完整核对时间；下次启动可能重新核对'**
+  String get errorLocalScanCheckpoint;
+
+  /// No description provided for @errorLocalCatalogWatch.
+  ///
+  /// In zh, this message translates to:
+  /// **'共享文件夹变化监听不可用，将按完整核对间隔检查；可手动刷新。'**
+  String get errorLocalCatalogWatch;
+
   /// No description provided for @errorLocalCatalogVersion.
   ///
   /// In zh, this message translates to:

@@ -661,6 +661,53 @@ class AppLocalizationsEn extends AppLocalizations {
       'Checking shared folders. Other features remain available.';
 
   @override
+  String get settingsLocalScanInterval => 'Shared folder full check interval';
+
+  @override
+  String get settingsLocalScanSaving => 'Saving full check interval…';
+
+  @override
+  String settingsLocalScanDescription(int hours) {
+    String _temp0 = intl.Intl.pluralLogic(
+      hours,
+      locale: localeName,
+      other: 'Checks all local shared folders every $hours hours.',
+      one: 'Checks all local shared folders every hour.',
+    );
+    return '$_temp0 The timer continues after a restart. Added and removed files are detected while the app is running.';
+  }
+
+  @override
+  String get localScanDialogDescription =>
+      'Timed from the last successful full check and retained after a restart. Files added or removed while the app is closed may wait until the next check. Refresh at the top right to check now. This does not change how often albums from other devices sync.';
+
+  @override
+  String get localScanDialogLabel => 'Interval in hours';
+
+  @override
+  String get localScanDialogHelper => '1–8760 hours, default 24';
+
+  @override
+  String get localScanDialogSaveFailed =>
+      'Couldn\'t save the full check interval. Please try again.';
+
+  @override
+  String get errorLocalScanInterval =>
+      'Enter a whole number of hours from 1 to 8760';
+
+  @override
+  String get errorLocalScanSave =>
+      'Couldn\'t save the full check interval. Please try again.';
+
+  @override
+  String get errorLocalScanCheckpoint =>
+      'Couldn\'t save the last full check time. The next start may check again.';
+
+  @override
+  String get errorLocalCatalogWatch =>
+      'Shared folder change monitoring is unavailable. Full checks will continue at the configured interval. You can also refresh manually.';
+
+  @override
   String get errorLocalCatalogVersion =>
       'The local shared-folder index uses an unsupported format and has been preserved. Sharing remains available after a successful full scan. Use an app version that supports this index format.';
 

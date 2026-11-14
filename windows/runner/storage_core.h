@@ -106,6 +106,13 @@ struct MediaEntry {
   std::wstring root;
 };
 
+// A watcher hint names the changed file or directory, relative to its shared
+// root. An empty path explicitly requests that root's entire subtree.
+struct CatalogChange {
+  std::string shared_folder_id;
+  std::string relative_path;
+};
+
 class MediaCatalog {
  public:
   // Source previews are process-local; zero limits disable retained entries.
@@ -129,6 +136,13 @@ class MediaCatalog {
   std::vector<MediaEntry> Scan(const std::vector<SharedDirectory>& directories,
                              uint64_t ticket,
                              const std::wstring& cache_path = {});
+  // Reconcile watcher hints against a previously complete catalog. Unchanged
+  // media are not opened; changed directories are enumerated recursively.
+  // A missing/configuration-mismatched baseline requires a full scan instead.
+  std::vector<MediaEntry> ScanChanges(
+      const std::vector<SharedDirectory>& directories,
+      const std::vector<CatalogChange>& changes, uint64_t ticket,
+      const std::wstring& cache_path = {});
   // Restores only a complete cache for exactly these shared folders. Source
   // files are checked when read, so restoring never walks the directory tree.
   // A missing/configuration-mismatched cache returns nullopt. Unreadable,
@@ -172,6 +186,9 @@ class MediaCatalog {
   void CacheThumbnailLocked(const MediaEntry& source, const Bytes& bytes);
   void RevokePublishedLocked();
   void RevokeLocked();
+  void PublishCatalog(const std::vector<SharedDirectory>& directories,
+                      const std::vector<MediaEntry>& metadata, uint64_t ticket,
+                      const std::wstring& cache_path);
   // A read may finish only while sharing continues and its file stays published.
   void AssertCurrent(const std::string& id, const MediaEntry& entry,
                      uint64_t generation) const;
@@ -189,6 +206,8 @@ class MediaCatalog {
   // The latest scan; starting another scan or clearing cancels older ones.
   uint64_t ticket_ = 0;
   std::map<std::string, MediaEntry> files_;
+  bool catalog_ready_ = false;
+  std::vector<SharedDirectory> published_directories_;
   const size_t thumbnail_max_bytes_;
   const size_t thumbnail_max_entries_;
   size_t thumbnail_bytes_ = 0;

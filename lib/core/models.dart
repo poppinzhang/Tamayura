@@ -349,6 +349,30 @@ abstract interface class RestorableLocalMediaSource
   Future<List<MediaMetadata>?> restore();
 }
 
+/// A filesystem notification names a file or an entire changed subtree.
+/// Paths are relative to a configured shared root, never received from peers.
+class LocalCatalogChange {
+  const LocalCatalogChange(this.sharedFolderId, this.relativePath);
+  final String sharedFolderId, relativePath;
+
+  Map<String, String> toJson() => {
+    'sharedFolderId': sharedFolderId,
+    'relativePath': relativePath,
+  };
+}
+
+abstract interface class IncrementalLocalMediaSource
+    implements LocalMediaSource {
+  /// Returns a complete snapshot after checking only the named paths.
+  Future<List<MediaMetadata>> scanChanges(List<LocalCatalogChange> changes);
+}
+
+/// A notification cannot be applied to the current native baseline. The
+/// caller must build a complete snapshot rather than expose an internal error.
+class FullCatalogScanRequired implements Exception {
+  const FullCatalogScanRequired();
+}
+
 /// The shared catalog was replaced or revoked while a read was in progress.
 class MediaSourceInterrupted implements Exception {
   const MediaSourceInterrupted();

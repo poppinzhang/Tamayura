@@ -7,11 +7,14 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:grpc/grpc.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:tamayura/app/app_controller.dart';
+import 'package:tamayura/app/local_catalog_maintenance.dart';
 import 'package:tamayura/core/models.dart';
 import 'package:tamayura/data/repository.dart';
 import 'package:tamayura/data/transfer_store.dart';
 import 'package:tamayura/network/media_rpc.dart';
 import 'package:tamayura/platform/windows_bridge.dart';
+
+import 'controller_test.dart' show GatedRepository;
 
 const _deadline = Duration(seconds: 5);
 const _identity = 'windows-aabbccdd-1234-5678-abcd-123456789abc';
@@ -43,6 +46,15 @@ class _WindowsCatalogBridge extends WindowsBridge {
   final Directory directory;
   final events = StreamController<Map<String, dynamic>>.broadcast(sync: true);
   final scanChanges = StreamController<void>.broadcast(sync: true);
+  final watchEvents = StreamController<Map<String, dynamic>>.broadcast(
+    sync: true,
+  );
+  int watchGeneration = 0, watchStarts = 0, watchStops = 0;
+  bool watchFails = false;
+  Completer<void>? watchStartWait;
+  Object? partialError;
+  final partialRequests = <List<LocalCatalogChange>>[];
+  final partialResults = <Completer<List<Map<String, dynamic>>>>[];
   final restoreResult = Completer<List<Map<String, dynamic>>?>();
   final scans = <_Scan>[];
   final restoredFolders = <List<SharedFolder>>[];
@@ -65,6 +77,41 @@ class _WindowsCatalogBridge extends WindowsBridge {
 
   @override
   Stream<Map<String, dynamic>> get discoveryEvents => events.stream;
+
+  @override
+  Stream<Map<String, dynamic>> get catalogEvents => watchEvents.stream;
+
+  @override
+  Future<void> startWatchingDirectories(
+    List<SharedFolder> directories, {
+    required int generation,
+  }) async {
+    watchGeneration = generation;
+    watchStarts++;
+    await watchStartWait?.future;
+    if (watchFails) throw PlatformException(code: 'CATALOG_WATCH_UNAVAILABLE');
+  }
+
+  @override
+  Future<void> stopWatchingDirectories() async {
+    watchStops++;
+  }
+
+  @override
+  Future<List<Map<String, dynamic>>> scanChangedDirectoriesMetadata(
+    List<SharedFolder> directories,
+    List<LocalCatalogChange> changes,
+  ) async {
+    final expected = ++generation;
+    partialRequests.add(changes);
+    if (partialError != null) throw partialError!;
+    final result = Completer<List<Map<String, dynamic>>>();
+    partialResults.add(result);
+    final entries = await result.future;
+    if (expected != generation) throw PlatformException(code: 'SCAN_CANCELLED');
+    files = {for (final item in entries) item['id'] as String: item};
+    return entries;
+  }
 
   @override
   Future<Map<String, dynamic>> localInfo() async => {
@@ -183,9 +230,15 @@ class _WindowsCatalogBridge extends WindowsBridge {
   }
 
   void releaseAll() {
+    if (watchStartWait != null && !watchStartWait!.isCompleted) {
+      watchStartWait!.complete();
+    }
     if (!restoreResult.isCompleted) restoreResult.complete(null);
     for (final scan in scans) {
       if (!scan.result.isCompleted) scan.result.complete([]);
+    }
+    for (final result in partialResults) {
+      if (!result.isCompleted) result.complete([]);
     }
   }
 }
@@ -208,9 +261,20 @@ void main() {
   late TamayuraRepository repository;
   late TransferStore transfers;
   late AppController model;
+  late DateTime now;
   final clients = <MediaRpcClient>[];
 
+  AppController controller({TamayuraRepository? store}) => AppController(
+    clock: () => now,
+    bridge: bridge,
+    preferredPort: 0,
+    clientFactory: (peer) => MediaRpcClient(peer.copyWith(host: '127.0.0.1')),
+    openRepository: () async => store ?? repository,
+    openTransfers: () async => transfers,
+  );
+
   setUp(() async {
+    now = DateTime.utc(2026, 11, 14, 12);
     directory = await Directory.systemTemp.createTemp(
       'tamayura-windows-catalog-',
     );
@@ -228,6 +292,7 @@ void main() {
       jsonEncode([_photos.toJson()]),
     );
     model = AppController(
+      clock: () => now,
       bridge: bridge,
       preferredPort: 0,
       // Discovery accepts only LAN addresses; route fixture peers to loopback.
@@ -246,6 +311,7 @@ void main() {
     await model.shutdown().timeout(_deadline);
     await bridge.events.close();
     await bridge.scanChanges.close();
+    await bridge.watchEvents.close();
     await directory.delete(recursive: true);
   });
 
@@ -277,6 +343,287 @@ void main() {
       .expand((bytes) => bytes)
       .toList()
       .timeout(_deadline);
+
+  Future<void> checkpoint({Duration age = Duration.zero}) =>
+      repository.setSetting(
+        LocalCatalogMaintenance.checkpointKey,
+        jsonEncode({
+          'version': 1,
+          'roots': jsonEncode([_photos.toJson()]),
+          'completedMs': now.subtract(age).millisecondsSinceEpoch,
+        }),
+      );
+
+  test(
+    'recent persisted full check restores without disk scan or foreground rescan',
+    () async {
+      await checkpoint(age: const Duration(hours: 2));
+      await repository.setSetting('localScanIntervalHours', '48');
+      bridge.restoreResult.complete([_photo(0)]);
+      await model.initialize();
+      await until(() => !model.localScanning);
+      expect(model.supportsLocalCatalogScheduling, isTrue);
+      expect(model.localScanIntervalHours, 48);
+      expect(bridge.watchStarts, 1);
+      expect(bridge.scans, isEmpty);
+      now = now.add(const Duration(hours: 1));
+      await model.refreshAfterResume();
+      expect(bridge.scans, isEmpty);
+      expect(await read(localClient(), 'photos-0'), [0, 1, 2]);
+    },
+  );
+
+  test(
+    'manual refresh overrides a fresh checkpoint and persists successful completion',
+    () async {
+      await checkpoint();
+      bridge.restoreResult.complete([_photo(0)]);
+      await model.initialize();
+      await until(() => !model.localScanning);
+      now = now.add(const Duration(minutes: 5));
+      await model.refresh();
+      final scan = await bridge.scanAt(0);
+      scan.result.complete([_photo(1)]);
+      await until(() => !model.localScanning);
+      expect(await read(localClient(), 'photos-1'), [0, 1, 2]);
+      // A database read queued after publication follows the checkpoint write.
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      final saved =
+          jsonDecode(
+                (await repository.getSetting(
+                  LocalCatalogMaintenance.checkpointKey,
+                ))!,
+              )
+              as Map;
+      expect(saved['completedMs'], now.millisecondsSinceEpoch);
+    },
+  );
+
+  test(
+    'missing native cache forces full scan even when a checkpoint is recent',
+    () async {
+      await checkpoint();
+      bridge.restoreResult.complete(null);
+      await model.initialize();
+      final scan = await bridge.scanAt(0);
+      expect(model.localScanning, isTrue);
+      scan.result.complete([_photo(0)]);
+      await until(() => !model.localScanning);
+    },
+  );
+
+  test(
+    'hour settings validate, persist and shorter interval triggers overdue full check',
+    () async {
+      await checkpoint(age: const Duration(hours: 3));
+      bridge.restoreResult.complete([_photo(0)]);
+      await model.initialize();
+      await until(() => !model.localScanning);
+      for (final hours in [0, -1, 8761]) {
+        await model.setLocalScanIntervalHours(hours);
+        expect(model.localScanIntervalHours, 24);
+        expect(model.error, isNotNull);
+      }
+      await model.setLocalScanIntervalHours(8760);
+      expect(await repository.getSetting('localScanIntervalHours'), '8760');
+      expect(bridge.scans, isEmpty);
+      await model.setLocalScanIntervalHours(1);
+      final scan = await bridge.scanAt(0);
+      expect(await repository.getSetting('localScanIntervalHours'), '1');
+      scan.result.complete([_photo(0)]);
+      await until(() => !model.localScanning);
+    },
+  );
+
+  test(
+    'watcher overflow forces a full check without discarding the current catalog first',
+    () async {
+      await checkpoint();
+      bridge.restoreResult.complete([_photo(0)]);
+      await model.initialize();
+      await until(() => !model.localScanning);
+      bridge.watchEvents.add({
+        'type': 'overflow',
+        'generation': bridge.watchGeneration,
+      });
+      final scan = await bridge.scanAt(0);
+      expect(await read(localClient(), 'photos-0'), [0, 1, 2]);
+      scan.result.complete([_photo(1)]);
+      await until(() => !model.localScanning);
+    },
+  );
+
+  test(
+    'watcher startup failure is visible and a fresh cache is still fully checked',
+    () async {
+      await checkpoint();
+      bridge.watchFails = true;
+      bridge.restoreResult.complete([_photo(0)]);
+      await model.initialize();
+      final scan = await bridge.scanAt(0);
+      expect(
+        model.error,
+        describeError(PlatformException(code: 'CATALOG_WATCH_UNAVAILABLE')),
+      );
+      scan.result.complete([_photo(0)]);
+      await until(() => !model.localScanning);
+    },
+  );
+
+  test(
+    'a batch of imports uses the incremental path and leaves the full-check deadline unchanged',
+    () async {
+      await checkpoint(age: const Duration(hours: 2));
+      final before = await repository.getSetting(
+        LocalCatalogMaintenance.checkpointKey,
+      );
+      bridge.restoreResult.complete([_photo(0)]);
+      await model.initialize();
+      await until(() => !model.localScanning);
+      for (var i = 0; i < 20; i++) {
+        bridge.watchEvents.add({
+          'type': 'changed',
+          'generation': bridge.watchGeneration,
+          'changes': [
+            {'sharedFolderId': 'photos', 'relativePath': '2026/${i % 2}.ARW'},
+          ],
+        });
+      }
+      await until(() => model.localScanning);
+      expect(bridge.scans, isEmpty);
+      expect(bridge.partialRequests.single, hasLength(2));
+      bridge.partialResults.single.complete([_photo(0), _photo(1)]);
+      await until(() => !model.localScanning);
+      expect(model.localMediaCount, 2);
+      expect(await read(localClient(), 'photos-1'), [0, 1, 2]);
+      expect(
+        await repository.getSetting(LocalCatalogMaintenance.checkpointKey),
+        before,
+      );
+    },
+  );
+
+  test(
+    'a slow HDD watcher setup does not delay identity, discovery or settings',
+    () async {
+      await checkpoint();
+      bridge.watchStartWait = Completer<void>();
+      bridge.restoreResult.complete([_photo(0)]);
+      await model.initialize().timeout(_deadline);
+      expect(model.loading, isFalse);
+      expect(model.busy, isFalse);
+      expect(model.port, greaterThan(0));
+      expect(bridge.discoveryStarts, 1);
+      expect(bridge.restoredFolders, isEmpty);
+      expect((await localClient().identity()).id, _identity);
+      await model.setLocalScanIntervalHours(72);
+      expect(model.localScanIntervalHours, 72);
+      bridge.watchStartWait!.complete();
+      await until(() => !model.localScanning);
+      expect(bridge.scans, isEmpty);
+      expect(await read(localClient(), 'photos-0'), [0, 1, 2]);
+    },
+  );
+
+  test('manual full refresh supersedes a pending partial check', () async {
+    await checkpoint();
+    bridge.restoreResult.complete([_photo(0)]);
+    await model.initialize();
+    await until(() => !model.localScanning);
+    bridge.watchEvents.add({
+      'type': 'changed',
+      'generation': bridge.watchGeneration,
+      'changes': [
+        {'sharedFolderId': 'photos', 'relativePath': '2026/1.ARW'},
+      ],
+    });
+    await until(() => model.localScanning);
+    expect(bridge.partialResults, hasLength(1));
+    await model.refresh();
+    final full = await bridge.scanAt(0);
+    full.result.complete([_photo(2)]);
+    await until(() => !model.localScanning);
+    bridge.partialResults.single.complete([_photo(1)]);
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    expect(await read(localClient(), 'photos-2'), [0, 1, 2]);
+    expect(model.error, isNull);
+  });
+
+  test(
+    'native lost-baseline signal transparently falls back to a full check',
+    () async {
+      await checkpoint();
+      bridge.partialError = PlatformException(
+        code: 'LOCAL_CATALOG_UNAVAILABLE',
+      );
+      bridge.restoreResult.complete([_photo(0)]);
+      await model.initialize();
+      await until(() => !model.localScanning);
+      bridge.watchEvents.add({
+        'type': 'changed',
+        'generation': bridge.watchGeneration,
+        'changes': [
+          {'sharedFolderId': 'photos', 'relativePath': '2026/1.ARW'},
+        ],
+      });
+      final full = await bridge.scanAt(0);
+      full.result.complete([_photo(1)]);
+      await until(() => !model.localScanning);
+      expect(bridge.partialRequests, hasLength(1));
+      expect(model.error, isNull);
+      expect(await read(localClient(), 'photos-1'), [0, 1, 2]);
+    },
+  );
+
+  test(
+    'failed setting writes retain the saved hours and permit retry',
+    () async {
+      final gated = GatedRepository(repository);
+      model = controller(store: gated);
+      await checkpoint();
+      bridge.restoreResult.complete([_photo(0)]);
+      await model.initialize();
+      await until(() => !model.localScanning);
+      gated.beforeSettingWrite = (key, _) async {
+        if (key == 'localScanIntervalHours') {
+          throw StateError('write unavailable');
+        }
+      };
+      await model.setLocalScanIntervalHours(72);
+      expect(model.localScanIntervalHours, 24);
+      expect(model.localScanIntervalSaving, isFalse);
+      expect(model.error, isNotNull);
+      expect(await repository.getSetting('localScanIntervalHours'), isNull);
+      gated.beforeSettingWrite = null;
+      await model.setLocalScanIntervalHours(72);
+      expect(model.localScanIntervalHours, 72);
+      expect(await repository.getSetting('localScanIntervalHours'), '72');
+    },
+  );
+
+  test(
+    'a setting write in progress cannot be replaced by a second write',
+    () async {
+      final gated = GatedRepository(repository);
+      model = controller(store: gated);
+      await checkpoint();
+      bridge.restoreResult.complete([_photo(0)]);
+      await model.initialize();
+      await until(() => !model.localScanning);
+      final gate = Completer<void>();
+      gated.beforeSettingWrite = (key, _) async {
+        if (key == 'localScanIntervalHours') await gate.future;
+      };
+      final saving = model.setLocalScanIntervalHours(72);
+      expect(model.localScanIntervalSaving, isTrue);
+      await model.setLocalScanIntervalHours(96);
+      expect(model.localScanIntervalHours, 24);
+      gate.complete();
+      await saving;
+      expect(model.localScanIntervalHours, 72);
+      expect(await repository.getSetting('localScanIntervalHours'), '72');
+    },
+  );
 
   test(
     'slow restore leaves initialization, discovery and settings responsive',

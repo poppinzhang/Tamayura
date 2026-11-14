@@ -610,6 +610,42 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsSharedFoldersScanning => '正在检查共享目录，其他功能仍可使用。';
 
   @override
+  String get settingsLocalScanInterval => '共享文件夹完整核对间隔';
+
+  @override
+  String get settingsLocalScanSaving => '正在保存完整核对间隔…';
+
+  @override
+  String settingsLocalScanDescription(int hours) {
+    return '每 $hours 小时完整核对本机共享文件夹，重启后继续计时。运行期间自动检查文件增删。';
+  }
+
+  @override
+  String get localScanDialogDescription =>
+      '从上次完整核对成功开始计时，重启后继续。应用关闭期间的文件增删可能等待下次核对，点击右上角刷新可立即检查。此设置不改变其他设备相册的同步间隔。';
+
+  @override
+  String get localScanDialogLabel => '间隔小时数';
+
+  @override
+  String get localScanDialogHelper => '1–8760 小时，默认 24 小时';
+
+  @override
+  String get localScanDialogSaveFailed => '完整核对间隔未能保存，请重试。';
+
+  @override
+  String get errorLocalScanInterval => '请输入 1–8760 之间的整数小时';
+
+  @override
+  String get errorLocalScanSave => '完整核对间隔保存失败，请重试';
+
+  @override
+  String get errorLocalScanCheckpoint => '无法保存上次完整核对时间；下次启动可能重新核对';
+
+  @override
+  String get errorLocalCatalogWatch => '共享文件夹变化监听不可用，将按完整核对间隔检查；可手动刷新。';
+
+  @override
   String get errorLocalCatalogVersion =>
       '本机共享目录索引使用当前应用不支持的格式，已保留原文件。完整扫描成功后仍可共享；请使用支持此索引格式的应用版本。';
 

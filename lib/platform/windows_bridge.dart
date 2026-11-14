@@ -6,7 +6,14 @@ export 'platform_bridge.dart' show SharingStatus;
 
 /// Win32 folders, Shell previews and DNS-SD, with process-owned downloads.
 class WindowsBridge extends PlatformBridge {
-  const WindowsBridge({super.methods, super.events, super.sharing});
+  const WindowsBridge({
+    super.methods,
+    super.events,
+    super.sharing,
+    EventChannel catalog = const EventChannel('tamayura/catalog'),
+  }) : _catalog = catalog;
+
+  final EventChannel _catalog;
 
   @override
   String get platformName => 'Windows';
@@ -16,6 +23,42 @@ class WindowsBridge extends PlatformBridge {
 
   @override
   bool get supportsBackgroundCatalog => true;
+
+  @override
+  bool get supportsLocalCatalogScheduling => true;
+
+  @override
+  Stream<Map<String, dynamic>> get catalogEvents => _catalog
+      .receiveBroadcastStream()
+      .map((event) => Map<String, dynamic>.from(event as Map));
+
+  @override
+  Future<void> startWatchingDirectories(
+    List<SharedFolder> directories, {
+    required int generation,
+  }) => methodChannel.invokeMethod<void>('startWatchingDirectories', {
+    'directories': directories.map((folder) => folder.toJson()).toList(),
+    'generation': generation,
+  });
+
+  @override
+  Future<void> stopWatchingDirectories() =>
+      methodChannel.invokeMethod<void>('stopWatchingDirectories');
+
+  @override
+  Future<List<Map<String, dynamic>>> scanChangedDirectoriesMetadata(
+    List<SharedFolder> directories,
+    List<LocalCatalogChange> changes,
+  ) async => metadataMaps(
+    await methodChannel
+            .invokeListMethod<dynamic>('scanChangedDirectoriesMetadata', {
+              'directories': directories
+                  .map((folder) => folder.toJson())
+                  .toList(),
+              'changes': changes.map((change) => change.toJson()).toList(),
+            }) ??
+        const [],
+  );
 
   @override
   Future<List<Map<String, dynamic>>?> restoreDirectoriesMetadata(

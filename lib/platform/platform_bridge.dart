@@ -66,6 +66,7 @@ abstract class PlatformBridge {
 
   /// Windows can restore its native file index before a background rescan.
   bool get supportsBackgroundCatalog => false;
+  bool get supportsLocalCatalogScheduling => false;
   String get platformName;
   bool isValidDeviceId(String id);
 
@@ -143,6 +144,20 @@ abstract class PlatformBridge {
 
   /// Persistence errors do not revoke a successfully scanned, live catalog.
   Future<PlatformException?> getLocalCatalogWarning() async => null;
+
+  Stream<Map<String, dynamic>> get catalogEvents => const Stream.empty();
+
+  Future<void> startWatchingDirectories(
+    List<SharedFolder> directories, {
+    required int generation,
+  }) async {}
+
+  Future<void> stopWatchingDirectories() async {}
+
+  Future<List<Map<String, dynamic>>> scanChangedDirectoriesMetadata(
+    List<SharedFolder> directories,
+    List<LocalCatalogChange> changes,
+  ) => scanDirectoriesMetadata(directories);
 
   @protected
   Future<List<Map<String, dynamic>>> metadataMaps(List<dynamic> values) =>

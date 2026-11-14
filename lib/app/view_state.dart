@@ -108,6 +108,9 @@ abstract class TamayuraModel extends ChangeNotifier {
   bool get albumDetailedModeSaving => false;
   int get autoSyncIntervalMinutes => 10;
   bool get autoSyncIntervalSaving => false;
+  bool get supportsLocalCatalogScheduling => false;
+  int get localScanIntervalHours => 24;
+  bool get localScanIntervalSaving => false;
   bool get backgroundSharingEnabled => false;
   bool get backgroundSharingRunning => false;
   bool get backgroundSharingStarting => false;
@@ -168,6 +171,7 @@ abstract class TamayuraModel extends ChangeNotifier {
 
   Future<void> setAlbumDetailedMode(bool enabled) async {}
   Future<void> setAutoSyncIntervalMinutes(int minutes) async {}
+  Future<void> setLocalScanIntervalHours(int hours) async {}
   Future<void> setBackgroundSharing(bool enabled) async {}
   Future<void> openBatteryOptimizationSettings() async {}
   Future<void> refresh();

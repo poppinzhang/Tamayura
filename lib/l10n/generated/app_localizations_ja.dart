@@ -615,6 +615,44 @@ class AppLocalizationsJa extends AppLocalizations {
   String get settingsSharedFoldersScanning => '共有フォルダーを確認中です。他の機能は引き続き使用できます。';
 
   @override
+  String get settingsLocalScanInterval => '共有フォルダーの全体確認間隔';
+
+  @override
+  String get settingsLocalScanSaving => '全体確認の間隔を保存中…';
+
+  @override
+  String settingsLocalScanDescription(int hours) {
+    return 'この端末の共有フォルダー全体を $hours 時間ごとに確認し、再起動後も計時を継続します。アプリの動作中はファイルの追加・削除を自動で確認します。';
+  }
+
+  @override
+  String get localScanDialogDescription =>
+      '前回の全体確認が成功した時点から計時し、再起動後も引き継ぎます。アプリ終了中のファイルの追加・削除は、次回の確認まで反映されない場合があります。右上の更新ですぐに確認できます。他の端末のアルバム同期間隔は変わりません。';
+
+  @override
+  String get localScanDialogLabel => '間隔（時間）';
+
+  @override
+  String get localScanDialogHelper => '1～8760 時間、既定は 24 時間';
+
+  @override
+  String get localScanDialogSaveFailed => '全体確認の間隔を保存できませんでした。再試行してください。';
+
+  @override
+  String get errorLocalScanInterval => '1～8760 の整数で時間を入力してください';
+
+  @override
+  String get errorLocalScanSave => '全体確認の間隔を保存できませんでした。再試行してください。';
+
+  @override
+  String get errorLocalScanCheckpoint =>
+      '前回の全体確認時刻を保存できませんでした。次回の起動時に再確認する場合があります。';
+
+  @override
+  String get errorLocalCatalogWatch =>
+      '共有フォルダーの変更を監視できません。設定した間隔で全体確認を行います。手動でも更新できます。';
+
+  @override
   String get errorLocalCatalogVersion =>
       'この端末の共有フォルダー索引は現在のアプリが対応していない形式です。元のファイルは保持されています。完全スキャンが成功すれば共有できます。この索引形式に対応するアプリをご利用ください。';
 

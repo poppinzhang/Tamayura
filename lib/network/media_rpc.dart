@@ -44,6 +44,7 @@ class MediaRpcServer {
   Object? get scanError => _service.scanError;
   Object? get restoreError => _service.restoreError;
   bool get scanning => _service.scanning;
+  int get completedFullScans => _service.completedFullScans;
 
   /// Completes when the current catalog work finishes or is superseded. Errors
   /// are exposed by [scanError] and [restoreError], never by this future.
@@ -54,7 +55,11 @@ class MediaRpcServer {
     _service.identity = _service.identity.copyWith(name: name);
   }
 
-  Future<void> start({int port = 0, bool backgroundScan = false}) async {
+  Future<void> start({
+    int port = 0,
+    bool backgroundScan = false,
+    bool Function()? scanAfterRestore,
+  }) async {
     if (_server != null) throw StateError('Server is already running');
     final generation = ++_lifecycleGeneration;
     _CatalogWork? backgroundWork;
@@ -78,7 +83,7 @@ class MediaRpcServer {
       }
       _server = server;
       if (backgroundWork != null) {
-        unawaited(_service.restoreAndRefresh(backgroundWork));
+        unawaited(_service.restoreAndRefresh(backgroundWork, scanAfterRestore));
       }
     } catch (_) {
       await server.shutdown();
@@ -91,6 +96,9 @@ class MediaRpcServer {
   /// Failed scans revoke sharing and produce an RPC error, so callers preserve
   /// their offline snapshot instead of interpreting failure as an empty folder.
   Future<void> refresh() => _service.refresh();
+
+  Future<void> refreshChanges(List<LocalCatalogChange> changes) =>
+      _service.refresh(changes: changes);
 
   /// Revoke an obsolete catalog before changing shared folders. Unlike a valid
   /// empty scan, this makes catalog/thumbnail RPCs unavailable until a new
@@ -177,6 +185,7 @@ class _MediaService extends wire.MediaLibraryServiceBase {
   Object? scanError;
   Object? restoreError;
   bool _catalogAvailable = false;
+  int completedFullScans = 0;
   bool _filesAvailable = false;
   _CatalogWork? _work;
   bool get scanning => _work != null && !_work!.completed.isCompleted;
@@ -235,7 +244,10 @@ class _MediaService extends wire.MediaLibraryServiceBase {
     return _beginWork();
   }
 
-  Future<void> restoreAndRefresh(_CatalogWork work) async {
+  Future<void> restoreAndRefresh(
+    _CatalogWork work,
+    bool Function()? scanAfterRestore,
+  ) async {
     try {
       if (!_current(work)) return;
       final restorable = source;
@@ -251,6 +263,7 @@ class _MediaService extends wire.MediaLibraryServiceBase {
             );
             if (!_current(work)) return;
             _publish(prepared);
+            if (scanAfterRestore != null && !scanAfterRestore()) return;
           }
         } catch (error) {
           if (!_current(work)) return;
@@ -269,11 +282,11 @@ class _MediaService extends wire.MediaLibraryServiceBase {
     }
   }
 
-  Future<void> refresh() async {
+  Future<void> refresh({List<LocalCatalogChange>? changes}) async {
     restoreError = null;
     final work = _beginWork();
     try {
-      await _scan(work);
+      await _scan(work, changes: changes);
     } finally {
       cancelWork(work);
     }
@@ -289,12 +302,30 @@ class _MediaService extends wire.MediaLibraryServiceBase {
     onCatalogChanged?.call();
   }
 
-  Future<void> _scan(_CatalogWork work) async {
+  Future<void> _scan(
+    _CatalogWork work, {
+    List<LocalCatalogChange>? changes,
+  }) async {
     try {
-      final scanned = await source.scan();
+      final incremental = source;
+      var partial =
+          changes != null &&
+          _catalogAvailable &&
+          incremental is IncrementalLocalMediaSource;
+      List<MediaMetadata> scanned;
+      try {
+        scanned = partial
+            ? await incremental.scanChanges(changes)
+            : await source.scan();
+      } on FullCatalogScanRequired {
+        if (!_current(work)) return;
+        partial = false;
+        scanned = await source.scan();
+      }
       if (!_current(work)) return;
       final prepared = await _prepareCatalog(scanned, identity.id);
       if (!_current(work)) return;
+      if (!partial) completedFullScans++;
       _publish(prepared);
     } catch (error) {
       if (!_current(work)) return;

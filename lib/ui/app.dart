@@ -437,6 +437,24 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
     );
   }
 
+  Future<void> _editLocalScanInterval() async {
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => _LocalScanIntervalDialog(
+        initialHours: model.localScanIntervalHours,
+        onSave: (hours) async {
+          var saved = false;
+          await _run(() async {
+            await model.setLocalScanIntervalHours(hours);
+            saved = model.localScanIntervalHours == hours;
+          });
+          return saved;
+        },
+      ),
+    );
+  }
+
   Future<void> _scan() async {
     final address = await Navigator.of(
       context,
@@ -1806,6 +1824,31 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
                 icon: const Icon(AppIcons.add),
                 label: Text(context.l10n.settingsAddSharedFolder),
               ),
+              if (model.supportsLocalCatalogScheduling) ...[
+                const SizedBox(height: 12),
+                const Divider(),
+                ListTile(
+                  key: const Key('local-scan-interval'),
+                  contentPadding: EdgeInsets.zero,
+                  title: Text(context.l10n.settingsLocalScanInterval),
+                  subtitle: Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Text(
+                      model.localScanIntervalSaving
+                          ? context.l10n.settingsLocalScanSaving
+                          : context.l10n.settingsLocalScanDescription(
+                              model.localScanIntervalHours,
+                            ),
+                      style: const TextStyle(height: 1.6),
+                    ),
+                  ),
+                  trailing: const Icon(AppIcons.edit),
+                  enabled: !model.loading && !model.localScanIntervalSaving,
+                  onTap: model.loading || model.localScanIntervalSaving
+                      ? null
+                      : _editLocalScanInterval,
+                ),
+              ],
             ],
           ),
         ),
@@ -3009,6 +3052,110 @@ class _AutoSyncIntervalDialogState extends State<_AutoSyncIntervalDialog> {
         ),
         FilledButton(
           key: const Key('auto-sync-interval-save'),
+          onPressed: _saving ? null : _save,
+          child: Text(
+            _saving ? context.l10n.commonSaving : context.l10n.commonSave,
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+class _LocalScanIntervalDialog extends StatefulWidget {
+  const _LocalScanIntervalDialog({
+    required this.initialHours,
+    required this.onSave,
+  });
+
+  final int initialHours;
+  final Future<bool> Function(int hours) onSave;
+
+  @override
+  State<_LocalScanIntervalDialog> createState() =>
+      _LocalScanIntervalDialogState();
+}
+
+class _LocalScanIntervalDialogState extends State<_LocalScanIntervalDialog> {
+  late final _controller = TextEditingController(
+    text: '${widget.initialHours}',
+  );
+  bool _saving = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    if (_saving) return;
+    final text = _controller.text.trim();
+    final hours = RegExp(r'^[0-9]+$').hasMatch(text)
+        ? int.tryParse(text)
+        : null;
+    if (hours == null || hours < 1 || hours > 8760) {
+      setState(() => _error = context.l10n.errorLocalScanInterval);
+      return;
+    }
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+    try {
+      final saved = await widget.onSave(hours);
+      if (!mounted) return;
+      if (saved) {
+        Navigator.of(context).pop();
+      } else {
+        setState(() => _error = context.l10n.localScanDialogSaveFailed);
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => PopScope(
+    canPop: !_saving,
+    child: AlertDialog(
+      title: Text(context.l10n.settingsLocalScanInterval),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              context.l10n.localScanDialogDescription,
+              style: const TextStyle(height: 1.5),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              key: const Key('local-scan-interval-input'),
+              controller: _controller,
+              enabled: !_saving,
+              autofocus: true,
+              keyboardType: TextInputType.number,
+              textInputAction: TextInputAction.done,
+              decoration: InputDecoration(
+                labelText: context.l10n.localScanDialogLabel,
+                helperText: context.l10n.localScanDialogHelper,
+                errorText: _error,
+              ),
+              onSubmitted: (_) => _save(),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          key: const Key('local-scan-interval-cancel'),
+          onPressed: _saving ? null : () => Navigator.of(context).pop(),
+          child: Text(context.l10n.commonCancel),
+        ),
+        FilledButton(
+          key: const Key('local-scan-interval-save'),
           onPressed: _saving ? null : _save,
           child: Text(
             _saving ? context.l10n.commonSaving : context.l10n.commonSave,

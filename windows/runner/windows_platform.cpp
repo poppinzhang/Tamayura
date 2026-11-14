@@ -75,6 +75,76 @@ std::string DeviceId() {
 }
 }  // namespace
 
+// Worker callbacks own this bridge instead of a WindowsPlatform pointer. One
+// queued UI action coalesces a burst, bounded at 4096 changed paths; overflow
+// explicitly requests a full scan instead of dropping changes silently.
+struct CatalogEventDelivery : std::enable_shared_from_this<CatalogEventDelivery> {
+  std::unique_ptr<flutter::EventSink<Value>> sink;  // UI thread only.
+  std::mutex mutex;
+  std::optional<CatalogWatchEvent> pending;
+  bool queued = false, closed = false;
+
+  void Post(const std::shared_ptr<UiDispatcher>& dispatcher, CatalogWatchEvent event) {
+    bool schedule = false;
+    {
+      std::lock_guard<std::mutex> lock(mutex);
+      if (closed) return;
+      if (!pending || pending->generation != event.generation) {
+        pending = std::move(event);
+      } else if (pending->type != CatalogWatchEvent::Type::kError) {
+        if (event.type != CatalogWatchEvent::Type::kChanged) {
+          pending = std::move(event);
+        } else if (pending->type == CatalogWatchEvent::Type::kChanged) {
+          std::set<std::pair<std::string, std::string>> paths;
+          for (const auto& value : pending->changes) paths.emplace(value.shared_folder_id, value.relative_path);
+          for (const auto& value : event.changes) paths.emplace(value.shared_folder_id, value.relative_path);
+          pending->changes.clear();
+          if (paths.size() > 4096) {
+            pending->type = CatalogWatchEvent::Type::kOverflow;
+            pending->error = ERROR_NOTIFY_ENUM_DIR;
+          } else {
+            for (const auto& value : paths) pending->changes.push_back({value.first, value.second});
+          }
+        }
+      }
+      if (!queued) queued = schedule = true;
+    }
+    if (schedule) dispatcher->Post([self = shared_from_this()] { self->Dispatch(); });
+  }
+
+  void Dispatch() {
+    std::optional<CatalogWatchEvent> event;
+    {
+      std::lock_guard<std::mutex> lock(mutex);
+      queued = false;
+      if (closed || !sink) return;
+      event.swap(pending);
+    }
+    if (!event) return;
+    const char* type = event->type == CatalogWatchEvent::Type::kChanged ? "changed" :
+        event->type == CatalogWatchEvent::Type::kOverflow ? "overflow" : "error";
+    Map value{{Value("type"), Value(type)}, {Value("generation"), Value(event->generation)}};
+    if (event->type == CatalogWatchEvent::Type::kChanged) {
+      flutter::EncodableList changes;
+      for (const auto& change : event->changes) {
+        changes.emplace_back(Map{{Value("sharedFolderId"), Value(change.shared_folder_id)},
+                                 {Value("relativePath"), Value(change.relative_path)}});
+      }
+      value[Value("changes")] = Value(std::move(changes));
+    } else {
+      value[Value("code")] = Value(static_cast<int64_t>(event->error));
+    }
+    sink->Success(Value(value));
+  }
+
+  void Close() {
+    std::lock_guard<std::mutex> lock(mutex);
+    closed = true;
+    pending.reset();
+    sink.reset();
+  }
+};
+
 WindowsPlatform::WindowsPlatform(flutter::BinaryMessenger* messenger, HWND window)
     : window_(window), sharing_enabled_(ReadSharingEnabled()),
       dispatcher_(std::make_shared<UiDispatcher>(window)),
@@ -95,7 +165,8 @@ WindowsPlatform::WindowsPlatform(flutter::BinaryMessenger* messenger, HWND windo
               value[Value("port")] = Value(static_cast<int32_t>(event.port));
             }
             discovery_sink_->Success(Value(value));
-          })), updates_(std::make_shared<WindowsUpdate>()) {
+          })), updates_(std::make_shared<WindowsUpdate>()),
+      catalog_events_(std::make_shared<CatalogEventDelivery>()) {
   const auto* codec = &flutter::StandardMethodCodec::GetInstance();
   methods_ = std::make_unique<flutter::MethodChannel<Value>>(messenger, "tamayura/platform", codec);
   methods_->SetMethodCallHandler([this](const auto& call, auto result) {
@@ -128,12 +199,29 @@ WindowsPlatform::WindowsPlatform(flutter::BinaryMessenger* messenger, HWND windo
         sharing_sink_.reset();
         return std::unique_ptr<flutter::StreamHandlerError<Value>>();
       }));
+  catalog_channel_ = std::make_unique<flutter::EventChannel<Value>>(
+      messenger, "tamayura/catalog", codec);
+  catalog_channel_->SetStreamHandler(std::make_unique<flutter::StreamHandlerFunctions<Value>>(
+      [events = catalog_events_](const Value*, std::unique_ptr<flutter::EventSink<Value>>&& sink) {
+        events->sink = std::move(sink);
+        events->Dispatch();
+        return std::unique_ptr<flutter::StreamHandlerError<Value>>();
+      }, [events = catalog_events_](const Value*) {
+        events->sink.reset();
+        return std::unique_ptr<flutter::StreamHandlerError<Value>>();
+      }));
 }
 
 WindowsPlatform::~WindowsPlatform() {
   methods_->SetMethodCallHandler(nullptr);
   update_methods_->SetMethodCallHandler(nullptr);
   discovery_->Stop();
+  // A late queued start cannot resurrect monitoring during destruction. Join
+  // its single configuration worker before touching the watcher on this thread.
+  ++*catalog_command_;
+  catalog_workers_.Stop();
+  storage_->StopWatching();
+  catalog_events_->Close();
   // Invalidate all active scans before joining the bounded worker pool.
   storage_->Handle("clearSharedDirectory", {}, window_);
   dispatcher_->Shutdown();
@@ -141,6 +229,7 @@ WindowsPlatform::~WindowsPlatform() {
   previews_.Stop();
   discovery_channel_->SetStreamHandler(nullptr);
   sharing_channel_->SetStreamHandler(nullptr);
+  catalog_channel_->SetStreamHandler(nullptr);
 }
 
 Map WindowsPlatform::SharingStatus() const {
@@ -177,6 +266,70 @@ void WindowsPlatform::Background(std::shared_ptr<Result> result,
       dispatcher->Post([result, message] { result->Error("PLATFORM_ERROR", message); });
     }
   });
+}
+
+void WindowsPlatform::ConfigureCatalogWatcher(std::shared_ptr<Result> result,
+                                              Map arguments, bool start) {
+  const auto command = ++*catalog_command_;
+  const auto current = catalog_command_;
+  const auto dispatcher = dispatcher_;
+  const auto storage = storage_;
+  const auto events = catalog_events_;
+  const bool submitted = catalog_workers_.Submit(
+      [current, command, dispatcher, storage, events, result,
+       arguments = std::move(arguments), start] {
+    const auto cancelled = [dispatcher, result] {
+      dispatcher->Post([result] { result->Error("SCAN_CANCELLED", "Catalog watch request superseded"); });
+    };
+    if (current->load() != command) {
+      cancelled();
+      return;
+    }
+    try {
+      if (start) {
+        storage->StartWatching(arguments,
+            [current, command, events, dispatcher](CatalogWatchEvent event) {
+              if (current->load() == command) events->Post(dispatcher, std::move(event));
+            });
+      } else {
+        storage->StopWatching();
+      }
+      if (current->load() != command) {
+        // A newer stop/change may arrive while opening a sleeping HDD. Revoke
+        // this completed but obsolete start before the next queued command runs.
+        storage->StopWatching();
+        cancelled();
+        return;
+      }
+      dispatcher->Post([result, current, command] {
+        if (current->load() == command) {
+          result->Success();
+        } else {
+          result->Error("SCAN_CANCELLED", "Catalog watch request superseded");
+        }
+      });
+    } catch (const StorageError& error) {
+      if (current->load() != command) {
+        cancelled();
+        return;
+      }
+      const auto code = error.code;
+      const std::string message = error.what();
+      dispatcher->Post([result, current, command, code, message] {
+        if (current->load() == command) result->Error(code, message);
+        else result->Error("SCAN_CANCELLED", "Catalog watch request superseded");
+      });
+    } catch (...) {
+      dispatcher->Post([result, current, command] {
+        if (current->load() == command) {
+          result->Error("CATALOG_WATCH_UNAVAILABLE", "Cannot configure shared folder monitoring");
+        } else {
+          result->Error("SCAN_CANCELLED", "Catalog watch request superseded");
+        }
+      });
+    }
+  });
+  if (!submitted) result->Error("SCAN_CANCELLED", "Catalog monitoring has stopped");
 }
 
 void WindowsPlatform::HandleUpdate(const flutter::MethodCall<Value>& call,
@@ -267,6 +420,10 @@ void WindowsPlatform::Handle(const flutter::MethodCall<Value>& call,
     } else if (method == "stopDiscovery") {
       discovery_->Stop();
       result->Success();
+    } else if (method == "startWatchingDirectories") {
+      ConfigureCatalogWatcher(result, std::move(args), true);
+    } else if (method == "stopWatchingDirectories") {
+      ConfigureCatalogWatcher(result, {}, false);
     } else if (method == "setLanguage") {
       if (!app_text::SetPreference(ArgumentString(args, "language"))) {
         throw StorageError("INVALID_ARGUMENT", app_text::Utf8(TextId::kInvalidLanguage));
@@ -283,17 +440,23 @@ void WindowsPlatform::Handle(const flutter::MethodCall<Value>& call,
       static const std::set<std::string> storage_methods{
           "pickDirectory", "validateSharedDirectory", "scanDirectoriesMetadata",
           "restoreDirectoriesMetadata", "getLocalCatalogWarning",
+          "scanChangedDirectoriesMetadata",
           "clearSharedDirectory", "thumbnail", "readPreview", "readRange", "saveDownload", "deleteDownload",
           "temporaryDirectory", "transferDirectory", "transferSpace", "databaseDirectory", "open", "share"};
       if (!storage_methods.count(method)) {
         result->NotImplemented();
         return;
       }
-      if (method == "pickDirectory" || method == "open" || method == "share" ||
-          method == "clearSharedDirectory") {
+      if (method == "clearSharedDirectory") {
+        // Revoke file access immediately, then serialize notification teardown
+        // behind any in-flight start without blocking the platform event loop.
+        storage_->Handle(method, args, window_);
+        ConfigureCatalogWatcher(result, {}, false);
+      } else if (method == "pickDirectory" || method == "open" || method == "share") {
         result->Success(storage_->Handle(method, args, window_));
       } else {
-        if (method == "scanDirectoriesMetadata" || method == "restoreDirectoriesMetadata") {
+        if (method == "scanDirectoriesMetadata" || method == "restoreDirectoriesMetadata" ||
+            method == "scanChangedDirectoriesMetadata") {
           args[Value("__generation")] = Value(static_cast<int64_t>(storage_->BeginScan(args)));
         }
         const auto storage = storage_;

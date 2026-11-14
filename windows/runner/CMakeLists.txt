@@ -21,6 +21,7 @@ add_executable(${BINARY_NAME} WIN32
   "discovery_core.cpp"
   "windows_storage.cpp"
   "storage_core.cpp"
+  "catalog_watcher.cpp"
   "${FLUTTER_MANAGED_DIR}/generated_plugin_registrant.cc"
   "Runner.rc"
   "runner.exe.manifest"

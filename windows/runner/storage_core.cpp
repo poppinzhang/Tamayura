@@ -198,7 +198,7 @@ bool SkippableScanError(const StorageError& error) {
 void Enumerate(MediaCatalog& catalog, const SharedDirectory& shared,
                const std::wstring& root, const PinnedDirectory& pinned,
                const std::string& relative, uint64_t generation,
-               std::vector<MediaEntry>& output) {
+               std::vector<MediaEntry>& output, bool strict_io = false) {
   catalog.AssertScan(generation);
   // The recursive callers retain every ancestor handle. Open only this
   // directory's children instead of reopening the entire path for each file.
@@ -230,7 +230,7 @@ void Enumerate(MediaCatalog& catalog, const SharedDirectory& shared,
         PinnedDirectory child{path, {}};
         child.handles.push_back(OpenDirectoryHandle(path));
         child.path = CanonicalPath(child.handles.back().get());
-        Enumerate(catalog, shared, root, child, child_relative, generation, output);
+        Enumerate(catalog, shared, root, child, child_relative, generation, output, strict_io);
         continue;
       }
       RelativeComponents(child_relative);
@@ -244,6 +244,9 @@ void Enumerate(MediaCatalog& catalog, const SharedDirectory& shared,
                         info.size, info.modified_ms, shared.id, shared.name,
                         child_relative, path, root});
     } catch (const StorageError& error) {
+      // A partial reconciliation must not turn an unreadable existing subtree
+      // into deletions. Keep its previous complete snapshot for a retry.
+      if (strict_io && (error.code == "PERMISSION_LOST" || error.code == "IO_ERROR")) throw;
       if (!SkippableScanError(error)) throw;
     }
   } while (FindNextFileW(search.value, &data));
@@ -714,6 +717,11 @@ void MediaCatalog::CacheThumbnailLocked(const MediaEntry& source, const Bytes& b
 
 uint64_t MediaCatalog::BeginScan(const std::set<std::string>& shared_folder_ids) {
   std::lock_guard<std::mutex> lock(mutex_);
+  if (published_directories_.size() != shared_folder_ids.size() ||
+      std::any_of(published_directories_.begin(), published_directories_.end(),
+                  [&](const auto& directory) { return !shared_folder_ids.count(directory.id); })) {
+    catalog_ready_ = false;
+  }
   for (auto entry = files_.begin(); entry != files_.end();) {
     if (shared_folder_ids.count(entry->second.shared_folder_id)) {
       ++entry;
@@ -727,6 +735,8 @@ uint64_t MediaCatalog::BeginScan(const std::set<std::string>& shared_folder_ids)
 
 void MediaCatalog::RevokePublishedLocked() {
   files_.clear();
+  catalog_ready_ = false;
+  published_directories_.clear();
   ++generation_;
   PruneThumbnailsLocked();
 }
@@ -1122,6 +1132,99 @@ bool SameDirectories(const std::vector<SharedDirectory>& left,
   }
   return true;
 }
+
+bool CoveredByChanges(const std::set<std::string>& paths, const std::string& relative,
+                      bool include_self = true) {
+  if (paths.count("")) return !relative.empty() || include_self;
+  if (include_self && paths.count(relative)) return true;
+  auto slash = relative.find('/');
+  while (slash != std::string::npos) {
+    if (paths.count(relative.substr(0, slash))) return true;
+    slash = relative.find('/', slash + 1);
+  }
+  return false;
+}
+
+// Only absent/excluded paths are deletions. An unreadable path is an error,
+// never evidence that its previously indexed descendants were removed.
+std::string RelativeToRoot(const std::wstring& root, const std::wstring& path) {
+  if (!ContainsPath(root, path) || path.size() <= root.size()) {
+    throw StorageError("INVALID_ARGUMENT", "Changed media is outside its shared directory");
+  }
+  auto relative = path.substr(root.size() + (root.back() == L'\\' ? 0 : 1));
+  if (relative.size() > kMaxPublishedPathUnits) {
+    throw StorageError("LOCAL_CATALOG_UNAVAILABLE", "A changed long path requires a full scan");
+  }
+  std::replace(relative.begin(), relative.end(), L'\\', L'/');
+  const auto result = Utf8(relative);
+  RelativeComponents(result);
+  return result;
+}
+
+std::string ScanChangedPath(MediaCatalog& catalog, const SharedDirectory& shared,
+                            const PinnedDirectory& root, const std::string& relative,
+                            uint64_t ticket, std::vector<MediaEntry>& output) {
+  catalog.AssertScan(ticket);
+  if (relative.empty()) {
+    Enumerate(catalog, shared, root.path, root, "", ticket, output, true);
+    return "";
+  }
+  const auto components = RelativeComponents(relative);
+  PinnedDirectory parent{root.path, {}};
+  for (size_t i = 0; i < components.size(); ++i) {
+    catalog.AssertScan(ticket);
+    const auto path = JoinPath(parent.path, Wide(components[i]));
+    const DWORD attributes = GetFileAttributesW(NativePath(path).c_str());
+    if (attributes == INVALID_FILE_ATTRIBUTES) {
+      const DWORD error = GetLastError();
+      if (error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND) {
+        // Notifications may use DOS short names. A deleted alias cannot be
+        // resolved safely to the previously indexed long name without a scan.
+        if (relative.find('~') != std::string::npos) {
+          throw StorageError("LOCAL_CATALOG_UNAVAILABLE", "A removed short path requires a full scan");
+        }
+        return relative;
+      }
+      IoError("Cannot inspect changed media path", error);
+    }
+    if (attributes & (FILE_ATTRIBUTE_REPARSE_POINT | FILE_ATTRIBUTE_HIDDEN |
+                      FILE_ATTRIBUTE_SYSTEM)) return relative;
+    const bool directory = (attributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+    if (i + 1 < components.size()) {
+      if (!directory) return relative;
+      parent.handles.push_back(OpenDirectoryHandle(path));
+      parent.path = CanonicalPath(parent.handles.back().get());
+      continue;
+    }
+    if (directory) {
+      parent.handles.push_back(OpenDirectoryHandle(path));
+      parent.path = CanonicalPath(parent.handles.back().get());
+      const auto canonical_relative = RelativeToRoot(root.path, parent.path);
+      Enumerate(catalog, shared, root.path, parent, canonical_relative, ticket, output, true);
+      return canonical_relative;
+    } else if (!MediaMime(path).empty()) {
+      Handle file(CreateFileW(NativePath(path).c_str(), GENERIC_READ, FILE_SHARE_READ,
+                              nullptr, OPEN_EXISTING,
+                              FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_SEQUENTIAL_SCAN,
+                              nullptr));
+      if (file.get() == INVALID_HANDLE_VALUE) {
+        const DWORD error = GetLastError();
+        if (error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND) return relative;
+        IoError("Cannot access changed media file", error);
+      }
+      RequireOrdinary(file.get(), false);
+      const auto info = FileMetadata(file.get());
+      const auto canonical_path = CanonicalPath(file.get());
+      const auto canonical_relative = RelativeToRoot(root.path, canonical_path);
+      const auto name = RelativeComponents(canonical_relative).back();
+      output.push_back({StableMediaId(shared.id, canonical_relative), name, MediaMime(canonical_path),
+                        info.size, info.modified_ms, shared.id, shared.name,
+                        canonical_relative, canonical_path, root.path});
+      return canonical_relative;
+    }
+  }
+  return relative;
+}
 }  // namespace
 
 std::vector<MediaEntry> MediaCatalog::Scan(const std::vector<SharedDirectory>& directories,
@@ -1144,8 +1247,115 @@ std::vector<MediaEntry> MediaCatalog::Scan(const std::vector<SharedDirectory>& d
     auto root = PinDirectory(LocalPath(directory.uri));
     Enumerate(*this, directory, root.path, root, "", expected, metadata);
   }
+  PublishCatalog(directories, metadata, expected, cache_path);
+  return metadata;
+} catch (...) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (expected == ticket_) RevokeLocked();
+  throw;
+}
+
+std::vector<MediaEntry> MediaCatalog::ScanChanges(
+    const std::vector<SharedDirectory>& directories,
+    const std::vector<CatalogChange>& changes, uint64_t expected,
+    const std::wstring& cache_path) {
+  AssertScan(expected);
+  if (changes.size() > 4096) {
+    throw StorageError("LOCAL_CATALOG_UNAVAILABLE", "Too many directory changes; a full scan is required");
+  }
+  std::map<std::string, std::set<std::string>> changed_paths;
+  for (const auto& change : changes) {
+    ValidateSegment(change.shared_folder_id);
+    if (!change.relative_path.empty()) RelativeComponents(change.relative_path);
+    if (Wide(change.relative_path).size() > kMaxPublishedPathUnits) {
+      throw StorageError("INVALID_ARGUMENT", "Changed media path is too long");
+    }
+    if (std::none_of(directories.begin(), directories.end(), [&](const auto& directory) {
+          return directory.id == change.shared_folder_id;
+        })) {
+      throw StorageError("INVALID_ARGUMENT", "Changed media path has an unknown shared directory");
+    }
+    changed_paths[change.shared_folder_id].insert(change.relative_path);
+  }
+  std::vector<CatalogChange> scopes;
+  for (const auto& root : changed_paths) {
+    for (const auto& path : root.second) {
+      if (!CoveredByChanges(root.second, path, false)) scopes.push_back({root.first, path});
+    }
+  }
+
+  std::vector<MediaEntry> metadata;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (expected != ticket_) throw StorageError("SCAN_CANCELLED", "Shared directories changed; scan again");
+    if (!catalog_ready_ || !SameDirectories(directories, published_directories_)) {
+      throw StorageError("LOCAL_CATALOG_UNAVAILABLE", "A complete local catalog is required before applying changes");
+    }
+    metadata.reserve(files_.size());
+    for (const auto& item : files_) metadata.push_back(item.second);
+  }
+  metadata.erase(std::remove_if(metadata.begin(), metadata.end(), [&](const auto& entry) {
+    const auto root = changed_paths.find(entry.shared_folder_id);
+    return root != changed_paths.end() && CoveredByChanges(root->second, entry.relative_path);
+  }), metadata.end());
+
+  // Hold all shared roots throughout reconciliation. Their loss invalidates the
+  // batch even when the notification concerned a different shared directory.
+  std::map<std::string, PinnedDirectory> roots;
+  for (const auto& directory : directories) {
+    AssertScan(expected);
+    roots.emplace(directory.id, PinDirectory(LocalPath(directory.uri)));
+  }
+  std::vector<MediaEntry> updates;
+  for (const auto& scope : scopes) {
+    const auto shared = std::find_if(directories.begin(), directories.end(), [&](const auto& directory) {
+      return directory.id == scope.shared_folder_id;
+    });
+    const auto resolved = ScanChangedPath(*this, *shared, roots.at(scope.shared_folder_id),
+                                          scope.relative_path, expected, updates);
+    changed_paths[scope.shared_folder_id].insert(resolved);
+  }
+  // A live hint may use old casing or a DOS alias. Replace the actual long-path
+  // identity too, and collapse both sides of a case-only rename to one item.
+  metadata.erase(std::remove_if(metadata.begin(), metadata.end(), [&](const auto& entry) {
+    const auto root = changed_paths.find(entry.shared_folder_id);
+    return root != changed_paths.end() && CoveredByChanges(root->second, entry.relative_path);
+  }), metadata.end());
+  std::map<std::string, MediaEntry> unique_updates;
+  for (auto& entry : updates) unique_updates.insert_or_assign(entry.id, std::move(entry));
+  for (auto& entry : unique_updates) metadata.push_back(std::move(entry.second));
+  std::sort(metadata.begin(), metadata.end(), [](const auto& left, const auto& right) {
+    return left.id < right.id;
+  });
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (expected != ticket_) throw StorageError("SCAN_CANCELLED", "Shared directories changed; scan again");
+    if (metadata.size() == files_.size() &&
+        std::equal(metadata.begin(), metadata.end(), files_.begin(), [](const auto& entry, const auto& published) {
+          const auto& old = published.second;
+          return SameSource(entry, old) && entry.name == old.name &&
+              entry.mime_type == old.mime_type && entry.shared_folder_id == old.shared_folder_id &&
+              entry.shared_folder_name == old.shared_folder_name && entry.relative_path == old.relative_path;
+        })) {
+      // The shared root can contain the application's own cache directory.
+      // Its atomic index writes and unrelated files also produce watcher
+      // hints. Rewriting an unchanged index would feed those events back into
+      // an endless write/notification loop. Preserve existing warnings too.
+      return metadata;
+    }
+  }
+  // Publish only after every scope succeeds. On failure/cancellation the old
+  // in-memory and on-disk catalog remain intact, ready for a safe retry.
+  PublishCatalog(directories, metadata, expected, cache_path);
+  return metadata;
+}
+
+void MediaCatalog::PublishCatalog(const std::vector<SharedDirectory>& directories,
+                                 const std::vector<MediaEntry>& metadata,
+                                 uint64_t expected, const std::wstring& cache_path) {
   std::map<std::string, MediaEntry> next;
   for (const auto& entry : metadata) next.emplace(entry.id, entry);
+  auto next_directories = directories;
   std::unique_ptr<PendingCatalog> pending;
   std::optional<std::pair<std::string, std::string>> warning;
   if (!cache_path.empty()) {
@@ -1191,14 +1401,10 @@ std::vector<MediaEntry> MediaCatalog::Scan(const std::vector<SharedDirectory>& d
   // destroyed with next after the lock is released, on this scan worker, so a
   // UI-thread cancellation does not wait for every old entry to be freed.
   files_.swap(next);
+  published_directories_.swap(next_directories);
+  catalog_ready_ = true;
   catalog_warning_ = std::move(warning);
   PruneThumbnailsLocked();
-  return metadata;
-} catch (...) {
-  // The publishing lock is released during unwinding, before this handler.
-  std::lock_guard<std::mutex> lock(mutex_);
-  if (expected == ticket_) RevokeLocked();
-  throw;
 }
 
 std::optional<std::vector<MediaEntry>> MediaCatalog::Restore(
@@ -1254,11 +1460,14 @@ std::optional<std::vector<MediaEntry>> MediaCatalog::Restore(
     entry.shared_folder_name = names.at(entry.shared_folder_id);
     next.emplace(entry.id, entry);
   }
+  auto next_directories = directories;
   if (before_catalog_publish_) before_catalog_publish_();
   std::lock_guard<std::mutex> lock(mutex_);
   if (expected != ticket_) throw StorageError("SCAN_CANCELLED", "Shared directories changed; scan again");
   // Release the previous catalog outside the publication lock (see Scan).
   files_.swap(next);
+  published_directories_.swap(next_directories);
+  catalog_ready_ = true;
   catalog_warning_.reset();
   PruneThumbnailsLocked();
   return std::move(saved->entries);

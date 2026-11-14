@@ -50,6 +50,8 @@ It is for browsing and transferring media between your own devices on the same l
 
 **4 · Open an album.** In **Albums (相册)**, choose a shared collection and tap a photo or video to download its original. The source device must be online for downloads. After adding or removing media, refresh the source device and wait for its folder scan to finish, then refresh the receiving device to update its album.
 
+**Unreleased Windows source changes:** The `unstaged` version reuses the saved folder index and detects changes while sharing is active. **Settings → Shared folder full check interval** accepts 1–8760 whole hours, defaulting to 24, and retains the last successful check time across restarts. Changes made while the app is closed or sharing is stopped may wait until you refresh manually or a full check becomes due. This setting is not yet available in the v1.0.1 packages; see [CHANGELOG](CHANGELOG.md).
+
 ## Check for updates
 
 Open **Settings → Check for updates** to check stable GitHub Releases. Tamayura asks for your confirmation before proceeding. Android downloads and verifies the APK, then opens the system installation flow; allow this installation source when prompted and confirm the update. Windows downloads and verifies the full ZIP, replaces the complete application folder, and restarts. It requires a complete release bundle in a dedicated writable local folder whose parent is also writable; it does not provide a separate installer or automatically request administrator access. macOS opens the selected release page for you to download and install the update yourself. Linux also opens the release page; download the tar.gz for your architecture and replace the app folder yourself.

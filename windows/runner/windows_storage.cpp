@@ -60,6 +60,22 @@ std::vector<SharedDirectory> SharedDirectories(const EncodableMap& arguments) {
   return directories;
 }
 
+std::vector<CatalogChange> CatalogChanges(const EncodableMap& arguments) {
+  const auto* values = std::get_if<EncodableList>(&Argument(arguments, "changes"));
+  if (!values || values->size() > 4096) {
+    throw StorageError("INVALID_ARGUMENT", "Invalid shared folder change list");
+  }
+  std::vector<CatalogChange> result;
+  for (const auto& value : *values) {
+    const auto* item = std::get_if<EncodableMap>(&value);
+    if (!item) throw StorageError("INVALID_ARGUMENT", "Invalid shared folder change");
+    const auto* relative = std::get_if<std::string>(&Argument(*item, "relativePath"));
+    if (!relative) throw StorageError("INVALID_ARGUMENT", "Invalid relative path");
+    result.push_back({String(*item, "sharedFolderId"), *relative});
+  }
+  return result;
+}
+
 void ShellCheck(HRESULT result, const char* message) {
   if (FAILED(result)) throw StorageError("PLATFORM_ERROR", std::string(message) + " (HRESULT " + std::to_string(result) + ")");
 }
@@ -146,12 +162,26 @@ uint64_t WindowsStorage::BeginScan(const EncodableMap& arguments) {
   return catalog_.BeginScan(ids);
 }
 
+void WindowsStorage::StartWatching(const EncodableMap& arguments, CatalogWatcher::Emit emit) {
+  try {
+    watcher_.Start(SharedDirectories(arguments), Integer(arguments, "generation"), std::move(emit));
+  } catch (const StorageError& error) {
+    if (error.code == "INVALID_ARGUMENT" || error.code == "DIR_OVERLAP") throw;
+    // Dart maps this code to the user's saved language, including access errors
+    // from validating a shared root before its first notification is armed.
+    throw StorageError("CATALOG_WATCH_UNAVAILABLE", error.what());
+  }
+}
+
+void WindowsStorage::StopWatching() { watcher_.Stop(); }
+
 EncodableValue WindowsStorage::Handle(const std::string& method,
                                       const EncodableMap& arguments, HWND window) {
   if (method == "pickDirectory") return PickDirectory(window);
   if (method == "validateSharedDirectory") {
     catalog_.Validate(String(arguments, "uri"), Strings(arguments, "existingUris"));
-  } else if (method == "scanDirectoriesMetadata" || method == "restoreDirectoriesMetadata") {
+  } else if (method == "scanDirectoriesMetadata" || method == "restoreDirectoriesMetadata" ||
+             method == "scanChangedDirectoriesMetadata") {
     const auto ticket = arguments.find(EncodableValue("__generation"));
     const auto expected = ticket == arguments.end() ? BeginScan(arguments) :
         static_cast<uint64_t>(Integer(arguments, "__generation"));
@@ -173,7 +203,10 @@ EncodableValue WindowsStorage::Handle(const std::string& method,
       return EncodableValue(std::move(result));
     }
     EncodableList result;
-    for (const auto& entry : catalog_.Scan(directories, expected, cache_path)) result.push_back(Metadata(entry));
+    const auto entries = method == "scanChangedDirectoriesMetadata"
+        ? catalog_.ScanChanges(directories, CatalogChanges(arguments), expected, cache_path)
+        : catalog_.Scan(directories, expected, cache_path);
+    for (const auto& entry : entries) result.push_back(Metadata(entry));
     if (cache_directory_unavailable) {
       catalog_.ReportCatalogWarning(expected, "LOCAL_CATALOG_IO",
           "Cannot open the local catalog cache directory; sharing remains available");

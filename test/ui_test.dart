@@ -6,9 +6,12 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:tamayura/app/view_state.dart';
+import 'package:tamayura/l10n/app_locale.dart';
 import 'package:tamayura/ui/app.dart';
 
 class _FakeModel extends TamayuraModel {
+  @override
+  AppLanguage language = AppLanguage.system;
   @override
   bool albumDetailedMode = false;
   @override
@@ -25,6 +28,16 @@ class _FakeModel extends TamayuraModel {
   Completer<void>? autoSyncIntervalSave;
   bool failAutoSyncInterval = false;
   bool reportAutoSyncIntervalError = false;
+  @override
+  bool supportsLocalCatalogScheduling = false;
+  @override
+  int localScanIntervalHours = 24;
+  @override
+  bool localScanIntervalSaving = false;
+  final List<int> localScanIntervalRequests = [];
+  Completer<void>? localScanIntervalSave;
+  bool failLocalScanInterval = false;
+  bool reportLocalScanIntervalError = false;
   @override
   bool backgroundSharingEnabled = false;
   @override
@@ -160,6 +173,25 @@ class _FakeModel extends TamayuraModel {
       autoSyncIntervalMinutes = minutes;
     } finally {
       autoSyncIntervalSaving = false;
+      notifyListeners();
+    }
+  }
+
+  @override
+  Future<void> setLocalScanIntervalHours(int hours) async {
+    localScanIntervalRequests.add(hours);
+    localScanIntervalSaving = true;
+    notifyListeners();
+    try {
+      await localScanIntervalSave?.future;
+      if (failLocalScanInterval) throw StateError('Could not save interval');
+      if (reportLocalScanIntervalError) {
+        error = lookupAppLocalizations(locale).errorLocalScanSave;
+        return;
+      }
+      localScanIntervalHours = hours;
+    } finally {
+      localScanIntervalSaving = false;
       notifyListeners();
     }
   }
@@ -652,6 +684,202 @@ void main() {
     await tester.tap(find.byKey(const Key('auto-sync-interval-save')));
     await tester.pumpAndSettle();
     expect(model.autoSyncIntervalMinutes, 36);
+    expect(tester.takeException(), isNull);
+  });
+
+  for (final language in [AppLanguage.zh, AppLanguage.ja, AppLanguage.en]) {
+    testWidgets(
+      'local scan interval edits hours and cancels in ${language.name}',
+      (tester) async {
+        final model = _FakeModel()
+          ..language = language
+          ..supportsLocalCatalogScheduling = true;
+        final text = lookupAppLocalizations(model.locale);
+        await _pump(tester, model);
+        await tester.tap(find.byKey(const Key('settings-tab')));
+        await tester.pumpAndSettle();
+        final setting = find.byKey(const Key('local-scan-interval'));
+        await _scrollSettingsTo(tester, setting);
+        expect(
+          find.text(text.settingsLocalScanDescription(24)),
+          findsOneWidget,
+        );
+        for (final hours in [1, 8760, 48]) {
+          await tester.tap(setting);
+          await tester.pumpAndSettle();
+          final input = find.byKey(const Key('local-scan-interval-input'));
+          expect(find.text(text.localScanDialogLabel), findsOneWidget);
+          expect(find.text(text.localScanDialogDescription), findsOneWidget);
+          expect(
+            tester.widget<TextField>(input).controller!.text,
+            '${model.localScanIntervalHours}',
+          );
+          await tester.enterText(input, '$hours');
+          await tester.tap(find.byKey(const Key('local-scan-interval-save')));
+          await tester.pumpAndSettle();
+          expect(find.byType(AlertDialog), findsNothing);
+          expect(model.localScanIntervalHours, hours);
+          expect(
+            find.text(text.settingsLocalScanDescription(hours)),
+            findsOneWidget,
+          );
+        }
+        await tester.tap(setting);
+        await tester.pumpAndSettle();
+        await tester.enterText(
+          find.byKey(const Key('local-scan-interval-input')),
+          '72',
+        );
+        await tester.tap(find.byKey(const Key('local-scan-interval-cancel')));
+        await tester.pumpAndSettle();
+        expect(model.localScanIntervalRequests, [1, 8760, 48]);
+        expect(model.localScanIntervalHours, 48);
+        expect(model.autoSyncIntervalMinutes, 10);
+        expect(model.autoSyncIntervalRequests, isEmpty);
+        expect(model.refreshCalls, 0);
+        expect(tester.takeException(), isNull);
+      },
+      variant: TargetPlatformVariant.only(TargetPlatform.windows),
+    );
+  }
+
+  testWidgets('local scan interval stays hidden on unsupported platforms', (
+    tester,
+  ) async {
+    await _pump(tester, _FakeModel());
+    await tester.tap(find.byKey(const Key('settings-tab')));
+    await tester.pumpAndSettle();
+    await _scrollSettingsTo(tester, find.byKey(const Key('add-shared-folder')));
+    expect(find.byKey(const Key('local-scan-interval')), findsNothing);
+  });
+
+  testWidgets('local scan interval validates whole hours before saving', (
+    tester,
+  ) async {
+    final model = _FakeModel()..supportsLocalCatalogScheduling = true;
+    await _pump(tester, model);
+    await tester.tap(find.byKey(const Key('settings-tab')));
+    await tester.pumpAndSettle();
+    final setting = find.byKey(const Key('local-scan-interval'));
+    await _scrollSettingsTo(tester, setting);
+    await tester.tap(setting);
+    await tester.pumpAndSettle();
+    for (final invalid in ['', '0', '-1', '1.5', '8761', 'abc', '1e3', '+1']) {
+      await tester.enterText(
+        find.byKey(const Key('local-scan-interval-input')),
+        invalid,
+      );
+      await tester.tap(find.byKey(const Key('local-scan-interval-save')));
+      await tester.pumpAndSettle();
+      expect(find.text('请输入 1–8760 之间的整数小时'), findsOneWidget);
+      expect(model.localScanIntervalRequests, isEmpty);
+      expect(find.byType(AlertDialog), findsOneWidget);
+    }
+    expect(model.localScanIntervalHours, 24);
+  });
+
+  testWidgets(
+    'local scan interval prevents duplicate saves and early dismissal',
+    (tester) async {
+      final model = _FakeModel()
+        ..supportsLocalCatalogScheduling = true
+        ..localScanIntervalSave = Completer<void>();
+      await _pump(tester, model);
+      await tester.tap(find.byKey(const Key('settings-tab')));
+      await tester.pumpAndSettle();
+      final setting = find.byKey(const Key('local-scan-interval'));
+      await _scrollSettingsTo(tester, setting);
+      await tester.tap(setting);
+      await tester.pumpAndSettle();
+      final input = find.byKey(const Key('local-scan-interval-input'));
+      await tester.enterText(input, '72');
+      final save = find.byKey(const Key('local-scan-interval-save'));
+      await tester.tap(save);
+      await tester.pumpAndSettle();
+      expect(tester.widget<TextField>(input).enabled, isFalse);
+      expect(tester.widget<FilledButton>(save).onPressed, isNull);
+      expect(
+        tester
+            .widget<TextButton>(
+              find.byKey(const Key('local-scan-interval-cancel')),
+            )
+            .onPressed,
+        isNull,
+      );
+      expect(tester.widget<ListTile>(setting).onTap, isNull);
+      expect(find.text('正在保存完整核对间隔…'), findsOneWidget);
+      await tester.tap(save);
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      expect(find.byType(AlertDialog), findsOneWidget);
+      expect(model.localScanIntervalRequests, [72]);
+      model.localScanIntervalSave!.complete();
+      await tester.pumpAndSettle();
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(model.localScanIntervalHours, 72);
+      expect(tester.widget<ListTile>(setting).onTap, isNotNull);
+    },
+  );
+
+  for (final throwFailure in [true, false]) {
+    testWidgets('local scan interval retains failed edits ($throwFailure)', (
+      tester,
+    ) async {
+      final model = _FakeModel()
+        ..supportsLocalCatalogScheduling = true
+        ..failLocalScanInterval = throwFailure
+        ..reportLocalScanIntervalError = !throwFailure;
+      await _pump(tester, model);
+      await tester.tap(find.byKey(const Key('settings-tab')));
+      await tester.pumpAndSettle();
+      final setting = find.byKey(const Key('local-scan-interval'));
+      await _scrollSettingsTo(tester, setting);
+      await tester.tap(setting);
+      await tester.pumpAndSettle();
+      final input = find.byKey(const Key('local-scan-interval-input'));
+      await tester.enterText(input, '72');
+      await tester.tap(find.byKey(const Key('local-scan-interval-save')));
+      await tester.pumpAndSettle();
+      expect(find.byType(AlertDialog), findsOneWidget);
+      expect(find.text('完整核对间隔未能保存，请重试。'), findsOneWidget);
+      expect(tester.widget<TextField>(input).controller!.text, '72');
+      expect(tester.widget<TextField>(input).enabled, isTrue);
+      expect(model.localScanIntervalHours, 24);
+      model.failLocalScanInterval = false;
+      model.reportLocalScanIntervalError = false;
+      await tester.tap(find.byKey(const Key('local-scan-interval-save')));
+      await tester.pumpAndSettle();
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(model.localScanIntervalHours, 72);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  testWidgets('local scan interval fits a narrow window with large text', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(360, 640);
+    tester.view.devicePixelRatio = 1;
+    tester.platformDispatcher.textScaleFactorTestValue = 1.6;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+    final model = _FakeModel()..supportsLocalCatalogScheduling = true;
+    await _pump(tester, model);
+    await tester.tap(find.byKey(const Key('settings-tab')));
+    await tester.pumpAndSettle();
+    final setting = find.byKey(const Key('local-scan-interval'));
+    await _scrollSettingsTo(tester, setting);
+    await tester.tap(setting);
+    await tester.pumpAndSettle();
+    expect(find.byType(AlertDialog), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    final input = find.byKey(const Key('local-scan-interval-input'));
+    await _ensureVisible(tester, input);
+    await tester.enterText(input, '36');
+    await tester.tap(find.byKey(const Key('local-scan-interval-save')));
+    await tester.pumpAndSettle();
+    expect(model.localScanIntervalHours, 36);
     expect(tester.takeException(), isNull);
   });
 

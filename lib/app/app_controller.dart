@@ -19,6 +19,7 @@ import '../platform/platform_bridge.dart';
 import '../platform/default_bridge.dart';
 import '../background/transfer_scheduler.dart';
 import 'endpoint.dart';
+import 'local_catalog_maintenance.dart';
 import 'view_state.dart';
 
 class AppController extends TamayuraModel {
@@ -96,6 +97,10 @@ class AppController extends TamayuraModel {
   TamayuraRepository? _repository;
   MediaRpcServer? _server;
   _PlatformMediaSource? _source;
+  LocalCatalogMaintenance? _catalogMaintenance;
+  int _completedLocalFullScans = 0;
+  int _localScanIntervalHours = 24;
+  bool _localScanIntervalSaving = false;
   StreamSubscription<Map<String, dynamic>>? _discovery;
   final Map<String, Peer> _peers = {};
   List<String> _deviceOrder = [];
@@ -155,6 +160,13 @@ class AppController extends TamayuraModel {
   int get autoSyncIntervalMinutes => _autoSyncIntervalMinutes;
   @override
   bool get autoSyncIntervalSaving => _autoSyncIntervalSaving;
+  @override
+  bool get supportsLocalCatalogScheduling =>
+      _bridge.supportsLocalCatalogScheduling;
+  @override
+  int get localScanIntervalHours => _localScanIntervalHours;
+  @override
+  bool get localScanIntervalSaving => _localScanIntervalSaving;
   @override
   bool get backgroundSharingEnabled => _sharingStatus.enabled;
   @override
@@ -600,6 +612,7 @@ class AppController extends TamayuraModel {
   }
 
   Future<void> _stopNetwork() async {
+    await _catalogMaintenance?.stop();
     _invalidatePresenceChecks();
     await _discovery?.cancel();
     _discovery = null;
@@ -943,6 +956,42 @@ class AppController extends TamayuraModel {
     }
   }
 
+  @override
+  Future<void> setLocalScanIntervalHours(int hours) async {
+    if (_disposed ||
+        _localScanIntervalSaving ||
+        !supportsLocalCatalogScheduling) {
+      return;
+    }
+    if (hours < 1 || hours > 8760) {
+      _error = _text.errorLocalScanInterval;
+      _notify();
+      return;
+    }
+    if (hours == _localScanIntervalHours) return;
+    final db = _repository;
+    if (db == null || !_initialized) {
+      _error = _text.errorAppNotReady;
+      _notify();
+      return;
+    }
+    _localScanIntervalSaving = true;
+    _error = null;
+    _notify();
+    try {
+      await db.setSetting('localScanIntervalHours', '$hours');
+      if (!_disposed) {
+        _localScanIntervalHours = hours;
+        _catalogMaintenance?.reschedule();
+      }
+    } catch (_) {
+      if (!_disposed) _error = _text.errorLocalScanSave;
+    } finally {
+      _localScanIntervalSaving = false;
+      _notify();
+    }
+  }
+
   Future<void> _guard(Future<void> Function() action) async {
     if (_busy || _disposed) return;
     _busy = true;
@@ -1039,6 +1088,13 @@ class AppController extends TamayuraModel {
           syncMinutes != null && syncMinutes >= 1 && syncMinutes <= 525600
           ? syncMinutes
           : 10;
+      final scanHours = int.tryParse(
+        await startup.wait(() => db.getSetting('localScanIntervalHours')) ?? '',
+      );
+      _localScanIntervalHours =
+          scanHours != null && scanHours >= 1 && scanHours <= 8760
+          ? scanHours
+          : 24;
       _deviceOrder = _readDeviceOrder(
         await startup.wait(() => db.getSetting('deviceOrder')),
       );
@@ -1085,7 +1141,34 @@ class AppController extends TamayuraModel {
       // Initialization may retry after a stalled read. Page generations discard
       // late results, without making the new attempt wait behind the old read.
       await startup.wait(() => _readCachedMedia(preserveWindow: false));
-      _source = _PlatformMediaSource(_bridge, _id, () => sharedFolders, _clock);
+      if (supportsLocalCatalogScheduling) {
+        _catalogMaintenance = LocalCatalogMaintenance(
+          bridge: _bridge,
+          folders: () => sharedFolders,
+          intervalHours: () => _localScanIntervalHours,
+          active: () => _shouldShare && (_server?.port ?? 0) != 0,
+          scanning: () => _server?.scanning ?? true,
+          refresh: (changes) async {
+            final server = _server;
+            if (server == null || !_shouldShare || server.port == 0) return;
+            if (changes == null) {
+              await server.refresh();
+            } else {
+              await server.refreshChanges(changes);
+            }
+          },
+          readSetting: db.getSetting,
+          writeSetting: db.setSetting,
+          onError: (error) {
+            if (_disposed) return;
+            _error = describeError(error);
+            _notify();
+          },
+          clock: _clock,
+        );
+        await startup.wait(_catalogMaintenance!.load);
+      }
+      _source = _newMediaSource();
       _initialized = true;
       _loading = false;
       _updateTransferPolling();
@@ -1142,7 +1225,7 @@ class AppController extends TamayuraModel {
     if (!_shouldShare) return;
     Future<T> wait<T>(Future<T> Function() action) =>
         startup == null ? action() : startup.wait(action);
-    _source ??= _PlatformMediaSource(_bridge, _id, () => sharedFolders, _clock);
+    _source ??= _newMediaSource();
     final info = await wait(_bridge.localInfo);
     final name = info['name'] as String? ?? _bridge.platformName;
     _deviceName = name;
@@ -1159,12 +1242,19 @@ class AppController extends TamayuraModel {
           () => _server!.start(
             port: _preferredPort,
             backgroundScan: _bridge.supportsBackgroundCatalog,
+            scanAfterRestore: _catalogMaintenance == null
+                ? null
+                : () => _catalogMaintenance!.fullScanDue,
           ),
         );
       } on SocketException {
         await wait(
-          () =>
-              _server!.start(backgroundScan: _bridge.supportsBackgroundCatalog),
+          () => _server!.start(
+            backgroundScan: _bridge.supportsBackgroundCatalog,
+            scanAfterRestore: _catalogMaintenance == null
+                ? null
+                : () => _catalogMaintenance!.fullScanDue,
+          ),
         );
       }
     }
@@ -1186,6 +1276,7 @@ class AppController extends TamayuraModel {
     );
     if (!_shouldShare) await _stopNetwork();
     _scheduleAutoSync();
+    _catalogMaintenance?.reschedule();
     _notify();
   }
 
@@ -1193,6 +1284,13 @@ class AppController extends TamayuraModel {
     if (_disposed) return;
     final server = _server;
     if (server == null) return;
+    if (server.completedFullScans != _completedLocalFullScans) {
+      _completedLocalFullScans = server.completedFullScans;
+      _catalogMaintenance?.fullScanSucceeded(
+        cacheSaved: _source?.warning == null,
+      );
+    }
+    _catalogMaintenance?.catalogChanged(failed: server.scanError != null);
     _localCount = server.localMediaCount;
     final error = server.scanError ?? server.restoreError ?? _source?.warning;
     if (error != null) {
@@ -2183,10 +2281,11 @@ class AppController extends TamayuraModel {
     if (_loading || _busy || _disposed) return;
     final scanned = _source?.scannedAt;
     await _refresh(
-      rescan:
-          _server?.scanError != null ||
-          scanned == null ||
-          _clock().difference(scanned) >= _resumeRescanInterval,
+      rescan: supportsLocalCatalogScheduling
+          ? (_catalogMaintenance?.fullScanDue ?? true)
+          : _server?.scanError != null ||
+                scanned == null ||
+                _clock().difference(scanned) >= _resumeRescanInterval,
     );
   }
 
@@ -2206,7 +2305,7 @@ class AppController extends TamayuraModel {
         try {
           if (rescan && (_server?.port ?? 0) != 0) {
             if (_bridge.supportsBackgroundCatalog) {
-              _refreshLocalCatalog();
+              _refreshLocalCatalog(replacePending: !automatic);
             } else {
               await _server!.refresh();
             }
@@ -2680,6 +2779,7 @@ class AppController extends TamayuraModel {
       await _transferScheduler?.shutdown();
       await _reloadTail;
       await _scrollWorker;
+      await _catalogMaintenance?.flushCheckpoint();
       await _repository?.close();
       await _taskStore?.close();
     } catch (_) {}
@@ -2689,6 +2789,24 @@ class AppController extends TamayuraModel {
   void dispose() {
     unawaited(shutdown());
     super.dispose();
+  }
+
+  _PlatformMediaSource _newMediaSource() => _PlatformMediaSource(
+    _bridge,
+    _id,
+    () => sharedFolders,
+    _clock,
+    onRestoreStarted: _prepareCatalogWatch,
+    onFullScanStarted: () async {
+      await _prepareCatalogWatch();
+      await _catalogMaintenance?.prepareFullScan();
+    },
+  );
+
+  Future<void> _prepareCatalogWatch() async {
+    if (!_shouldShare) throw const MediaSourceInterrupted();
+    await _catalogMaintenance?.start();
+    if (!_shouldShare) throw const MediaSourceInterrupted();
   }
 }
 
@@ -2733,17 +2851,22 @@ class _SharingStartup {
   }
 }
 
-class _PlatformMediaSource implements RestorableLocalMediaSource {
+class _PlatformMediaSource
+    implements RestorableLocalMediaSource, IncrementalLocalMediaSource {
   _PlatformMediaSource(
     this.bridge,
     this.deviceId,
     this.sharedFolders,
-    this.clock,
-  );
+    this.clock, {
+    this.onFullScanStarted,
+    this.onRestoreStarted,
+  });
   final PlatformBridge bridge;
   final String deviceId;
   final List<SharedFolder> Function() sharedFolders;
   final DateTime Function() clock;
+  final Future<void> Function()? onFullScanStarted;
+  final Future<void> Function()? onRestoreStarted;
 
   /// When the last successful scan started; failed scans retry on activation.
   DateTime? scannedAt;
@@ -2760,6 +2883,8 @@ class _PlatformMediaSource implements RestorableLocalMediaSource {
   Future<List<MediaMetadata>?> restore() async {
     if (!bridge.supportsBackgroundCatalog) return null;
     final generation = ++_generation;
+    await onRestoreStarted?.call();
+    if (generation != _generation) throw const MediaSourceInterrupted();
     final entries = await bridge.restoreDirectoriesMetadata(sharedFolders());
     if (generation != _generation) throw const MediaSourceInterrupted();
     return entries == null ? null : _metadata(entries, generation);
@@ -2768,6 +2893,8 @@ class _PlatformMediaSource implements RestorableLocalMediaSource {
   @override
   Future<List<MediaMetadata>> scan() async {
     final generation = ++_generation;
+    await onFullScanStarted?.call();
+    if (generation != _generation) throw const MediaSourceInterrupted();
     final started = clock();
     final folders = sharedFolders();
     if (folders.isEmpty) {
@@ -2788,6 +2915,37 @@ class _PlatformMediaSource implements RestorableLocalMediaSource {
     if (generation != _generation) throw const MediaSourceInterrupted();
     warning = nextWarning;
     scannedAt = started;
+    return result;
+  }
+
+  @override
+  Future<List<MediaMetadata>> scanChanges(
+    List<LocalCatalogChange> changes,
+  ) async {
+    final generation = ++_generation;
+    late final List<Map<String, dynamic>> entries;
+    try {
+      entries = await bridge.scanChangedDirectoriesMetadata(
+        sharedFolders(),
+        changes,
+      );
+    } on PlatformException catch (error) {
+      if (generation != _generation) throw const MediaSourceInterrupted();
+      if (error.code == 'LOCAL_CATALOG_UNAVAILABLE') {
+        throw const FullCatalogScanRequired();
+      }
+      rethrow;
+    }
+    if (generation != _generation) throw const MediaSourceInterrupted();
+    Object? nextWarning;
+    try {
+      nextWarning = await bridge.getLocalCatalogWarning();
+    } catch (error) {
+      nextWarning = error;
+    }
+    final result = await _metadata(entries, generation);
+    if (generation != _generation) throw const MediaSourceInterrupted();
+    warning = nextWarning;
     return result;
   }
 

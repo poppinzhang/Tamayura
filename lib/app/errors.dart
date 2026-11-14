@@ -18,6 +18,8 @@ String describeError(Object error) {
       'LOCAL_CATALOG_VERSION' => text.errorLocalCatalogVersion,
       'LOCAL_CATALOG_CORRUPT' => text.errorLocalCatalogCorrupt,
       'LOCAL_CATALOG_IO' => text.errorLocalCatalogIo,
+      'CATALOG_WATCH_UNAVAILABLE' => text.errorLocalCatalogWatch,
+      'LOCAL_CATALOG_CHECKPOINT' => text.errorLocalScanCheckpoint,
       _ => error.message ?? text.errorSystemOperation,
     };
   }
