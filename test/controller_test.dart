@@ -312,6 +312,19 @@ class GatedRepository implements TamayuraRepository {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
+/// Operations on a transfer end with a refresh of the transfer view, and that
+/// refresh is deferred while the one-second poll has a read in flight. The
+/// view therefore settles moments after the operation returns, not within it.
+Future<void> _until(bool Function() condition) async {
+  final watch = Stopwatch()..start();
+  while (!condition()) {
+    if (watch.elapsed > const Duration(seconds: 5)) {
+      fail('The transfer view did not settle.');
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 5));
+  }
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   sqfliteFfiInit();
@@ -893,6 +906,7 @@ void main() {
       await model.download(photo);
       expect(bridge.savedBytes, [1, 2, 3]);
       expect(bridge.savedDirectories, ['B手机', 'Camera', '旅行', '秋天']);
+      await _until(() => model.transfers[photo.key]?.complete == true);
       expect(model.transfers[photo.key]!.complete, true);
       expect(await db.getDownload('remote', 'photo'), isNotNull);
       expect(
@@ -901,6 +915,7 @@ void main() {
       );
       bridge.shareFails = true;
       await model.share(photo);
+      await _until(() => model.transfers[photo.key]?.error != null);
       expect(model.transfers[photo.key]!.error, contains('重新下载'));
       expect(await db.getDownload('remote', 'photo'), null);
       expect(model.error, contains('重新下载'));
@@ -917,6 +932,57 @@ void main() {
         true,
         reason: 'a reachable device remains online when its catalog fails',
       );
+    },
+  );
+  test(
+    'a failed share converges to its error row while a transfer poll is mid-read',
+    () async {
+      final server = MediaRpcServer(
+        identity: const Peer(id: 'remote', name: 'B手机', host: '', port: 0),
+        source: MemorySource(),
+      );
+      await server.start();
+      addTearDown(server.stop);
+      await db.upsertPeer(
+        Peer(id: 'remote', name: 'B手机', host: '127.0.0.1', port: server.port),
+      );
+      await db.setSetting('downloadUri', 'content://downloads');
+      await db.setSetting('downloadFolder', 'Tamayura');
+      await model.initialize();
+      final photo = model.media.single;
+      bridge.schedule = (id) => TransferRunner(
+        store: tasks,
+        repository: db,
+        bridge: bridge,
+        directory: Directory('${temporary.path}/transfers'),
+      ).run(id);
+      await model.download(photo);
+      await _until(() => model.transfers[photo.key]?.complete == true);
+
+      // Hold a poll between reading the tasks and applying them, as the
+      // one-second timer does at any moment.
+      final held = Completer<void>();
+      final release = Completer<void>();
+      bridge.queryScheduled = () async {
+        if (!held.isCompleted) held.complete();
+        await release.future;
+        return bridge.scheduled.toList();
+      };
+      addTearDown(() {
+        if (!release.isCompleted) release.complete();
+      });
+      unawaited(model.setForeground(true));
+      await held.future.timeout(const Duration(seconds: 5));
+
+      bridge.shareFails = true;
+      await model.share(photo);
+      // The failure is reported and the saved record dropped at once; the
+      // transfer row follows when the deferred refresh has run.
+      expect(model.error, contains('重新下载'));
+      expect(await db.getDownload('remote', 'photo'), isNull);
+      release.complete();
+      await _until(() => model.transfers[photo.key]?.error != null);
+      expect(model.transfers[photo.key]!.error, contains('重新下载'));
     },
   );
   test(

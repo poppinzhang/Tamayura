@@ -222,9 +222,26 @@ void main() {
   }
 
   /// A node that reports no registration scope until [ready] has passed.
+  ///
+  /// Only for tests whose assertions hold whether or not the node has
+  /// registered by the time they run: a slow machine can overtake any delay on
+  /// the wall clock. A test that asserts the starting state uses
+  /// [holdRegistration].
   void startCold(Duration ready) {
     final watch = Stopwatch()..start();
     node.liveStatus = () => watch.elapsed < ready ? _starting : node.current;
+  }
+
+  /// A node that reports no registration scope, as while it starts, until the
+  /// returned function is called. The test decides when the network map
+  /// arrives, so no assertion about the starting state depends on how long the
+  /// code under test takes to run.
+  void Function() holdRegistration() {
+    var registered = false;
+    node.liveStatus = () => registered ? node.current : _starting;
+    return () {
+      registered = true;
+    };
   }
 
   Future<void> saveAssociation() async {
@@ -783,9 +800,10 @@ void main() {
     'start-up is followed closely until the node reports its registration',
     () async {
       await rebuild();
-      startCold(const Duration(milliseconds: 150));
+      final register = holdRegistration();
       await service.login();
       expect(service.status?.registered, false);
+      register();
       // No manual refresh: the regular interval of this service is an hour.
       await _eventually(() => service.status?.registered ?? false);
       await _eventually(() => service.candidates.isNotEmpty);
@@ -799,16 +817,19 @@ void main() {
     'an authentication URL is noticed without waiting for the regular interval',
     () async {
       await rebuild();
-      final watch = Stopwatch()..start();
+      // The sign-in page is announced when the test says so, not after a delay
+      // that a slow machine could overtake.
+      var announced = false;
       node.liveStatus = () => NodeStatus(
         sessionEpoch: 'session-one',
         state: NodeState.authorizing,
-        authUrl: watch.elapsed < const Duration(milliseconds: 100)
-            ? null
-            : Uri.parse('https://login.tailscale.com/a/test'),
+        authUrl: announced
+            ? Uri.parse('https://login.tailscale.com/a/test')
+            : null,
       );
       await service.login();
       expect(service.status?.authUrl, isNull);
+      announced = true;
       await _eventually(() => service.status?.authUrl != null);
       // Signing in is noticed the same way.
       node.liveStatus = null;
@@ -838,7 +859,7 @@ void main() {
     () async {
       await saveAssociation();
       await rebuild(transferEngine: true);
-      startCold(const Duration(milliseconds: 300));
+      final register = holdRegistration();
       await service.initialize();
       expect(service.status?.networkScope, isNull);
       // The scope is unknown, so the association cannot be matched yet. The
@@ -846,7 +867,12 @@ void main() {
       expect(service.hasAssociation(_peer.id), true);
       final remoteOnly = service.createClient(_peer.copyWith(host: ''));
       expect(remoteOnly.usesTailscale, false);
-      expect((await remoteOnly.identity()).id, _peer.id);
+      final identity = remoteOnly.identity();
+      // The route waits on the starting node; only then does it register.
+      final reads = node.statusReads;
+      await _eventually(() => node.statusReads > reads);
+      register();
+      expect((await identity).id, _peer.id);
       expect(remoteOnly.usesTailscale, true);
       expect((await remoteOnly.listMediaPage()).items, isNotEmpty);
       await remoteOnly.close();
@@ -1017,11 +1043,11 @@ void main() {
         ]),
       );
       await rebuild(transferEngine: true);
-      startCold(const Duration(milliseconds: 100));
+      final register = holdRegistration();
       await service.initialize();
       expect(service.hasAssociation(_peer.id), true);
       final client = service.createClient(_peer.copyWith(host: ''));
-      await expectLater(
+      final unavailable = expectLater(
         client.identity(),
         throwsA(
           isA<GrpcError>().having(
@@ -1031,6 +1057,11 @@ void main() {
           ),
         ),
       );
+      // The route waits on the starting node; only then does it register.
+      final reads = node.statusReads;
+      await _eventually(() => node.statusReads > reads);
+      register();
+      await unavailable;
       await client.close();
       // Once the scope is known the stale association no longer counts.
       expect(service.status?.registered, true);
