@@ -52,9 +52,14 @@ class TailscaleDeviceView {
     required this.name,
     required this.nodeId,
     required this.existingDevice,
+    this.replacesAssociation = false,
   });
   final String key, deviceId, name, nodeId;
   final bool existingDevice;
+
+  /// The device is associated with another node that no longer answers as it.
+  /// Confirming moves the association to this node and revokes the other.
+  final bool replacesAssociation;
 }
 
 class MediaView {

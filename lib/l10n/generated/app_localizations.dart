@@ -3184,6 +3184,24 @@ abstract class AppLocalizations {
   /// **'将与已有设备记录关联；请核对两端的设备身份。'**
   String get tailscaleExistingDevice;
 
+  /// No description provided for @tailscaleReplacesNode.
+  ///
+  /// In zh, this message translates to:
+  /// **'此设备已关联到另一个 Tailscale 节点，而该节点不再以此设备的身份应答，可能是对端重新登录后更换了节点。请在对端的设置中核对设备与节点身份。'**
+  String get tailscaleReplacesNode;
+
+  /// No description provided for @tailscaleReplaceConfirmMessage.
+  ///
+  /// In zh, this message translates to:
+  /// **'请确认这是你的设备，并与对端设置中显示的设备和节点身份核对一致。允许后，改由此 Tailscale 节点读取本机共享目录中的媒体，并撤销原先关联节点的远程共享。相册同步的确认保持不变，对端也需要允许本机访问。'**
+  String get tailscaleReplaceConfirmMessage;
+
+  /// No description provided for @tailscaleIdentityConflict.
+  ///
+  /// In zh, this message translates to:
+  /// **'发现设备身份冲突：有 Tailscale 节点报告的设备身份与已关联的记录不一致，不会使用身份不符的节点。请核对两端设置中显示的设备与节点身份。局域网和离线相册仍可使用。'**
+  String get tailscaleIdentityConflict;
+
   /// No description provided for @tailscaleRevoke.
   ///
   /// In zh, this message translates to:

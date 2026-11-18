@@ -103,8 +103,12 @@ import sys
 bundle, version, build_number, arch = Path(sys.argv[1]), sys.argv[2], sys.argv[3], sys.argv[4]
 elf_machine = int(sys.argv[5])
 sizes = [16, 22, 24, 32, 48, 64, 128, 256, 512]
+# The Tailscale helper and its license notices ship next to the executable;
+# the app looks for the helper there and reports a missing component otherwise.
+tailscale_helper = "flutter-tailscale-bridge"
 required = [
-    "tamayura", "install-desktop-entry.sh", "lib/libapp.so", "lib/libflutter_linux_gtk.so",
+    "tamayura", "install-desktop-entry.sh", tailscale_helper, f"{tailscale_helper}.NOTICES.txt",
+    "lib/libapp.so", "lib/libflutter_linux_gtk.so",
     "lib/libsqlite3.so", "data/icudtl.dat", "data/flutter_assets/AssetManifest.bin",
     "data/flutter_assets/NativeAssetsManifest.json", "data/flutter_assets/NOTICES.Z",
     "data/flutter_assets/version.json",
@@ -116,9 +120,11 @@ required = [
 for name in required:
     if not (bundle / name).is_file():
         sys.exit(f"The release bundle is incomplete: {name}")
-for name in ("tamayura", "install-desktop-entry.sh"):
+for name in ("tamayura", "install-desktop-entry.sh", tailscale_helper):
     if not os.access(bundle / name, os.X_OK):
         sys.exit(f"{name} must be executable.")
+if not (bundle / f"{tailscale_helper}.NOTICES.txt").read_text(encoding="utf-8").strip():
+    sys.exit("The Tailscale helper license notices are empty.")
 paths = sorted(bundle.rglob("*"))
 if any(path.is_symlink() for path in paths):
     sys.exit("The release bundle must not contain symlinks.")
@@ -140,16 +146,36 @@ if sqlite.get("package:sqlite3/src/ffi/libsqlite3.g.dart") != ["absolute", "libs
 def version_tuple(text):
     return tuple(int(part) for part in text.split("."))
 
+def is_static(data):
+    """True for a 64-bit little-endian ELF without a dynamic section or loader."""
+    offset = int.from_bytes(data[0x20:0x28], "little")
+    size = int.from_bytes(data[0x36:0x38], "little")
+    count = int.from_bytes(data[0x38:0x3A], "little")
+    if not offset or size < 4 or not count or offset + size * count > len(data):
+        sys.exit("A release binary has no readable ELF program headers.")
+    kinds = {int.from_bytes(data[offset + index * size:offset + index * size + 4], "little")
+             for index in range(count)}
+    # PT_DYNAMIC and PT_INTERP.
+    return 2 not in kinds and 3 not in kinds
+
 # Ubuntu 24.04 LTS provides glibc 2.39 and the GCC 14 C++ runtime.
 limits = {"GLIBC": "2.39", "GLIBCXX": "3.4.33", "CXXABI": "1.3.15"}
 elf_files = [path for path in paths if path.is_file() and path.read_bytes()[:4] == b"\x7fELF"]
-if len(elf_files) < 4:
+if len(elf_files) < 5:
     sys.exit("The release bundle is missing native libraries.")
 for path in elf_files:
     name = path.relative_to(bundle).as_posix()
-    header = path.read_bytes()[:20]
+    data = path.read_bytes()
+    header = data[:20]
     if header[4] != 2 or header[5] != 1 or int.from_bytes(header[18:20], "little") != elf_machine:
         sys.exit(f"{name} is not a 64-bit {arch} binary.")
+    if is_static(data):
+        # The Go helper is built without cgo. It links no shared library, so
+        # it has no glibc symbol versions or library search path to check,
+        # and objdump -T fails on it. Nothing else may be linked statically.
+        if name != tailscale_helper:
+            sys.exit(f"{name} is statically linked; only the Tailscale helper may be.")
+        continue
     symbols = subprocess.run(["objdump", "-T", str(path)], check=True, capture_output=True, text=True).stdout
     for prefix, limit in limits.items():
         found = re.findall(rf"\b{prefix}_([0-9]+(?:\.[0-9]+)+)\b", symbols)

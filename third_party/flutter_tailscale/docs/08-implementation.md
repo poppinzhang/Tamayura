@@ -37,6 +37,8 @@ Android 插件要求 API 36，使用 NDK 28.2.13676358；原生编译 API 35 与
 
 `openTcp(peer, port: ...)` 为每次新连接取得目标租约，先校验 Go 会话证书，再发送 CONNECT capability。`publishTcp(port:, allowedPeers:, onConnection:)` 创建 Dart 自持的本机双向 TLS 入口，只接受 Go 当前会话证书；Go 通过 WhoIs 核验真实来源并匹配显式允许名单。源策略为空时拒绝全部来源。服务关闭先停止本机 mTLS 监听、拒绝新的流交付并销毁已有应用流，再等待可能阻塞的原生撤销响应。`ServiceLease.updatePolicy` 和 `close` 同时作用于新连接与已建立连接。
 
+会话证书只存在于一次运行会话的内存中，两端按完整证书内容固定，并随会话轮换更换，因此有效期不承担安全作用。证书使用固定的 2000-01-01 至 9999-12-31 有效期，不随签发时刻变化：长期运行的节点不会因证书到期而无法把入站流交给宿主，系统时钟被校正也不会使本机握手失败。Dart 侧的发布监听按严格校验接受该证书，未使用 `onBadCertificate` 放宽。
+
 控制协议 v1 采用继承管道上的 NDJSON，每帧最多 1 MiB；Android 的 `ft_request`/`ft_free` 使用同样的 JSON。初始化校验协议版本与所需安全能力。当前采用有界状态快照轮询，尚未实现草案中的 JSON-RPC 长度帧、有序事件、请求幂等记录和通用取消协议；网络操作有自己的截止时间。桌面控制超时会终止自有辅助进程以避免未知资源残留，进程内 FFI 不在 UI isolate 阻塞。
 
 Android 初始化经过平台 MethodChannel，在后台线程经 JNI 请求核心；平台先原子登记 owner 再交给 Dart。Engine 销毁会释放已登记 owner；初始化尚未返回时销毁 Engine，返回的 owner 立即被释放，避免旧固定端口和节点所有者遗留。后续请求使用 isolate 中的 FFI。新增 4 项 JVM 测试覆盖登记/销毁先后顺序与正常释放；执行结果以宿主 Android Gradle 验证记录为准。
@@ -65,6 +67,7 @@ gRPC 4.2.0 / http2 2.3.1 在客户端期限 RST 与服务器迟到 HEADERS 交�
 - 其中 2 项由新构建的真实 Go 辅助进程执行，覆盖未登录初始化、首次 `start` 安全拒绝、跨进程状态锁、会话轮换、退出恢复标记、重复释放、重新打开以及多个 owner 的独立释放；没有进行真实登录。
 - Go 核心 17 项单元与 race 检查通过；这些来源授权测试使用假 tsnet 后端和真实本机 TLS，不代表真实互联网验收。已交叉构建 macOS arm64/x64、Windows x64、Linux arm64/x64 与 Android 三种 ABI；Android arm64 ELF 加载段具备 16 KiB 对齐。交叉编译不证明目标系统实际运行，宿主安装包构建与验收以宿主实现记录为准。
 - Windows x64 本机另已通过 17 项 Go 测试（`CGO_ENABLED=0`，未运行 Windows race）、SDK 静态分析和 22 项 Flutter 测试；后者使用宿主本次 Release 构建的真实 helper，两项原生检查均执行。Windows 打包与窗口级原生检查的具体范围见 Tamayura 实现记录。
+- 2026-11-16 修复会话证书 30 天到期后入站流无法交付的问题，仅在 macOS 复验：Go 核心 18 项测试及 race 检查通过，新增用例在签发前 10 年与签发后 50 年两个时刻校验证书；`flutter analyze --no-pub` 无问题，23 项 Flutter 测试通过，其中 3 项由新构建的真实辅助进程执行，新增一项以辅助进程签发的证书完成 Dart 两端严格双向 TLS 握手并检查有效期。两项新增用例在修复前的实现上均失败。本次未在 Windows、Linux 或 Android 复验。
 
 测试入口：
 

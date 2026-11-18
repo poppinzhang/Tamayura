@@ -171,7 +171,12 @@ class TailscaleCandidates extends StatelessWidget {
                     style: Theme.of(context).textTheme.titleSmall,
                   ),
                   SelectableText('${candidate.deviceId}\n${candidate.nodeId}'),
-                  if (candidate.existingDevice)
+                  if (candidate.replacesAssociation)
+                    Text(
+                      text.tailscaleReplacesNode,
+                      key: Key('tailscale-replaces-${candidate.key}'),
+                    )
+                  else if (candidate.existingDevice)
                     Text(text.tailscaleExistingDevice),
                   const SizedBox(height: 8),
                   OutlinedButton(
@@ -182,7 +187,8 @@ class TailscaleCandidates extends StatelessWidget {
                             if (await _confirm(
                               context,
                               text.tailscaleConfirm,
-                              '${text.tailscaleConfirmMessage}\n\n${candidate.name}\n'
+                              '${candidate.replacesAssociation ? text.tailscaleReplaceConfirmMessage : text.tailscaleConfirmMessage}'
+                              '\n\n${candidate.name}\n'
                               '${candidate.deviceId}\n${candidate.nodeId}',
                             )) {
                               await model.confirmTailscaleDevice(candidate.key);

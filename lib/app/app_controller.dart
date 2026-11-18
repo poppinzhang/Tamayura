@@ -57,6 +57,11 @@ class AppController extends TamayuraModel {
   bool _openLoginWhenReady = false;
   Uri? _openedLoginUrl;
   final Set<String> _tailscaleAnnounced = {};
+
+  /// Devices whose LAN address was tried since LAN networking started. One
+  /// that has not been tried gets its LAN address tried first even though it
+  /// has an approved remote route; one that did not answer skips that wait.
+  final Set<String> _lanChecked = {};
   MediaRpcClient _clientFactory(Peer peer) =>
       _customClientFactory?.call(peer) ??
       _tailscale?.createClient(peer) ??
@@ -102,6 +107,7 @@ class AppController extends TamayuraModel {
         name: candidate.peer.name,
         nodeId: candidate.ref.nodeId,
         existingDevice: candidate.existingDevice,
+        replacesAssociation: candidate.replaces != null,
       ),
   ];
   @override
@@ -121,7 +127,9 @@ class AppController extends TamayuraModel {
       openNode: _openTailscaleNode ?? () => openTamayuraTailscaleNode(_id),
       identity: () => Peer(id: _id, name: deviceName, host: '', port: port),
       server: () => _server,
-      lanOnline: _online.contains,
+      lanFirst: (id) => _online.contains(id) || !_lanChecked.contains(id),
+      // Transfers try a LAN address too, and no presence check follows them.
+      onLanUnanswered: _lanChecked.add,
       onPeer: _onTailscalePeer,
       onChanged: _tailscaleChanged,
     );
@@ -849,6 +857,7 @@ class AppController extends TamayuraModel {
       await cleanup(_bridge.clearSharedDirectory);
     }
     _online.clear();
+    _lanChecked.clear();
     _notify();
     if (failure != null) Error.throwWithStackTrace(failure!, failureStack!);
   }
@@ -1286,9 +1295,10 @@ class AppController extends TamayuraModel {
               _bridge,
               allowRemoteTransfer: (taskId) async {
                 final task = await _taskStore?.get(taskId);
-                return tailscaleEnabled &&
-                    task != null &&
-                    tailscaleAuthorizedDeviceIds.contains(task.item.deviceId);
+                // Decided once, when the job is scheduled. A node that is
+                // still starting has no scope to match the association yet.
+                return task != null &&
+                    (_tailscale?.hasAssociation(task.item.deviceId) ?? false);
               },
             );
       final db = _repository!;
@@ -1711,10 +1721,12 @@ class AppController extends TamayuraModel {
       } else {
         _online.remove(id);
       }
+      _lanChecked.add(id);
       _notify();
     } catch (_) {
       if (isCurrent()) {
         _online.remove(id);
+        _lanChecked.add(id);
         _notify();
       }
     } finally {
@@ -2317,6 +2329,7 @@ class AppController extends TamayuraModel {
           remembered.id != peer.id) {
         // A manually entered address may now belong to a different device.
         _online.remove(remembered.id);
+        _lanChecked.add(remembered.id);
       }
       // Manual addresses and mDNS announcements may resolve to the same peer.
       // Only one of them may write that peer's persistent sync checkpoint.
@@ -2397,6 +2410,9 @@ class AppController extends TamayuraModel {
       );
       _peers[peer.id] = peer;
       _presenceChecks.remove(peer.id);
+      // Either the LAN address answered, or it was tried and the approved
+      // remote route took over.
+      _lanChecked.add(peer.id);
       if (!client.usesTailscale) {
         _online.add(peer.id);
       } else {
@@ -2466,6 +2482,7 @@ class AppController extends TamayuraModel {
           unawaited(_checkPeerPresence(resolvedId));
         } else if (identical(_peers[resolvedId], attemptedPeer)) {
           _online.remove(resolvedId);
+          _lanChecked.add(resolvedId);
         }
         if (reportError &&
             !_disposed &&
@@ -2754,6 +2771,7 @@ class AppController extends TamayuraModel {
       _syncApprovals.remove(id);
       _syncFailed.remove(id);
       _online.remove(id);
+      _lanChecked.remove(id);
       _syncProgress.remove(id);
       _syncCandidates.remove(id);
       // Found again later, it is a new device and is offered once more.

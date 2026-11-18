@@ -143,6 +143,45 @@ void main() {
     },
   );
 
+  for (final language in ['zh', 'ja', 'en']) {
+    testWidgets(
+      'a successor node states that it revokes the previous one in $language',
+      (tester) async {
+        final model = _Model()
+          ..tailscaleCandidates = [
+            const TailscaleDeviceView(
+              key: 'successor',
+              deviceId: 'device-id',
+              name: 'Remote',
+              nodeId: 'new-node-id',
+              existingDevice: true,
+              replacesAssociation: true,
+            ),
+          ];
+        await tester.pumpWidget(
+          _app(TailscaleCandidates(model: model), language: language),
+        );
+        final text = lookupAppLocalizations(Locale(language));
+        expect(find.text(text.tailscaleReplacesNode), findsOneWidget);
+        // The plain "existing device" note would understate the change.
+        expect(find.text(text.tailscaleExistingDevice), findsNothing);
+        await tester.tap(find.byKey(const Key('tailscale-confirm-successor')));
+        await tester.pumpAndSettle();
+        expect(
+          find.textContaining(text.tailscaleReplaceConfirmMessage),
+          findsOneWidget,
+        );
+        expect(find.textContaining(text.tailscaleConfirmMessage), findsNothing);
+        expect(find.textContaining('new-node-id'), findsWidgets);
+        expect(model.confirmations, isEmpty);
+        await tester.tap(find.text(text.commonConfirm));
+        await tester.pumpAndSettle();
+        expect(model.confirmations, ['successor']);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
   testWidgets('logout explains preserved data and allows cancellation', (
     tester,
   ) async {

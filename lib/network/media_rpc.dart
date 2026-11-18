@@ -614,62 +614,78 @@ class MediaRpcClient implements MediaTransferClient {
     this.peer, {
     Duration metadataTimeout = const Duration(minutes: 2),
     grpc_api.ClientChannel? channel,
-    grpc_api.ClientChannel Function()? fallbackChannel,
+    FutureOr<grpc_api.ClientChannel?> Function()? fallbackChannel,
+    bool remoteOnly = false,
     bool usesTailscale = false,
     void Function()? onClosed,
     Object Function(Object error)? translateTransportError,
-  }) : _metadataTimeout = metadataTimeout,
+  }) : assert(!remoteOnly || (channel == null && fallbackChannel != null)),
+       _metadataTimeout = metadataTimeout,
        _usesTailscale = usesTailscale,
        _onClosed = onClosed,
        _translateTransportError = translateTransportError,
        _fallbackChannel = fallbackChannel,
-       _channel =
-           channel ??
-           ClientChannel(
-             peer.host,
-             port: peer.port,
-             options: const ChannelOptions(
-               credentials: ChannelCredentials.insecure(),
-             ),
-           ) {
-    _client = wire.MediaLibraryClient(_channel);
+       _channel = remoteOnly
+           ? null
+           : channel ??
+                 ClientChannel(
+                   peer.host,
+                   port: peer.port,
+                   options: const ChannelOptions(
+                     credentials: ChannelCredentials.insecure(),
+                   ),
+                 ) {
+    final channel = _channel;
+    if (channel != null) _client = wire.MediaLibraryClient(channel);
   }
 
   final Peer peer;
   final Duration _metadataTimeout;
-  grpc_api.ClientChannel _channel;
-  grpc_api.ClientChannel Function()? _fallbackChannel;
+
+  /// Null until [_fallbackChannel] resolves the route of a [remoteOnly] client.
+  grpc_api.ClientChannel? _channel;
+
+  /// The approved remote route. It is resolved once: after the first LAN
+  /// connection fails transiently, or at once for a [remoteOnly] client whose
+  /// LAN address is not tried. It may wait for that route to become usable,
+  /// and returns null when there is none.
+  FutureOr<grpc_api.ClientChannel?> Function()? _fallbackChannel;
   bool _usesTailscale;
   bool get usesTailscale => _usesTailscale;
   final void Function()? _onClosed;
   final Object Function(Object error)? _translateTransportError;
   bool _closed = false;
+  final _closeSignal = Completer<void>();
   Future<void>? _closing;
+
+  /// Assigned with [_channel]; every RPC starts with [identity].
   late wire.MediaLibraryClient _client;
   Peer? _identity;
 
   Future<Peer> identity() async {
     wire.DeviceIdentity response;
-    try {
+    if (_channel == null) {
+      if (!await _useFallback()) {
+        throw const GrpcError.unavailable('No route to the device');
+      }
       response = await _requestIdentity();
-    } catch (error) {
-      final fallback = _fallbackChannel;
-      final transient =
-          error is SocketException ||
-          error is TimeoutException ||
-          (error is GrpcError &&
-              (error.code == StatusCode.unavailable ||
-                  error.code == StatusCode.deadlineExceeded));
-      // Only a failed initial connection can choose another route. Identity,
-      // protocol and authorization failures must never be hidden by fallback.
-      if (_closed || fallback == null || !transient) rethrow;
-      _fallbackChannel = null;
-      await _channel.terminate();
-      if (_closed) throw const GrpcError.cancelled('Client was closed');
-      _channel = fallback();
-      _usesTailscale = true;
-      _client = wire.MediaLibraryClient(_channel);
-      response = await _requestIdentity();
+    } else {
+      try {
+        response = await _requestIdentity();
+      } catch (error) {
+        final transient =
+            error is SocketException ||
+            error is TimeoutException ||
+            (error is GrpcError &&
+                (error.code == StatusCode.unavailable ||
+                    error.code == StatusCode.deadlineExceeded));
+        // Only a failed initial connection can choose another route. Identity,
+        // protocol and authorization failures must never be hidden by fallback.
+        if (_closed || _fallbackChannel == null || !transient) rethrow;
+        // Without a remote route the LAN failure is the result.
+        if (!await _useFallback()) rethrow;
+        response = await _requestIdentity();
+      }
     }
     if (response.protocolVersion != mediaProtocolVersion ||
         response.id.isEmpty ||
@@ -688,6 +704,37 @@ class MediaRpcClient implements MediaTransferClient {
       lastSync: peer.lastSync,
       lastSuccessfulSync: peer.lastSuccessfulSync,
     );
+  }
+
+  /// Switches to the approved remote route; false if there is none.
+  Future<bool> _useFallback() async {
+    final fallback = _fallbackChannel;
+    if (fallback == null) return false;
+    _fallbackChannel = null;
+    await _channel?.terminate();
+    if (_closed) throw const GrpcError.cancelled('Client was closed');
+    final resolving = Future<grpc_api.ClientChannel?>.sync(fallback);
+    // Resolving may wait for a node that is still starting. Closing this
+    // client, as a cancelled transfer does, must not wait with it.
+    final closedFirst = await Future.any([
+      resolving.then((_) => false),
+      _closeSignal.future.then((_) => true),
+    ]);
+    if (closedFirst || _closed) {
+      unawaited(
+        resolving.then<void>(
+          (channel) => channel?.terminate(),
+          onError: (Object _) {},
+        ),
+      );
+      throw const GrpcError.cancelled('Client was closed');
+    }
+    final channel = await resolving;
+    if (channel == null) return false;
+    _channel = channel;
+    _usesTailscale = true;
+    _client = wire.MediaLibraryClient(channel);
+    return true;
   }
 
   Future<T> _rpc<T>(Future<T> Function() call) async {
@@ -1048,9 +1095,9 @@ class MediaRpcClient implements MediaTransferClient {
   @override
   Future<void> close() {
     _closed = true;
-    return _closing ??= _channel.terminate().whenComplete(
-      () => _onClosed?.call(),
-    );
+    if (!_closeSignal.isCompleted) _closeSignal.complete();
+    return _closing ??= (_channel?.terminate() ?? Future<void>.value())
+        .whenComplete(() => _onClosed?.call());
   }
 }
 

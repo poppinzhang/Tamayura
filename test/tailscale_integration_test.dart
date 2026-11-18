@@ -40,11 +40,24 @@ class _Node implements TailscaleNode {
     ),
   ];
   final Map<int, int> targets = {};
+
+  /// Nodes other than [_ref] that answer, by virtual port.
+  final Map<PeerRef, Map<int, int>> otherNodes = {};
+
+  /// False once the node behind [_ref] is gone, as after it signed out.
+  bool refAnswers = true;
   final List<int> dialedPorts = [];
-  int starts = 0, logouts = 0, disposed = 0;
+  int starts = 0, logouts = 0, disposed = 0, statusReads = 0;
   bool startBroken = false;
   TailscaleException? connectionFailure;
+
+  /// Thrown by the next status read only.
+  TailscaleException? statusFailure;
   Completer<NodeStatus>? statusGate;
+
+  /// Replaces [current] while set: a node that is starting or signing in.
+  NodeStatus Function()? liveStatus;
+  NodeStatus get _status => liveStatus?.call() ?? current;
   Completer<void>? publishGate;
   final publishStarted = Completer<void>();
   final List<_Lease> publications = [];
@@ -53,14 +66,20 @@ class _Node implements TailscaleNode {
   Future<NodeStatus> start() async {
     starts++;
     if (startBroken) throw const TailscaleException('runtimeStopped');
-    return current;
+    return _status;
   }
 
   @override
-  Future<NodeStatus> login() async => current;
+  Future<NodeStatus> login() async => _status;
   @override
-  Future<NodeStatus> status() async =>
-      statusGate == null ? current : statusGate!.future;
+  Future<NodeStatus> status() async {
+    statusReads++;
+    final failure = statusFailure;
+    statusFailure = null;
+    if (failure != null) throw failure;
+    return statusGate == null ? _status : statusGate!.future;
+  }
+
   @override
   Future<List<TailscalePeer>> peers() async => visible;
   @override
@@ -94,11 +113,12 @@ class _Node implements TailscaleNode {
   Future<BridgeConnection> openTcp(PeerRef ref, {required int port}) async {
     final failure = connectionFailure;
     if (failure != null) throw failure;
-    if (ref != _ref || ref.networkScope != current.networkScope) {
+    final ports = ref == _ref ? (refAnswers ? targets : null) : otherNodes[ref];
+    if (ports == null || ref.networkScope != current.networkScope) {
       throw const TailscaleException('peerUnavailable');
     }
     dialedPorts.add(port);
-    final target = targets[port];
+    final target = ports[port];
     if (target == null) throw const SocketException('No test service');
     return BridgeConnection.fromSocket(
       await Socket.connect(InternetAddress.loopbackIPv4, target),
@@ -127,6 +147,22 @@ class _Lease implements ServiceLease {
   }
 }
 
+const _successor = PeerRef(networkScope: 'test-network', nodeId: 'new-node');
+const _starting = NodeStatus(
+  sessionEpoch: 'session-one',
+  state: NodeState.connecting,
+);
+
+Future<void> _eventually(bool Function() condition) async {
+  final watch = Stopwatch()..start();
+  while (!condition()) {
+    if (watch.elapsed > const Duration(seconds: 5)) {
+      fail('The expected state was not reached.');
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 5));
+  }
+}
+
 void main() {
   sqfliteFfiInit();
   late Directory directory;
@@ -139,8 +175,67 @@ void main() {
   var opens = 0;
   var sharingAvailable = false;
   var lanReachable = false;
+  final lanUnanswered = <String>[];
   Completer<void>? peerGate;
   late Completer<void> peerNotified;
+
+  TamayuraTailscaleService build({
+    Duration settle = const Duration(milliseconds: 500),
+    Duration route = const Duration(seconds: 15),
+    bool transferEngine = false,
+  }) => TamayuraTailscaleService(
+    repository: repository,
+    openNode: () async {
+      opens++;
+      return node;
+    },
+    identity: () => const Peer(id: 'local', name: 'Local', host: '', port: 0),
+    server: () => sharingAvailable ? media : null,
+    // A transfer engine has checked no LAN address: it tries them first.
+    lanFirst: (_) => transferEngine || lanReachable,
+    onLanUnanswered: lanUnanswered.add,
+    onPeer: (peer, online) async {
+      observations.add((peer, online));
+      if (!peerNotified.isCompleted) peerNotified.complete();
+      await peerGate?.future;
+    },
+    onChanged: () {},
+    pollInterval: const Duration(hours: 1),
+    settleInterval: settle,
+    routeTimeout: route,
+    // As lib/background/transfer_worker.dart builds it.
+    discoveryEnabled: !transferEngine,
+  );
+
+  /// Replaces the service of [setUp]; [tearDown] shuts the new one down.
+  Future<void> rebuild({
+    Duration settle = const Duration(milliseconds: 20),
+    Duration route = const Duration(seconds: 15),
+    bool transferEngine = false,
+  }) async {
+    await service.shutdown();
+    service = build(
+      settle: settle,
+      route: route,
+      transferEngine: transferEngine,
+    );
+  }
+
+  /// A node that reports no registration scope until [ready] has passed.
+  void startCold(Duration ready) {
+    final watch = Stopwatch()..start();
+    node.liveStatus = () => watch.elapsed < ready ? _starting : node.current;
+  }
+
+  Future<void> saveAssociation() async {
+    await repository.setSetting(TailscaleBindings.enabledKey, 'true');
+    await repository.setSetting(
+      TailscaleBindings.settingKey,
+      TailscaleBindings.encode([
+        TailscaleBinding(deviceId: _peer.id, name: _peer.name, ref: _ref),
+      ]),
+    );
+  }
 
   setUp(() async {
     directory = await Directory.systemTemp.createTemp('tamayura-tailscale-');
@@ -153,6 +248,7 @@ void main() {
     opens = 0;
     sharingAvailable = false;
     lanReachable = false;
+    lanUnanswered.clear();
     peerGate = null;
     peerNotified = Completer<void>();
     media = MediaRpcServer(identity: _peer, source: MemorySource());
@@ -161,23 +257,7 @@ void main() {
     await discovery.serve(address: InternetAddress.loopbackIPv4, port: 0);
     node.targets[tailscaleIdentityPort] = discovery.port!;
     node.targets[tailscaleMediaPort] = media.port;
-    service = TamayuraTailscaleService(
-      repository: repository,
-      openNode: () async {
-        opens++;
-        return node;
-      },
-      identity: () => const Peer(id: 'local', name: 'Local', host: '', port: 0),
-      server: () => sharingAvailable ? media : null,
-      lanOnline: (_) => lanReachable,
-      onPeer: (peer, online) async {
-        observations.add((peer, online));
-        if (!peerNotified.isCompleted) peerNotified.complete();
-        await peerGate?.future;
-      },
-      onChanged: () {},
-      pollInterval: const Duration(hours: 1),
-    );
+    service = build();
   });
   tearDown(() async {
     await service.shutdown();
@@ -318,6 +398,68 @@ void main() {
       await client.close();
     },
   );
+
+  test('without a remote route the LAN failure is the result', () async {
+    final unused = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+    final port = unused.port;
+    await unused.close();
+    var fallbacks = 0;
+    final client = MediaRpcClient(
+      _peer.copyWith(host: '127.0.0.1', port: port),
+      fallbackChannel: () async {
+        fallbacks++;
+        return null;
+      },
+    );
+    await expectLater(
+      client.identity(),
+      throwsA(
+        isA<GrpcError>()
+            .having((error) => error.code, 'status', StatusCode.unavailable)
+            .having(isTransientTransferError, 'retryable', true),
+      ),
+    );
+    expect(fallbacks, 1);
+    expect(client.usesTailscale, false);
+    await client.close();
+  });
+
+  test('a remote-only client never dials the LAN address', () async {
+    // If the LAN address were dialed, its different identity would fail the
+    // attempt instead of the approved route answering.
+    final other = MediaRpcServer(
+      identity: const Peer(id: 'another', name: 'Another', host: '', port: 0),
+      source: MemorySource(),
+    );
+    await other.start();
+    addTearDown(other.stop);
+    final client = MediaRpcClient(
+      _peer.copyWith(host: '127.0.0.1', port: other.port),
+      remoteOnly: true,
+      fallbackChannel: () async => ClientChannel(
+        '127.0.0.1',
+        port: media.port,
+        options: const ChannelOptions(
+          credentials: ChannelCredentials.insecure(),
+        ),
+      ),
+    );
+    expect(client.usesTailscale, false);
+    final identity = await client.identity();
+    expect(identity.id, _peer.id);
+    expect(identity.port, other.port);
+    expect(client.usesTailscale, true);
+    expect((await client.listMediaPage()).items, isNotEmpty);
+    await client.close();
+    // Closing before any route was resolved must not fail either.
+    final idle = MediaRpcClient(
+      _peer.copyWith(host: ''),
+      remoteOnly: true,
+      fallbackChannel: () => null,
+    );
+    await idle.close();
+    await expectLater(idle.identity(), throwsA(isA<GrpcError>()));
+  });
 
   test(
     'identity conflict is never hidden by switching to another path',
@@ -526,6 +668,377 @@ void main() {
           await repository.getSetting(TailscaleBindings.settingKey),
         ),
         isEmpty,
+      );
+    },
+  );
+
+  test(
+    'a node that registered again succeeds its association only once confirmed',
+    () async {
+      await repository.upsertPeer(_peer);
+      sharingAvailable = true;
+      await service.login();
+      await service.refresh();
+      await service.confirmCandidate(service.candidates.single.key);
+      await Future<void>.delayed(Duration.zero);
+      await service.refresh();
+      expect(service.onlineDeviceIds, contains(_peer.id));
+      final mediaLease = node.publications.singleWhere(
+        (lease) => lease.port == tailscaleMediaPort,
+      );
+      final previousRoute = service.createClient(_peer);
+      await previousRoute.identity();
+      expect(previousRoute.usesTailscale, true);
+
+      // The remote device signed in again: the same Tamayura identity behind
+      // a new node, while the associated node is gone.
+      node.refAnswers = false;
+      node.otherNodes[_successor] = Map.of(node.targets);
+      node.visible = [
+        const TailscalePeer(
+          ref: _successor,
+          name: 'Remote',
+          addresses: ['100.64.0.2'],
+          online: true,
+        ),
+      ];
+      await service.refresh();
+      expect(service.error, isNull);
+      expect(service.onlineDeviceIds, isEmpty);
+      final candidate = service.candidates.single;
+      expect(candidate.ref, _successor);
+      expect(candidate.replaces, _ref);
+      expect(candidate.existingDevice, true);
+      // Reporting the identity moves nothing by itself.
+      expect(service.bindings.single.ref, _ref);
+      expect(mediaLease.allowed, {_ref});
+      await service.refresh();
+      expect(service.candidates.single.key, candidate.key);
+
+      await service.confirmCandidate(candidate.key);
+      expect(service.bindings.single.ref, _successor);
+      expect(service.bindings.single.deviceId, _peer.id);
+      expect(mediaLease.allowed, {_successor});
+      await expectLater(
+        previousRoute.listMediaPage(),
+        throwsA(isA<GrpcError>()),
+      );
+      await previousRoute.close();
+      expect(
+        TailscaleBindings.decode(
+          await repository.getSetting(TailscaleBindings.settingKey),
+        ).single.ref,
+        _successor,
+      );
+      await Future<void>.delayed(Duration.zero);
+      await service.refresh();
+      expect(service.candidates, isEmpty);
+      expect(service.error, isNull);
+      expect(service.onlineDeviceIds, contains(_peer.id));
+      final client = service.createClient(_peer);
+      expect((await client.identity()).id, _peer.id);
+      expect(client.usesTailscale, true);
+      await client.close();
+      expect((await repository.listPeers()).single.host, _peer.host);
+    },
+  );
+
+  test(
+    'a second node reporting an associated identity is a conflict while the first answers',
+    () async {
+      await service.login();
+      await service.refresh();
+      await service.confirmCandidate(service.candidates.single.key);
+      await Future<void>.delayed(Duration.zero);
+      await service.refresh();
+      node.otherNodes[_successor] = Map.of(node.targets);
+      node.visible = [
+        ...node.visible,
+        const TailscalePeer(
+          ref: _successor,
+          name: 'Other',
+          addresses: ['100.64.0.2'],
+          online: true,
+        ),
+      ];
+      await service.refresh();
+      expect((service.error as TailscaleException).code, 'identityConflict');
+      // It is not offered: the associated node is demonstrably still there.
+      expect(service.candidates, isEmpty);
+      expect(service.bindings.single.ref, _ref);
+      expect(service.onlineDeviceIds, contains(_peer.id));
+      await service.refresh();
+      expect((service.error as TailscaleException).code, 'identityConflict');
+
+      // The report ends with the condition, without a manual retry.
+      node.visible = [node.visible.first];
+      node.otherNodes.clear();
+      await service.refresh();
+      expect(service.error, isNull);
+      expect(service.onlineDeviceIds, contains(_peer.id));
+    },
+  );
+
+  test(
+    'start-up is followed closely until the node reports its registration',
+    () async {
+      await rebuild();
+      startCold(const Duration(milliseconds: 150));
+      await service.login();
+      expect(service.status?.registered, false);
+      // No manual refresh: the regular interval of this service is an hour.
+      await _eventually(() => service.status?.registered ?? false);
+      await _eventually(() => service.candidates.isNotEmpty);
+      final settled = node.statusReads;
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+      expect(node.statusReads, settled);
+    },
+  );
+
+  test(
+    'an authentication URL is noticed without waiting for the regular interval',
+    () async {
+      await rebuild();
+      final watch = Stopwatch()..start();
+      node.liveStatus = () => NodeStatus(
+        sessionEpoch: 'session-one',
+        state: NodeState.authorizing,
+        authUrl: watch.elapsed < const Duration(milliseconds: 100)
+            ? null
+            : Uri.parse('https://login.tailscale.com/a/test'),
+      );
+      await service.login();
+      expect(service.status?.authUrl, isNull);
+      await _eventually(() => service.status?.authUrl != null);
+      // Signing in is noticed the same way.
+      node.liveStatus = null;
+      await _eventually(() => service.status?.registered ?? false);
+    },
+  );
+
+  test(
+    'a failure before sign-in completes ends with the next status read',
+    () async {
+      await rebuild();
+      node.liveStatus = () => const NodeStatus(
+        sessionEpoch: 'session-one',
+        state: NodeState.authorizing,
+      );
+      await service.login();
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+      node.statusFailure = const TailscaleException('statusUnavailable');
+      await _eventually(() => service.error != null);
+      await _eventually(() => service.error == null);
+      expect(service.status?.state, NodeState.authorizing);
+    },
+  );
+
+  test(
+    'a transfer engine that just started the node waits for its registration',
+    () async {
+      await saveAssociation();
+      await rebuild(transferEngine: true);
+      startCold(const Duration(milliseconds: 300));
+      await service.initialize();
+      expect(service.status?.networkScope, isNull);
+      // The scope is unknown, so the association cannot be matched yet. The
+      // job may still be scheduled, and the route must not fail outright.
+      expect(service.hasAssociation(_peer.id), true);
+      final remoteOnly = service.createClient(_peer.copyWith(host: ''));
+      expect(remoteOnly.usesTailscale, false);
+      expect((await remoteOnly.identity()).id, _peer.id);
+      expect(remoteOnly.usesTailscale, true);
+      expect((await remoteOnly.listMediaPage()).items, isNotEmpty);
+      await remoteOnly.close();
+      expect(service.status?.registered, true);
+      expect(node.dialedPorts, everyElement(tailscaleMediaPort));
+    },
+  );
+
+  test('a starting node is also awaited after the LAN address fails', () async {
+    final unused = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+    final port = unused.port;
+    await unused.close();
+    await saveAssociation();
+    await rebuild(transferEngine: true);
+    startCold(const Duration(milliseconds: 300));
+    await service.initialize();
+    final client = service.createClient(
+      _peer.copyWith(host: '127.0.0.1', port: port),
+    );
+    final identity = await client.identity();
+    expect(identity.id, _peer.id);
+    // The remembered LAN address is kept; only the route changed.
+    expect(identity.port, port);
+    expect(client.usesTailscale, true);
+    await client.close();
+    // The host learns that the address did not answer, so that it can route
+    // the device's next operation directly.
+    expect(lanUnanswered, [_peer.id]);
+    lanUnanswered.clear();
+    await rebuild();
+    await service.initialize();
+    expect(service.status?.registered, true);
+    final direct = service.createClient(
+      _peer.copyWith(host: '127.0.0.1', port: port),
+    );
+    expect((await direct.identity()).id, _peer.id);
+    expect(direct.usesTailscale, true);
+    // No LAN attempt was made this time, so there is nothing to report.
+    expect(lanUnanswered, isEmpty);
+    await direct.close();
+  });
+
+  test(
+    'an operation begun while the saved sign-in resumes still finds its remote route',
+    () async {
+      final unused = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+      final port = unused.port;
+      await unused.close();
+      await saveAssociation();
+      await rebuild();
+      startCold(const Duration(milliseconds: 150));
+      // Not awaited, as the app's start-up does: its first synchronization
+      // creates its connections before the saved state has even been read.
+      final restoring = service.initialize();
+      final remoteOnly = service.createClient(_peer.copyWith(host: ''));
+      final lanFirst = service.createClient(
+        _peer.copyWith(host: '127.0.0.1', port: port),
+      );
+      expect(opens, 0);
+      expect((await remoteOnly.identity()).id, _peer.id);
+      expect(remoteOnly.usesTailscale, true);
+      expect((await lanFirst.identity()).port, port);
+      expect(lanFirst.usesTailscale, true);
+      expect(lanUnanswered, [_peer.id]);
+      await remoteOnly.close();
+      await lanFirst.close();
+      await restoring;
+    },
+  );
+
+  test(
+    'an operation begun before a signed-out service has loaded keeps its LAN result',
+    () async {
+      final unused = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+      final port = unused.port;
+      await unused.close();
+      await rebuild();
+      final restoring = service.initialize();
+      final reachable = service.createClient(
+        _peer.copyWith(host: '127.0.0.1', port: media.port),
+      );
+      final unreachable = service.createClient(
+        _peer.copyWith(host: '127.0.0.1', port: port),
+      );
+      final remoteOnly = service.createClient(_peer.copyWith(host: ''));
+      expect((await reachable.identity()).id, _peer.id);
+      expect(reachable.usesTailscale, false);
+      final unavailable = throwsA(
+        isA<GrpcError>()
+            .having((error) => error.code, 'status', StatusCode.unavailable)
+            .having(isTransientTransferError, 'retryable', true),
+      );
+      await expectLater(unreachable.identity(), unavailable);
+      expect(unreachable.usesTailscale, false);
+      await expectLater(remoteOnly.identity(), unavailable);
+      await reachable.close();
+      await unreachable.close();
+      await remoteOnly.close();
+      await restoring;
+      // Signed out: no node was started for any of them.
+      expect(opens, 0);
+      expect(service.enabled, false);
+    },
+  );
+
+  test('the wait for a starting node is bounded', () async {
+    await saveAssociation();
+    await rebuild(
+      route: const Duration(milliseconds: 150),
+      transferEngine: true,
+    );
+    node.liveStatus = () => _starting;
+    await service.initialize();
+    final client = service.createClient(_peer.copyWith(host: ''));
+    final watch = Stopwatch()..start();
+    await expectLater(
+      client.identity(),
+      throwsA(
+        isA<GrpcError>()
+            .having((error) => error.code, 'status', StatusCode.unavailable)
+            .having(isTransientTransferError, 'retryable', true),
+      ),
+    );
+    expect(
+      watch.elapsed,
+      greaterThanOrEqualTo(const Duration(milliseconds: 150)),
+    );
+    expect(watch.elapsed, lessThan(const Duration(seconds: 3)));
+    expect(client.usesTailscale, false);
+    await client.close();
+  });
+
+  test('closing a client ends its wait for a starting node', () async {
+    await saveAssociation();
+    await rebuild(route: const Duration(minutes: 1), transferEngine: true);
+    node.liveStatus = () => _starting;
+    await service.initialize();
+    final client = service.createClient(_peer.copyWith(host: ''));
+    final watch = Stopwatch()..start();
+    final waiting = expectLater(
+      client.identity(),
+      throwsA(
+        isA<GrpcError>().having(
+          (error) => error.code,
+          'status',
+          StatusCode.cancelled,
+        ),
+      ),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    await client.close();
+    await waiting;
+    expect(watch.elapsed, lessThan(const Duration(seconds: 3)));
+  });
+
+  test(
+    'an association made under another registration is not routable',
+    () async {
+      await repository.setSetting(TailscaleBindings.enabledKey, 'true');
+      await repository.setSetting(
+        TailscaleBindings.settingKey,
+        TailscaleBindings.encode([
+          TailscaleBinding(
+            deviceId: _peer.id,
+            name: _peer.name,
+            ref: const PeerRef(networkScope: 'earlier-login', nodeId: 'node'),
+          ),
+        ]),
+      );
+      await rebuild(transferEngine: true);
+      startCold(const Duration(milliseconds: 100));
+      await service.initialize();
+      expect(service.hasAssociation(_peer.id), true);
+      final client = service.createClient(_peer.copyWith(host: ''));
+      await expectLater(
+        client.identity(),
+        throwsA(
+          isA<GrpcError>().having(
+            (error) => error.code,
+            'status',
+            StatusCode.unavailable,
+          ),
+        ),
+      );
+      await client.close();
+      // Once the scope is known the stale association no longer counts.
+      expect(service.status?.registered, true);
+      expect(service.hasAssociation(_peer.id), false);
+      expect(node.dialedPorts, isEmpty);
+      expect(
+        () => service.createClient(_peer.copyWith(host: '')),
+        throwsA(isA<GrpcError>()),
       );
     },
   );

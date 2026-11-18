@@ -8,9 +8,11 @@ import '../network/downloader.dart' show TransferStalled;
 String describeError(Object error) {
   final text = AppLocale.strings;
   if (error is TailscaleException) {
-    return error.code == 'runtimeUnavailable'
-        ? text.tailscaleRuntimeMissing
-        : text.tailscaleError;
+    return switch (error.code) {
+      'runtimeUnavailable' => text.tailscaleRuntimeMissing,
+      'identityConflict' => text.tailscaleIdentityConflict,
+      _ => text.tailscaleError,
+    };
   }
   if (error is TransferStalled) return text.errorPeerStalled;
   if (error is FormatException) return error.message;

@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_tailscale/flutter_tailscale.dart';
@@ -104,6 +105,69 @@ void main() {
         );
         await control.request('dispose', {'ownerId': second['ownerId']});
       } finally {
+        await control.close();
+        await state.delete(recursive: true);
+      }
+    },
+    skip: helper == null
+        ? 'Set FLUTTER_TAILSCALE_HELPER to a freshly built native helper.'
+        : false,
+  );
+
+  test(
+    'session certificate passes strict mutual TLS and does not expire while a node runs',
+    () async {
+      final state = await Directory.systemTemp.createTemp(
+        'flutter-tailscale-certificate-',
+      );
+      final control = await ProcessBridgeControl.start(helper!);
+      SecureServerSocket? listener;
+      SecureSocket? client;
+      try {
+        final session = await control.request('initialize', {
+          'stateDirectory': state.path,
+          'hostname': 'sdk-certificate',
+          'protocolVersion': 1,
+        });
+        final certificate = utf8.encode(session['certificatePem'] as String);
+        final key = utf8.encode(session['privateKeyPem'] as String);
+        // The same strict configuration as a published service: no
+        // onBadCertificate, so the validity period is enforced on both ends.
+        SecurityContext context() => SecurityContext(withTrustedRoots: false)
+          ..minimumTlsProtocolVersion = TlsProtocolVersion.tls1_2
+          ..useCertificateChainBytes(certificate)
+          ..usePrivateKeyBytes(key)
+          ..setTrustedCertificatesBytes(certificate);
+        listener = await SecureServerSocket.bind(
+          InternetAddress.loopbackIPv4,
+          0,
+          context(),
+          requireClientCertificate: true,
+          requestClientCertificate: true,
+        );
+        final accepted = listener.first;
+        client = await SecureSocket.connect(
+          InternetAddress.loopbackIPv4,
+          listener.port,
+          context: context(),
+          timeout: const Duration(seconds: 5),
+        );
+        final server = await accepted.timeout(const Duration(seconds: 5));
+        final presented = server.peerCertificate!;
+        server.destroy();
+        expect(presented.der, client.peerCertificate!.der);
+        // A node may run for months; a wall clock may also be corrected.
+        expect(presented.startValidity.isBefore(DateTime.utc(2001)), isTrue);
+        expect(
+          presented.endValidity.isAfter(
+            DateTime.now().add(const Duration(days: 365 * 50)),
+          ),
+          isTrue,
+        );
+        await control.request('dispose', {'ownerId': session['ownerId']});
+      } finally {
+        client?.destroy();
+        await listener?.close();
         await control.close();
         await state.delete(recursive: true);
       }

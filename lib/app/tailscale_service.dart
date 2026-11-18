@@ -45,11 +45,31 @@ class TailscaleCandidate {
     required this.peer,
     required this.ref,
     required this.existingDevice,
+    this.replaces,
   });
   final Peer peer;
   final PeerRef ref;
   final bool existingDevice;
+
+  /// The node this device is associated with at present. It does not answer
+  /// as the device any more, as after the remote device signed in again and
+  /// registered a new node. Confirming moves the association to [ref] and
+  /// revokes this node; nothing is moved without that confirmation.
+  final PeerRef? replaces;
   String get key => jsonEncode([ref.networkScope, ref.nodeId, peer.id]);
+}
+
+/// What one discovery pass established, applied once all its probes finish.
+class _Sweep {
+  /// Keys of the candidates found, so that vanished ones are dropped.
+  final seen = <String>{};
+
+  /// Devices whose associated node answered with the expected identity.
+  final verified = <String>{};
+
+  /// Unassociated nodes reporting a device associated with another node.
+  final claims = <TailscaleCandidate>[];
+  var conflict = false;
 }
 
 /// Optional Tailscale lifecycle, explicit device associations and RPC routing.
@@ -60,24 +80,40 @@ class TamayuraTailscaleService {
     required this.openNode,
     required this.identity,
     required this.server,
-    required this.lanOnline,
+    required this.lanFirst,
+    this.onLanUnanswered,
     required this.onPeer,
     required this.onChanged,
     this.pollInterval = const Duration(seconds: 15),
+    this.settleInterval = const Duration(milliseconds: 500),
+    this.routeTimeout = const Duration(seconds: 15),
     this.discoveryEnabled = true,
-    this.preferUnverifiedLan = false,
   });
 
   final TamayuraRepository repository;
   final Future<TailscaleNode> Function() openNode;
   final Peer Function() identity;
   final MediaRpcServer? Function() server;
-  final bool Function(String deviceId) lanOnline;
+
+  /// Whether a new operation tries the device's LAN address before its remote
+  /// route: it answered there, or has not been tried there yet. A device that
+  /// did not answer goes straight to the remote route, without the timeout.
+  final bool Function(String deviceId) lanFirst;
+
+  /// A device's LAN address was tried and its remote route takes over. The
+  /// host records it, so that [lanFirst] spares later operations the wait.
+  final void Function(String deviceId)? onLanUnanswered;
   final Future<void> Function(Peer peer, bool online) onPeer;
   final void Function() onChanged;
   final Duration pollInterval;
+
+  /// The first interval between status reads while the node starts or signs
+  /// in. See [_pollDelay].
+  final Duration settleInterval;
+
+  /// How long a new route waits for a starting node. See [_awaitRegistration].
+  final Duration routeTimeout;
   final bool discoveryEnabled;
-  final bool preferUnverifiedLan;
 
   TailscaleNode? _node;
   NodeStatus? _status;
@@ -93,6 +129,10 @@ class TamayuraTailscaleService {
   bool _closed = false;
   int _generation = 0;
   Timer? _timer;
+  int _settlingPolls = 0;
+
+  /// Set while [initialize] runs.
+  Future<void>? _restoring;
   Future<void>? _refreshing;
   Future<void> _commands = Future.value();
   final List<TailscaleBinding> _bindings = [];
@@ -108,7 +148,12 @@ class TamayuraTailscaleService {
   Server? _identityServer, _mediaServer;
   MediaRpcServer? _publishedSource;
 
-  Future<void> initialize() async {
+  /// Loads the saved associations and resumes a saved sign-in. The host does
+  /// not wait for it before its own start-up work; see [createClient].
+  Future<void> initialize() =>
+      _restoring ??= _restore().whenComplete(() => _restoring = null);
+
+  Future<void> _restore() async {
     try {
       _bindings.addAll(
         TailscaleBindings.decode(
@@ -215,7 +260,7 @@ class TamayuraTailscaleService {
       await node.login();
       await _updateStatus(await node.status());
     });
-    _startTimer();
+    _startPolling();
     // Authentication completion is observed independently of LAN and the
     // caller opening the system browser. No authentication URL is persisted.
     unawaited(_safeRefresh());
@@ -227,7 +272,7 @@ class TamayuraTailscaleService {
       await node.start();
       await _updateStatus(await node.status());
     });
-    _startTimer();
+    _startPolling();
     unawaited(_safeRefresh());
   });
 
@@ -251,8 +296,55 @@ class TamayuraTailscaleService {
     }
   });
 
-  void _startTimer() {
-    _timer ??= Timer.periodic(pollInterval, (_) => unawaited(_safeRefresh()));
+  /// A started node has no registration scope until its first network map
+  /// arrives, and sign-in ends when the person in the browser finishes.
+  bool get _settling {
+    final status = _status;
+    return status == null ||
+        !status.registered &&
+            (status.state == NodeState.connecting ||
+                status.state == NodeState.authorizing);
+  }
+
+  /// Start-up and sign-in change state within seconds. At the regular interval
+  /// an authentication URL would open that much later, and a ready node would
+  /// publish and be routable that much later. They are followed closely at
+  /// first; a node that stays unsettled falls back to the regular interval.
+  Duration _pollDelay() {
+    if (!_settling) {
+      _settlingPolls = 0;
+      return pollInterval;
+    }
+    final attempt = _settlingPolls++;
+    final Duration delay;
+    if (_status?.state == NodeState.authorizing) {
+      // The URL arrives in moments; the sign-in itself may take minutes.
+      if (attempt >= 150) return pollInterval;
+      delay = settleInterval * (attempt < 4 ? 1 : 4);
+    } else {
+      delay = settleInterval * (1 << (attempt < 6 ? attempt : 6));
+    }
+    return delay < pollInterval ? delay : pollInterval;
+  }
+
+  void _startPolling() {
+    _settlingPolls = 0;
+    _schedulePoll();
+  }
+
+  void _schedulePoll() {
+    _timer?.cancel();
+    if (_closed || !_enabled) {
+      _timer = null;
+      return;
+    }
+    late final Timer timer;
+    timer = Timer(_pollDelay(), () async {
+      await _safeRefresh();
+      // A later command or logout owns the schedule now.
+      if (identical(_timer, timer)) _schedulePoll();
+    });
+    _timer = timer;
   }
 
   Future<void> _safeRefresh() async {
@@ -299,8 +391,15 @@ class TamayuraTailscaleService {
     if (!_current(generation)) return;
     await _updateStatus(next);
     generation = _generation;
-    if (!_current(generation) || !next.registered) return;
-    if (!discoveryEnabled) return;
+    if (!_current(generation)) return;
+    if (!next.registered || !discoveryEnabled) {
+      // The status was read: a failure recorded before this pass is over.
+      if (_error != null && identical(_error, previousError)) {
+        _error = null;
+        _changed();
+      }
+      return;
+    }
     // A control-plane interruption does not forcibly close existing sockets.
     final visiblePeers = (await node.peers())
         .where(
@@ -337,23 +436,37 @@ class TamayuraTailscaleService {
             ),
       ...peersByRef.values,
     ];
-    final seen = <String>{};
+    final sweep = _Sweep();
     var cursor = 0;
     Future<void> worker() async {
       while (_current(generation) && cursor < peers.length) {
         final peer = peers[cursor++];
-        await _probe(peer, remembered, seen, generation);
+        await _probe(peer, remembered, sweep, generation);
       }
     }
 
     await Future.wait(List.generate(peers.length.clamp(0, 4), (_) => worker()));
     if (!_current(generation)) return;
+    for (final claim in sweep.claims) {
+      if (sweep.verified.contains(claim.peer.id)) {
+        // The associated node still answers as this device, so a second node
+        // reporting the same identity is a conflict, never a successor.
+        sweep.conflict = true;
+        continue;
+      }
+      // The associated node no longer answers as this device, as after the
+      // remote device registered a new node. Offer the association to the
+      // user; it is never moved without an explicit confirmation.
+      sweep.seen.add(claim.key);
+      _candidates[claim.key] = claim;
+    }
     // Unconfirmed candidates are session-local. Persisted devices and bindings
     // remain available offline even if the current network hides that node.
-    _candidates.removeWhere((key, _) => !seen.contains(key));
-    if (identical(_error, previousError) &&
-        !(_error is TailscaleException &&
-            (_error as TailscaleException).code == 'identityConflict')) {
+    _candidates.removeWhere((key, _) => !sweep.seen.contains(key));
+    // A conflict lasts as long as a pass observes it, not until a command.
+    if (sweep.conflict) {
+      _error = const TailscaleException('identityConflict');
+    } else if (identical(_error, previousError)) {
       _error = null;
     }
     _changed();
@@ -365,7 +478,7 @@ class TamayuraTailscaleService {
   Future<void> _probe(
     TailscalePeer remote,
     Map<String, Peer> remembered,
-    Set<String> seen,
+    _Sweep sweep,
     int generation,
   ) async {
     if (_suppressed.contains(remote.ref)) return;
@@ -398,6 +511,7 @@ class TamayuraTailscaleService {
         if (identified.id != binding.deviceId) {
           throw const TailscaleException('identityConflict');
         }
+        sweep.verified.add(identified.id);
         final changed = _online.add(identified.id);
         if (changed || expected == null || expected.name != identified.name) {
           await onPeer(identified, true);
@@ -412,8 +526,17 @@ class TamayuraTailscaleService {
             .firstOrNull;
         if (sameDevice != null) {
           // Another node cannot acquire an established binding by reporting
-          // the same Tamayura ID, even after an address change.
-          _error = const TailscaleException('identityConflict');
+          // the same Tamayura ID, even after an address change. Whether it
+          // is a conflict or a successor awaiting the user's confirmation
+          // depends on the associated node's own answer in this pass.
+          sweep.claims.add(
+            TailscaleCandidate(
+              peer: identified,
+              ref: remote.ref,
+              existingDevice: remembered.containsKey(identified.id),
+              replaces: sameDevice.ref,
+            ),
+          );
           return;
         }
         final found = TailscaleCandidate(
@@ -421,7 +544,7 @@ class TamayuraTailscaleService {
           ref: remote.ref,
           existingDevice: remembered.containsKey(identified.id),
         );
-        seen.add(found.key);
+        sweep.seen.add(found.key);
         _candidates[found.key] = found;
       }
     } catch (error) {
@@ -431,7 +554,7 @@ class TamayuraTailscaleService {
         }
         if (error is FormatException ||
             error is TailscaleException && error.code == 'identityConflict') {
-          _error = const TailscaleException('identityConflict');
+          sweep.conflict = true;
         }
       }
       // An ordinary Tailscale node without Tamayura is not a discovered device.
@@ -448,22 +571,30 @@ class TamayuraTailscaleService {
       throw const TailscaleException('staleCandidate');
     }
     _generation++;
-    final next = [..._bindings];
-    if (next.any(
-      (entry) =>
-          entry.ref == candidate.ref ||
-          entry.ref.networkScope == candidate.ref.networkScope &&
+    // The device's present association in this network, which the candidate
+    // may succeed only as the pass that found it established: the associated
+    // node did not answer as the device.
+    final replaced = _bindings
+        .where(
+          (entry) =>
+              entry.ref.networkScope == candidate.ref.networkScope &&
               entry.deviceId == candidate.peer.id,
-    )) {
+        )
+        .toList();
+    if (_bindings.any((entry) => entry.ref == candidate.ref) ||
+        replaced.isNotEmpty &&
+            (candidate.replaces == null ||
+                _online.contains(candidate.peer.id))) {
       throw const TailscaleException('identityConflict');
     }
-    next.add(
+    final next = [
+      ..._bindings.where((entry) => !replaced.contains(entry)),
       TailscaleBinding(
         deviceId: candidate.peer.id,
         name: candidate.peer.name,
         ref: candidate.ref,
       ),
-    );
+    ];
     await repository.setSetting(
       TailscaleBindings.settingKey,
       TailscaleBindings.encode(next),
@@ -472,9 +603,17 @@ class TamayuraTailscaleService {
       ..clear()
       ..addAll(next);
     _candidates.remove(key);
+    if (replaced.isNotEmpty) await _closeRemoteClients(candidate.peer.id);
     // Association approval permits incoming sharing. Album sync approval stays
     // with the host's existing pending/approved/declined device decision.
-    await _mediaLease?.updatePolicy(_currentAllowedPeers());
+    try {
+      await _mediaLease?.updatePolicy(_currentAllowedPeers());
+    } catch (_) {
+      // The node that lost its association must not keep its access while
+      // native control is unavailable; see forgetDevice.
+      if (replaced.isNotEmpty) await _closePublications();
+      rethrow;
+    }
     await onPeer(candidate.peer, false);
     unawaited(_refreshAfterCurrent());
   });
@@ -597,59 +736,115 @@ class TamayuraTailscaleService {
   /// Called once for each new operation/retry. A live RPC keeps its route;
   /// media streams are never replayed automatically on another connection.
   MediaRpcClient createClient(Peer peer) {
-    final binding = _bindings
-        .where(
-          (entry) =>
-              entry.deviceId == peer.id &&
-              entry.ref.networkScope == _status?.networkScope,
-        )
-        .firstOrNull;
-    final node = _node;
-    final available = _enabled && node != null && binding != null;
-    if (available) {
-      final epoch = _status?.sessionEpoch;
-      TailscaleChannel? selected;
-      TailscaleChannel remote() {
-        if (!_enabled ||
-            _closed ||
-            epoch != _status?.sessionEpoch ||
-            !_bindings.contains(binding)) {
-          throw const GrpcError.permissionDenied(
-            'Tailscale association was revoked',
-          );
+    // The host's first operations begin while the saved sign-in is still
+    // resuming. Whether they have a remote route is not known yet, and is
+    // decided with the route itself rather than assumed absent.
+    final restoring = _restoring;
+    if (restoring == null && (_node == null || !hasAssociation(peer.id))) {
+      if (peer.host.isEmpty) {
+        throw const GrpcError.unavailable('Tailscale is not connected');
+      }
+      return MediaRpcClient(peer);
+    }
+    final scope = _status?.networkScope;
+    final epoch = _status?.sessionEpoch;
+    // While the scope is unknown the remote route may not exist after all,
+    // so the LAN address is tried in any case.
+    final remoteOnly = peer.host.isEmpty || scope != null && !lanFirst(peer.id);
+    TailscaleChannel? selected;
+    // Resolved when the route is needed rather than now: a node that has just
+    // started, as in a background transfer engine, has no scope to match yet.
+    Future<TailscaleChannel?> remote() async {
+      if (!remoteOnly) onLanUnanswered?.call(peer.id);
+      if (restoring != null) {
+        await restoring.timeout(routeTimeout, onTimeout: () {});
+      }
+      await _awaitRegistration();
+      final node = _node;
+      final status = _status;
+      final associated = _bindings.any((entry) => entry.deviceId == peer.id);
+      // An association that existed when the operation began and is gone now
+      // was revoked; one that never existed is simply no route.
+      if (restoring == null &&
+          (!_enabled ||
+              _closed ||
+              epoch != null && epoch != status?.sessionEpoch ||
+              !associated)) {
+        throw const GrpcError.permissionDenied(
+          'Tailscale association was revoked',
+        );
+      }
+      final binding = _bindings
+          .where(
+            (entry) =>
+                entry.deviceId == peer.id &&
+                entry.ref.networkScope == status?.networkScope,
+          )
+          .firstOrNull;
+      if (!_enabled || _closed || node == null || binding == null) {
+        // Not signed in, not registered in time, or registered as another
+        // node than the one this device was associated with.
+        if (peer.host.isEmpty) {
+          throw const GrpcError.unavailable('Tailscale is not connected');
         }
-        return selected = TailscaleChannel(
-          node,
-          binding.ref,
-          port: tailscaleMediaPort,
-        );
+        return null;
       }
+      return selected = TailscaleChannel(
+        node,
+        binding.ref,
+        port: tailscaleMediaPort,
+      );
+    }
 
-      late final MediaRpcClient client;
-      void closed() => _clients.remove(client);
-      if (peer.host.isNotEmpty && (lanOnline(peer.id) || preferUnverifiedLan)) {
-        client = MediaRpcClient(
-          peer,
-          fallbackChannel: remote,
-          onClosed: closed,
-          translateTransportError: (error) => _transportError(error, selected),
-        );
-      } else {
-        client = MediaRpcClient(
-          peer,
-          channel: remote(),
-          usesTailscale: true,
-          onClosed: closed,
-          translateTransportError: (error) => _transportError(error, selected),
-        );
-      }
-      _clients.add(client);
-      return client;
+    late final MediaRpcClient client;
+    client = MediaRpcClient(
+      peer,
+      fallbackChannel: remote,
+      remoteOnly: remoteOnly,
+      onClosed: () => _clients.remove(client),
+      translateTransportError: (error) => _transportError(error, selected),
+    );
+    _clients.add(client);
+    return client;
+  }
+
+  /// A started node has not yet received the network map that carries its
+  /// registration scope.
+  bool get _awaitingScope {
+    final status = _status;
+    return status == null ||
+        !status.registered && status.state == NodeState.connecting;
+  }
+
+  /// Whether this device has an association that a new operation may use.
+  /// While the scope is unknown any saved association counts, so that a
+  /// transfer can be scheduled; the route itself is matched when it is used.
+  bool hasAssociation(String deviceId) {
+    if (!_enabled) return false;
+    final scope = _status?.networkScope;
+    return _bindings.any(
+      (entry) =>
+          entry.deviceId == deviceId &&
+          (scope == null ? _awaitingScope : entry.ref.networkScope == scope),
+    );
+  }
+
+  /// The scope usually arrives within seconds of starting. A route requested
+  /// before that waits for it, up to [routeTimeout], instead of failing; an
+  /// engine that started the node for one transfer would otherwise give up
+  /// first, on every run. The wait reads the status itself, so it does not
+  /// depend on the poll schedule, and ends at once in any other state.
+  Future<void> _awaitRegistration() async {
+    final watch = Stopwatch()..start();
+    while (!_closed &&
+        _enabled &&
+        _node != null &&
+        _awaitingScope &&
+        watch.elapsed < routeTimeout) {
+      // Not awaited: once registered, a pass goes on to probe every peer.
+      unawaited(_safeRefresh());
+      await Future<void>.delayed(settleInterval);
     }
-    if (peer.host.isEmpty) {
-      throw const GrpcError.unavailable('Tailscale is not connected');
-    }
-    return MediaRpcClient(peer);
   }
 
   Future<void> _closeRemoteClients([String? deviceId]) async {

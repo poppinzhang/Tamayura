@@ -7,6 +7,7 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
@@ -333,6 +334,28 @@ func TestPublishRequiresExplicitPolicyAndPinnedMutualTLS(t *testing.T) {
 	mustCall(t, r, "updatePolicy", map[string]any{"ownerId": owner, "serviceId": svc["serviceId"], "allowedPeers": []PeerRef{}})
 	if _, err = c.Read(buf); err == nil {
 		t.Fatal("policy revocation kept existing stream")
+	}
+}
+func TestSessionCertificateOutlivesLongRunningNodeAndClockCorrections(t *testing.T) {
+	_, _, init, _ := setup(t)
+	block, _ := pem.Decode([]byte(init["certificatePem"].(string)))
+	if block == nil {
+		t.Fatal("no session certificate")
+	}
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pool := x509.NewCertPool()
+	pool.AddCert(cert)
+	// A session used to stop delivering inbound streams 30 days after it
+	// began, and immediately if the clock moved back by more than an hour.
+	for _, at := range []time.Time{time.Now().AddDate(-10, 0, 0), time.Now(), time.Now().AddDate(50, 0, 0)} {
+		options := x509.VerifyOptions{Roots: pool, CurrentTime: at,
+			KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth}}
+		if _, err := cert.Verify(options); err != nil {
+			t.Fatalf("session certificate rejected at %s: %v", at.Format(time.DateOnly), err)
+		}
 	}
 }
 func TestLogoutOfflineClearsOnlyNodeStateAndChangesEpoch(t *testing.T) {

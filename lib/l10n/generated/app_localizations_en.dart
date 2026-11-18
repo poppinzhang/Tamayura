@@ -1928,6 +1928,18 @@ class AppLocalizationsEn extends AppLocalizations {
       'This will link to an existing device record. Check the identity on both devices.';
 
   @override
+  String get tailscaleReplacesNode =>
+      'This device is linked to another Tailscale node that no longer answers as it, as happens after the other device signs in again and gets a new node. Check the device and node identity in the other device\'s settings.';
+
+  @override
+  String get tailscaleReplaceConfirmMessage =>
+      'Verify that this is your device and that its device and node identity match what the other device shows in its settings. This Tailscale node will then be able to read media in your shared folders, and remote sharing for the previously linked node is revoked. Your album sync choice is kept, and the other device must also allow access from this device.';
+
+  @override
+  String get tailscaleIdentityConflict =>
+      'Device identity conflict: a Tailscale node reports a device identity that does not match the linked record. Nodes with a mismatched identity are not used. Check the device and node identity shown in the settings on both devices. LAN and offline albums remain available.';
+
+  @override
   String get tailscaleRevoke => 'Revoke remote sharing';
 
   @override

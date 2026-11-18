@@ -1775,6 +1775,18 @@ class AppLocalizationsJa extends AppLocalizations {
   String get tailscaleExistingDevice => '既存の端末に関連付けます。両側の端末情報を確認してください。';
 
   @override
+  String get tailscaleReplacesNode =>
+      'この端末は別の Tailscale ノードに関連付けられていますが、そのノードはこの端末として応答しなくなりました。相手側が再ログインしてノードが変わった可能性があります。相手側の設定で端末とノードの識別情報を確認してください。';
+
+  @override
+  String get tailscaleReplaceConfirmMessage =>
+      '自分の端末であること、相手側の設定に表示される端末とノードの識別情報と一致することを確認してください。許可すると、この Tailscale ノードがこの端末の共有フォルダー内のメディアを読み取れるようになり、以前に関連付けたノードのリモート共有は取り消されます。アルバム同期の選択は変わりません。相手側でもこの端末からのアクセスを許可する必要があります。';
+
+  @override
+  String get tailscaleIdentityConflict =>
+      '端末の識別情報が競合しています。関連付け済みの記録と一致しない端末情報を報告する Tailscale ノードがあります。識別情報が一致しないノードは使用しません。両側の設定に表示される端末とノードの識別情報を確認してください。LAN とオフラインアルバムは利用できます。';
+
+  @override
   String get tailscaleRevoke => 'リモート共有を取り消す';
 
   @override

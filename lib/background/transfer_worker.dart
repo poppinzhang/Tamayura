@@ -50,11 +50,11 @@ Future<void> runBackgroundTransfer() async {
       // from the shared private state, without requiring a live Activity.
       identity: () => const Peer(id: '', name: '', host: '', port: 0),
       server: () => null,
-      lanOnline: (_) => false,
+      // Nothing here has checked the LAN: try a remembered address first.
+      lanFirst: (_) => true,
       onPeer: (_, _) async {},
       onChanged: () {},
       discoveryEnabled: false,
-      preferUnverifiedLan: true,
     );
     await tailscale.initialize();
     final runner = TransferRunner(

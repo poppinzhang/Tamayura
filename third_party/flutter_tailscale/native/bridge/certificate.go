@@ -22,6 +22,18 @@ func token() (string, error) {
 	return base64.RawURLEncoding.EncodeToString(b), nil
 }
 
+// The session certificate is an in-memory credential of one runtime session.
+// Both ends pin its exact bytes, and it is replaced whenever the session
+// rotates, so its validity period adds no protection. A short period would
+// instead stop a long-running node from delivering inbound streams to its own
+// host, and a wall-clock correction could do the same at any time. The bounds
+// are therefore fixed and independent of the clock; the upper one is the
+// RFC 5280 value for a certificate without a well-defined expiration.
+var (
+	sessionNotBefore = time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
+	sessionNotAfter  = time.Date(9999, 12, 31, 23, 59, 59, 0, time.UTC)
+)
+
 func certificate() (tls.Certificate, string, string, error) {
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
@@ -33,7 +45,7 @@ func certificate() (tls.Certificate, string, string, error) {
 	}
 	template := &x509.Certificate{
 		SerialNumber: serial, Subject: pkix.Name{CommonName: "Flutter Tailscale local session"},
-		NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(30 * 24 * time.Hour),
+		NotBefore: sessionNotBefore, NotAfter: sessionNotAfter,
 		KeyUsage:    x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
 		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth},
 		IsCA:        true, BasicConstraintsValid: true,
