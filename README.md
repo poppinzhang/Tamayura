@@ -36,19 +36,19 @@ Your phone holds the everyday photos. Your computer holds the trips, videos, and
 
 It is for browsing and transferring media between your own devices. It does not automatically copy entire albums or track edits to file contents.
 
-**Upcoming in 1.2.0 — optional internet access with Tailscale.** The `1.2.0` source adds an optional in-app Tailscale node, with separate LAN and Tailscale status for each device and explicit approval for remote sharing. In **Settings → Tailscale remote access**, sign in on both devices, then confirm the discovered device under **Devices** on each side; album sync approval remains separate, and using Tamayura on your LAN never requires signing in. Release builds and validation status are tracked in the [1.2.0 release record](docs/releases/1.2.0.md) and [CHANGELOG](CHANGELOG.md); the current published release remains v1.1.0 until v1.2.0 is published. Embedded-node account sign-in, cellular background, and cross-device acceptance are still pending; see [implementation and validation](docs/Tailscale实现.md).
+**Optional internet access (1.2.0).** Besides your local network, Tamayura can reach your own devices over the internet through an embedded Tailscale node, with separate LAN and Tailscale status for each device and explicit approval for remote sharing. In **Settings → Tailscale remote access**, sign in on both devices, then confirm the discovered device under **Devices** on each side; album sync approval remains separate, and using Tamayura on your LAN never requires signing in. Embedded-node account sign-in, cellular background use, and cross-device acceptance on real devices are still pending; see [implementation and validation](docs/Tailscale实现.md).
 
 ## Quick start
 
-**v1.1.0 is the latest stable release**, available for Android, macOS, Windows, and Linux from [GitHub Releases](https://github.com/poppinzhang/Tamayura/releases/tag/v1.1.0). See the [1.1.0 release record](docs/releases/1.1.0.md) for installation notes and validation scope. Stable releases began with v1.0.0 and follow the [compatibility and upgrade policy](docs/兼容与升级.md).
+**v1.2.0 is the latest stable release**, available for Android, macOS, Windows, and Linux from [GitHub Releases](https://github.com/poppinzhang/Tamayura/releases/tag/v1.2.0). See the [1.2.0 release record](docs/releases/1.2.0.md) for installation notes and validation scope. Stable releases began with v1.0.0 and follow the [compatibility and upgrade policy](docs/兼容与升级.md).
 
-**1.1.0** reuses the saved Windows folder index on startup and when returning to the foreground, monitors active shared directories for batched incremental updates, and adds **Settings → Shared folder full check interval** (1–8760 whole hours, defaulting to 24, retaining the last successful check time across restarts). Changes made while Tamayura is closed or sharing is stopped may wait until you refresh manually or a full check becomes due. It also fixes Windows discovery locking, full-frame fallback decoding, UI responsiveness, updater helper checks, and clean neutral-directory packaging while keeping compatibility with 1.0.0 and 1.0.1 data.
+**1.2.0** adds optional Tailscale internet access: sign in under **Settings → Tailscale remote access**, confirm each remote device, and browse albums and download originals over the internet as you do on your LAN. If you do not sign in, nothing changes: Tamayura stays on your LAN, starts no remote component, and keeps compatibility with the 1.0.0–1.1.0 data formats, so settings, albums, and downloads are preserved on upgrade. On Windows, **Settings → Shared folder full check interval** (1–8760 whole hours, default 24, added in 1.1.0) still controls how often a full folder check runs.
 
-**1 · Install and connect.** Choose the package for your platform from [GitHub Releases](https://github.com/poppinzhang/Tamayura/releases) and read the [installation notes](docs/releases/1.1.0.md#安装与数据). Android keeps the release certificate used since 0.6.1 and can update an app with the same signature. A debug or older differently signed app must be uninstalled first, which clears its app data and folder permissions. For the current 1.1.0 packages, connect both devices to the same local network and open Tamayura. Allow local network access when prompted; on Windows, allow the app through the firewall on your trusted private network.
+**1 · Install and connect.** Choose the package for your platform from [GitHub Releases](https://github.com/poppinzhang/Tamayura/releases) and read the [installation notes](docs/releases/1.2.0.md#安装与数据). Android keeps the release certificate used since 0.6.1 and can update an app with the same signature. A debug or older differently signed app must be uninstalled first, which clears its app data and folder permissions. Connect both devices to the same local network and open Tamayura. Allow local network access when prompted; on Windows, allow the app through the firewall on your trusted private network. To connect away from your LAN, see step 3.
 
 **2 · Choose your folders.** In **Settings (设置)**, add the folders you want to share and choose where downloaded files should go. For example, share `DCIM` and receive files in `Pictures/Tamayura`. Subfolders are included automatically. On Android, choose a subfolder rather than the storage root or the `Download` root.
 
-**3 · Find your other device.** Open **Devices (设备)** and wait for automatic discovery. When a new device is found, Tamayura asks whether to sync its album; if you choose not to, you can turn syncing on later from its card. You can also enter the address shown on the other device, or scan its QR code on Android and macOS; these connect and sync right away.
+**3 · Find your other device.** Open **Devices (设备)** and wait for automatic discovery. When a new device is found, Tamayura asks whether to sync its album; if you choose not to, you can turn syncing on later from its card. You can also enter the address shown on the other device, or scan its QR code on Android and macOS; these connect and sync right away. To reach a device outside your local network, sign in to Tailscale on both devices under **Settings → Tailscale remote access**; the other device then appears among the discovered remote devices, and remote sharing starts only after you confirm it on each side. Remote sync and downloads use your current connection, including mobile data, which may incur charges.
 
 **4 · Open an album.** In **Albums (相册)**, choose a shared collection and tap a photo or video to download its original. The source device must be online for downloads. After adding or removing media, refresh the source device and wait for its folder scan to finish, then refresh the receiving device to update its album.
 
@@ -56,7 +56,7 @@ It is for browsing and transferring media between your own devices. It does not 
 
 Open **Settings → Check for updates** to check stable GitHub Releases. Tamayura asks for your confirmation before proceeding. Android downloads and verifies the APK, then opens the system installation flow; allow this installation source when prompted and confirm the update. Windows downloads and verifies the full ZIP, replaces the complete application folder, and restarts. It requires a complete release bundle in a dedicated writable local folder whose parent is also writable; it does not provide a separate installer or automatically request administrator access. macOS opens the selected release page for you to download and install the update yourself. Linux also opens the release page; download the tar.gz for your architecture and replace the app folder yourself.
 
-Users of 0.8.0 or later can find 1.1.0 through Check for updates; older versions require manual installation. Checking and downloading updates requires internet access. Updating interrupts sharing and transfers; interrupted media downloads can be retried after reopening the app. On Windows, quit the old v1.0.0 app from its tray menu before launching the upgraded app for the first time. See the [1.1.0 release record](docs/releases/1.1.0.md) for limitations and device validation scope.
+Users of 0.8.0 or later can find 1.2.0 through Check for updates; older versions require manual installation. Checking and downloading updates requires internet access. Updating interrupts sharing and transfers; interrupted media downloads can be retried after reopening the app. On Windows, quit the old v1.0.0 app from its tray menu before launching the upgraded app for the first time. See the [1.2.0 release record](docs/releases/1.2.0.md) for limitations and device validation scope.
 
 ## Supported platforms
 
@@ -67,7 +67,7 @@ Users of 0.8.0 or later can find 1.1.0 through Check for updates; older versions
 | Windows | Windows 10 1809+ / Windows 11 · x64 | ZIP; Visual C++ x64 runtime required |
 | Linux (from 1.0.0) | Ubuntu 24.04 LTS or a newer desktop with glibc 2.39+ and GTK 3.24 · x64 / arm64 | tar.gz app folder |
 
-The macOS app uses ad-hoc signing and is not notarized; Windows and Linux packages are unsigned. A stable GitHub Release does not imply platform notarization or app-store distribution. Installation details and validation limits are in the [1.1.0 release record](docs/releases/1.1.0.md). Linux is included from 1.0.0; older releases do not contain Linux packages. iOS is planned but does not yet have a runnable or downloadable build.
+The macOS app uses ad-hoc signing and is not notarized; Windows and Linux packages are unsigned. A stable GitHub Release does not imply platform notarization or app-store distribution. Installation details and validation limits are in the [1.2.0 release record](docs/releases/1.2.0.md). Linux is included from 1.0.0; older releases do not contain Linux packages. iOS is planned but does not yet have a runnable or downloadable build.
 
 Windows can display a connection QR code, open downloaded files in the default app, and reveal them in Explorer. Camera scanning and the system share sheet are available on Android and macOS.
 
@@ -77,7 +77,7 @@ Linux can likewise display a connection QR code, open downloaded files in the de
 
 Each device chooses its shared folders and remembers the other devices it has connected to. To remove a device together with its offline album, choose **Forget device** from its menu on the Devices page; files you have already downloaded stay on your device. Tamayura first syncs the media list and small previews. Originals stay on their source device until you choose to download them.
 
-Devices discover each other with mDNS / DNS-SD and transfer media directly over gRPC. There is no account or cloud relay to set up.
+Devices discover each other with mDNS / DNS-SD and transfer media directly over gRPC. There is no account or cloud relay to set up for LAN use. Optionally, signing in to your own Tailscale account lets approved devices reach each other over the internet through a Tailscale node embedded in Tamayura; it does not install a system VPN.
 
 ## What it does
 
@@ -129,8 +129,7 @@ Most detailed documentation is currently in Chinese.
 | :-- | :-- |
 | [Changelog](CHANGELOG.md) | Released and unreleased changes |
 | [GitHub Releases](https://github.com/poppinzhang/Tamayura/releases) | Published packages and checksums |
-| [1.2.0 release record](docs/releases/1.2.0.md) | Upcoming release status, installation impact, and validation scope |
-| [1.1.0 release record](docs/releases/1.1.0.md) | Stable publication status, installation impact, and validation scope |
+| [1.2.0 release record](docs/releases/1.2.0.md) | Stable publication status, installation impact, and validation scope |
 | [Tailscale remote access](docs/Tailscale实现.md) | Internet access design, security boundary, and validation scope |
 | [Sync behavior](docs/自动与手动同步.md) | Automatic intervals, manual refresh, and sync status |
 | [New and forgotten devices](docs/新设备确认与忘记设备.md) | Confirming newly discovered devices, retrying when a device comes back, and forgetting devices |
@@ -144,7 +143,7 @@ Most detailed documentation is currently in Chinese.
 
 Media and previews are transferred between your devices. Each device stores the synced media information and thumbnails locally so you can browse them offline. You choose which folders to share and where to save downloads.
 
-The LAN transport has **no application-level authentication or transport encryption (TLS)**. Restrict access to trusted devices and do not expose its service port directly to the public internet. The Tailscale path upcoming in 1.2.0 encrypts its remote traffic and restricts it to approved node identities; this does not protect the separate LAN listener. Local mDNS discovery still depends on multicast; guest Wi-Fi and client isolation may prevent discovery or connections.
+The LAN transport has **no application-level authentication or transport encryption (TLS)**. Restrict access to trusted devices and do not expose its service port directly to the public internet. The optional Tailscale path (1.2.0 and later) encrypts its remote traffic and restricts it to approved node identities; this does not protect the separate LAN listener. Local mDNS discovery still depends on multicast; guest Wi-Fi and client isolation may prevent discovery or connections.
 
 Stable updates within the same major version must preserve settings, cached albums, and download records. Unsupported database versions are left intact and reported as an error. Earlier 0.x database formats are outside the migration baseline; back up app data before changing installations. Shared originals and saved receiving-folder files are never deleted by an upgrade.
 
