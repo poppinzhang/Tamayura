@@ -40,7 +40,7 @@ Windows 原生 CTest 已 **2/2 通过**：`discovery_core_test` 与 `windows_sto
 
 Windows 的平台通道 `uri` 字段实际传递本机绝对路径，不转为 `file://`；这些路径只供本机存储与打开操作，不发送给对端。对端使用不透明媒体 ID 与相对目录元信息，通过 gRPC 请求文件。数据库位于 `%LOCALAPPDATA%\Tamayura\databases`，预览/临时文件位于 `cache`，未完成下载分片位于 `transfers`。设备 UUID 和后台共享设置保存于当前用户的 `HKEY_CURRENT_USER\Software\Tamayura`；移动源码或 EXE 不会改变这些位置。清理应用数据库会失去缓存、目录配置与记录，清理 `transfers` 会失去未完成续传；外部共享目录和接收目录里的原文件不属于这些缓存。
 
-原生入口为 `windows/runner/windows_platform.cpp`，发现由 `lan_discovery.cpp` 与 `discovery_core.cpp` 处理，目录/文件与预览由 `windows_storage.cpp`、`storage_core.cpp` 处理；扫描、对端分块读取、保存与删除等耗时操作在 `WorkerPool` 中执行；当前未发布源码将普通工作线程数限制为 2–8（无法取得硬件数量时为 4），缩略图与本地预览另用两个独立线程，避免慢解码器占满传输队列，详见 [Windows 稳定性检查](Windows稳定性.md)；单次分块读取上限为 `kMaxReadChunkBytes`（2 MiB，见 [传输恢复](传输恢复.md#分块大小)）；`lib/data/platform_database.dart` 在 Windows 配置共享的 FFI 数据库工厂。`windows/tests` 独立测试发现元数据校验及原生存储边界，`test` 保留跨平台业务与界面回归。
+原生入口为 `windows/runner/windows_platform.cpp`，发现由 `lan_discovery.cpp` 与 `discovery_core.cpp` 处理，目录/文件与预览由 `windows_storage.cpp`、`storage_core.cpp` 处理；扫描、对端分块读取、保存与删除等耗时操作在 `WorkerPool` 中执行；自 1.1.0 起将普通工作线程数限制为 2–8（无法取得硬件数量时为 4），缩略图与本地预览另用两个独立线程，避免慢解码器占满传输队列，详见 [Windows 稳定性检查](Windows稳定性.md)；单次分块读取上限为 `kMaxReadChunkBytes`（2 MiB，见 [传输恢复](传输恢复.md#分块大小)）；`lib/data/platform_database.dart` 在 Windows 配置共享的 FFI 数据库工厂。`windows/tests` 独立测试发现元数据校验及原生存储边界，`test` 保留跨平台业务与界面回归。
 
 实际 Windows Runner 编译还需要显式包含命令行解析与 COM 的系统头文件，避免借用其他头文件的间接包含；局部变量避开 Windows RPC 的 `small` 宏。资源管理器定位使用的 PIDL 保留 SDK 的指针限定符和所有权，并在结束时调用 `CoTaskMemFree`。这些接入由完整 Runner 构建验证，独立存储 CTest 不覆盖 Flutter 宿主编译。
 
@@ -67,7 +67,7 @@ flutter run -d windows
 
 `flutter doctor -v` 中 Windows 和 Visual Studio 检查应通过，`flutter devices` 应出现 Windows desktop。Android 工具链不参与 Windows 构建，不必为 Windows 调试安装 Android Studio。原生测试脚本会优先使用 PATH 中的 CMake，否则查找 Visual Studio 2022 自带的 CMake 和 CTest。
 
-当前未发布的 Tailscale 接入还需要 **Go 1.27.4** 和 **Python 3.12+**（CI 使用 Python 3.13）。Windows CMake 从固定源码构建 x64 helper，并收集 UTF-8 许可证材料；构建目录中必须包含 helper 和许可证，否则打包失败。`package-windows.ps1` 在应用构建后自动调用 `test-windows-tailscale.ps1`，使用刚生成的 helper 执行 Go 与 SDK 测试；脚本临时设置的环境变量会在结束时恢复。完整实现、实际检查结果和尚未验收范围统一记录于 [Tailscale 实现](Tailscale实现.md)。
+自 1.2.0 起的 Tailscale 接入还需要 **Go 1.27.4** 和 **Python 3.12+**（CI 使用 Python 3.13）。Windows CMake 从固定源码构建 x64 helper，并收集 UTF-8 许可证材料；构建目录中必须包含 helper 和许可证，否则打包失败。`package-windows.ps1` 在应用构建后自动调用 `test-windows-tailscale.ps1`，使用刚生成的 helper 执行 Go 与 SDK 测试；脚本临时设置的环境变量会在结束时恢复。完整实现、实际检查结果和尚未验收范围统一记录于 [Tailscale 实现](Tailscale实现.md)。
 
 也可安装 Visual Studio 2022 Build Tools 的 VCTools 工作负载及 MSVC、CMake、Windows SDK 组件；本次实际使用 Build Tools 17.14.42、MSVC 19.44.35229 与 SDK 10.0.26100.0，具体组件见 [发布与打包](发布.md)。打包脚本要求 x64 构建主机；Flutter 3.47.6 自动采用主机目标架构，不支持 `build windows --target-platform` 参数。
 

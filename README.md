@@ -36,7 +36,7 @@ Your phone holds the everyday photos. Your computer holds the trips, videos, and
 
 It is for browsing and transferring media between your own devices. It does not automatically copy entire albums or track edits to file contents.
 
-The [unreleased source](CHANGELOG.md#unstaged) now integrates optional in-app Tailscale sign-in through Flutter-Tailscale, with separate LAN / Tailscale status and explicit remote sharing approval. In Settings, sign in on both devices, then confirm the discovered device under Devices on each side. Album sync approval remains separate. This is not included in the 1.1.0 packages; embedded-node internet, cellular background, and platform acceptance are still pending. See [implementation and validation](docs/Tailscale实现.md).
+**Upcoming in 1.2.0 — optional internet access with Tailscale.** The `1.2.0` source adds an optional in-app Tailscale node, with separate LAN and Tailscale status for each device and explicit approval for remote sharing. In **Settings → Tailscale remote access**, sign in on both devices, then confirm the discovered device under **Devices** on each side; album sync approval remains separate, and using Tamayura on your LAN never requires signing in. Release builds and validation status are tracked in the [1.2.0 release record](docs/releases/1.2.0.md) and [CHANGELOG](CHANGELOG.md); the current published release remains v1.1.0 until v1.2.0 is published. Embedded-node account sign-in, cellular background, and cross-device acceptance are still pending; see [implementation and validation](docs/Tailscale实现.md).
 
 ## Quick start
 
@@ -129,7 +129,9 @@ Most detailed documentation is currently in Chinese.
 | :-- | :-- |
 | [Changelog](CHANGELOG.md) | Released and unreleased changes |
 | [GitHub Releases](https://github.com/poppinzhang/Tamayura/releases) | Published packages and checksums |
+| [1.2.0 release record](docs/releases/1.2.0.md) | Upcoming release status, installation impact, and validation scope |
 | [1.1.0 release record](docs/releases/1.1.0.md) | Stable publication status, installation impact, and validation scope |
+| [Tailscale remote access](docs/Tailscale实现.md) | Internet access design, security boundary, and validation scope |
 | [Sync behavior](docs/自动与手动同步.md) | Automatic intervals, manual refresh, and sync status |
 | [New and forgotten devices](docs/新设备确认与忘记设备.md) | Confirming newly discovered devices, retrying when a device comes back, and forgetting devices |
 | [Downloads and storage](docs/下载存储与清理.md) | Resuming downloads, temporary files, and cleanup |
@@ -142,7 +144,7 @@ Most detailed documentation is currently in Chinese.
 
 Media and previews are transferred between your devices. Each device stores the synced media information and thumbnails locally so you can browse them offline. You choose which folders to share and where to save downloads.
 
-The LAN transport has **no application-level authentication or transport encryption (TLS)**. Restrict access to trusted devices and do not expose its service port directly to the public internet. The unreleased Tailscale integration encrypts its remote path and restricts it to approved node identities; this does not protect the separate LAN listener. Local mDNS discovery still depends on multicast; guest Wi-Fi and client isolation may prevent discovery or connections.
+The LAN transport has **no application-level authentication or transport encryption (TLS)**. Restrict access to trusted devices and do not expose its service port directly to the public internet. The Tailscale path upcoming in 1.2.0 encrypts its remote traffic and restricts it to approved node identities; this does not protect the separate LAN listener. Local mDNS discovery still depends on multicast; guest Wi-Fi and client isolation may prevent discovery or connections.
 
 Stable updates within the same major version must preserve settings, cached albums, and download records. Unsupported database versions are left intact and reported as an error. Earlier 0.x database formats are outside the migration baseline; back up app data before changing installations. Shared originals and saved receiving-folder files are never deleted by an upgrade.
 

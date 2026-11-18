@@ -114,7 +114,7 @@ scripts/package-linux.sh
 脚本只在 Linux 运行，按主机架构生成 `dist/<version>/Tamayura-<version>-linux-x64.tar.gz` 或 `-linux-arm64.tar.gz`，以及独立的 `SHA256SUMS-linux-<arch>`，版本取自 `pubspec.yaml`。流程如下：
 
 1. 核对 Flutter 3.47.6 / Dart 3.13.5，把检出中的已跟踪及未忽略文件复制到临时目录，再在该目录执行依赖解析、格式、静态分析、全部 Flutter 测试、原生测试与 Release 构建。Flutter 会把插件注册文件的绝对路径写入 AOT 快照，从中性临时目录构建可避免发行包包含个人目录；全新构建目录也避免混入 debug 构建残留的 `kernel_blob.bin`。
-2. 核对包内必需文件、可执行权限、`version.json` 版本与构建号、包内 SQLite 清单、九种尺寸图标；拒绝符号链接、测试清单和 debug 快照；所有 ELF 必须是对应架构的 64 位文件，glibc / libstdc++ 符号版本不超过 Ubuntu 24.04（GLIBC 2.39、GLIBCXX 3.4.33、CXXABI 1.3.15），库搜索路径只能位于包内，且 `ldd` 无缺失依赖。未发布的 Tailscale 接入另要求包内带有可执行的 `flutter-tailscale-bridge` 与非空的许可证声明；该 helper 是静态链接的 Go 程序，没有动态段，只核验架构，不参与符号版本与库搜索路径检查，其他二进制不得静态链接。
+2. 核对包内必需文件、可执行权限、`version.json` 版本与构建号、包内 SQLite 清单、九种尺寸图标；拒绝符号链接、测试清单和 debug 快照；所有 ELF 必须是对应架构的 64 位文件，glibc / libstdc++ 符号版本不超过 Ubuntu 24.04（GLIBC 2.39、GLIBCXX 3.4.33、CXXABI 1.3.15），库搜索路径只能位于包内，且 `ldd` 无缺失依赖。自 1.2.0 起的 Tailscale 接入另要求包内带有可执行的 `flutter-tailscale-bridge` 与非空的许可证声明；该 helper 是静态链接的 Go 程序，没有动态段，只核验架构，不参与符号版本与库搜索路径检查，其他二进制不得静态链接。
 3. 以固定归属、权限和源码提交时间生成 tar.gz，再解压核对只有一个顶层目录、条目只含普通文件与目录、文件列表、内容和可执行权限与构建结果一致，并扫描检出路径与主目录等构建机路径。临时目录位于主目录内时会被拒绝，可改用 `TMPDIR=/tmp`。
 4. 有 `xvfb-run` 与 `dbus-run-session` 时，以空白临时配置启动解压后的应用，确认进程实际加载包内的 `lib/libsqlite3.so` 后结束；缺少时明确输出 SKIP。
 
