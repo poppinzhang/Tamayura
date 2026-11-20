@@ -39,7 +39,7 @@ class AlbumFastScroll extends StatefulWidget {
 }
 
 class _AlbumFastScrollState extends State<AlbumFastScroll> {
-  static const _hold = Duration(seconds: 3);
+  static const _hold = Duration(milliseconds: 1500);
   static const _fade = Duration(milliseconds: 300);
   static const _thumbHeight = 56.0;
   final _trackKey = GlobalKey();

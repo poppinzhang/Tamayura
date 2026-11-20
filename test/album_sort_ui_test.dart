@@ -171,16 +171,26 @@ PopupMenuButton<MediaSortOrder> _sortButton(WidgetTester tester) =>
     tester.widget(find.byKey(const Key('album-sort')));
 
 void main() {
-  testWidgets('sort control appears only inside a collection', (tester) async {
-    final model = _Model()..selectedCollectionKey = null;
-    await _show(tester, model);
-    expect(find.byKey(const Key('album-sort')), findsNothing);
-    await _tap(tester, 'collection-peer/camera');
-    expect(find.text('排序：日期降序'), findsOneWidget);
-    expect(find.byTooltip('按名称或文件修改日期排序'), findsOneWidget);
-    await _tap(tester, 'back-to-collections');
-    expect(find.byKey(const Key('album-sort')), findsNothing);
-  });
+  testWidgets(
+    'the collection back button returns to the overview without sort controls',
+    (tester) async {
+      final model = _Model()..selectedCollectionKey = null;
+      await _show(tester, model);
+      expect(find.byKey(const Key('album-sort')), findsNothing);
+      await _tap(tester, 'collection-peer/camera');
+      expect(find.text('排序：日期降序'), findsOneWidget);
+      expect(find.byTooltip('按名称或文件修改日期排序'), findsOneWidget);
+      await _tap(tester, 'back-to-collections');
+      expect(find.byKey(const Key('album-sort')), findsNothing);
+      expect(find.byKey(const Key('collection-peer/camera')), findsOneWidget);
+    },
+    variant: TargetPlatformVariant({
+      TargetPlatform.iOS,
+      TargetPlatform.macOS,
+      TargetPlatform.linux,
+      TargetPlatform.windows,
+    }),
+  );
 
   testWidgets(
     'all four orders show their current check and never download',

@@ -326,7 +326,7 @@ void main() {
     const FakeAccessibilityFeatures(accessibleNavigation: true),
   ]) {
     testWidgets(
-      'reduced motion preserves the 3-second handle hold: $features',
+      'reduced motion preserves the 1.5-second handle hold: $features',
       (tester) async {
         tester.platformDispatcher.accessibilityFeaturesTestValue = features;
         addTearDown(
@@ -338,9 +338,9 @@ void main() {
         await tester.pump();
         expect(_paintedOpacity(tester), 1);
         expect(_thumb.hitTestable(), findsOneWidget);
-        await tester.pump(const Duration(milliseconds: 2999));
+        await tester.pump(const Duration(milliseconds: 1499));
         expect(_paintedOpacity(tester), 1);
-        await tester.pump(const Duration(milliseconds: 2));
+        await tester.pump(const Duration(milliseconds: 1));
         expect(_paintedOpacity(tester), 0);
         expect(_thumb.hitTestable(), findsNothing);
       },
@@ -348,7 +348,7 @@ void main() {
   }
 
   testWidgets(
-    'mobile album reveals the handle while scrolling and fades after 3 seconds',
+    'mobile album reveals the handle while scrolling and fades after 1.5 seconds',
     (tester) async {
       final model = _Model();
       await _show(tester, model);
@@ -361,20 +361,15 @@ void main() {
       expect(_thumb.hitTestable(), findsOneWidget);
       await gesture.up();
       await tester.pump();
-      await tester.pump(const Duration(milliseconds: 2900));
+      await tester.pump(const Duration(milliseconds: 1499));
       expect(_opacity(tester), 1);
-      await tester.pump(const Duration(milliseconds: 200));
+      await tester.pump(const Duration(milliseconds: 1));
       expect(_opacity(tester), 0);
       await tester.pump(const Duration(milliseconds: 150));
-      final fading = tester.widget<FadeTransition>(
-        find.descendant(
-          of: find.byKey(const Key('album-fast-scroll-opacity')),
-          matching: find.byType(FadeTransition),
-        ),
-      );
-      expect(fading.opacity.value, greaterThan(0));
-      expect(fading.opacity.value, lessThan(1));
-      await tester.pump(const Duration(milliseconds: 200));
+      expect(_paintedOpacity(tester), greaterThan(0));
+      expect(_paintedOpacity(tester), lessThan(1));
+      await tester.pump(const Duration(milliseconds: 150));
+      expect(_paintedOpacity(tester), 0);
       expect(_thumb.hitTestable(), findsNothing);
       expect(model.downloads, isEmpty);
       expect(tester.takeException(), isNull);
@@ -388,9 +383,9 @@ void main() {
       final model = _Model();
       await _show(tester, model);
       await _scrollDown(tester);
-      await tester.pump(const Duration(seconds: 2));
+      await tester.pump(const Duration(seconds: 1));
       await _scrollDown(tester, distance: 100);
-      await tester.pump(const Duration(seconds: 2));
+      await tester.pump(const Duration(seconds: 1));
       expect(_opacity(tester), 1);
 
       final gesture = await tester.startGesture(tester.getCenter(_thumb));
@@ -400,9 +395,9 @@ void main() {
       await tester.pump(const Duration(seconds: 5));
       expect(_opacity(tester), 1);
       await gesture.up();
-      await tester.pump(const Duration(seconds: 2));
+      await tester.pump(const Duration(milliseconds: 1499));
       expect(_opacity(tester), 1);
-      await tester.pump(const Duration(milliseconds: 1400));
+      await tester.pump(const Duration(milliseconds: 1));
       await tester.pumpAndSettle();
       expect(_opacity(tester), 0);
       expect(model.downloads, isEmpty);
@@ -572,9 +567,6 @@ void main() {
             find.byKey(const Key('album-sort')),
           )
           .onSelected!;
-      final goBack = tester
-          .widget<TextButton>(find.byKey(const Key('back-to-collections')))
-          .onPressed!;
       await _scrollDown(tester);
       await _dragThumbTo(tester, .6);
       expect(_controller(tester).offset, greaterThan(0));
@@ -583,7 +575,7 @@ void main() {
       expect(_controller(tester).offset, 0);
       expect(_opacity(tester), 0);
       await _scrollDown(tester);
-      goBack();
+      await tester.binding.handlePopRoute();
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('album-fast-scroll')), findsNothing);
       await tester.tap(find.byKey(const Key('collection-peer/travel')));
@@ -727,6 +719,9 @@ void main() {
       await tester.longPress(find.byKey(Key('media-${selected.key}')));
       await tester.pumpAndSettle();
       expect(find.text('已选择 1 项'), findsOneWidget);
+      await tester.drag(_scroll, const Offset(0, 120));
+      await tester.pumpAndSettle();
+      expect(_thumb.hitTestable(), findsOneWidget);
       await _dragThumbTo(tester, 0);
       expect(model.loaded.containsKey(1598), isFalse);
       expect(model.media.any((item) => item.key == selected.key), isFalse);

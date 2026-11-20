@@ -303,7 +303,7 @@ void main() {
     },
   );
 
-  testWidgets('cancel, back and navigation clear selection without deleting', (
+  testWidgets('Android back exits selection before leaving the collection', (
     tester,
   ) async {
     final model = _Model();
@@ -316,13 +316,13 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byType(Checkbox), findsNothing);
     expect(model.selectedCollectionKey, 'peer/camera');
-    await _longPress(tester, 'peer/photo');
-    await _tap(tester, 'back-to-collections');
-    expect(find.byType(Checkbox), findsNothing);
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(model.selectedCollectionKey, isNull);
     await _tap(tester, 'collection-peer/camera');
     expect(find.byType(Checkbox), findsNothing);
     expect(model.deleted, isEmpty);
-  });
+  }, variant: TargetPlatformVariant.only(TargetPlatform.android));
 
   testWidgets('selection drops saved files removed by a model update', (
     tester,

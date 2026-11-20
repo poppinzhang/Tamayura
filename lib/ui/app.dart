@@ -755,6 +755,9 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
     final devices = model.devices;
     final collections = model.collections;
     final browsingCollection = model.selectedCollectionKey != null;
+    final androidCollection =
+        browsingCollection &&
+        Theme.of(context).platform == TargetPlatform.android;
     final scrollEntries = model.mediaScrollEntries;
     final virtualGrid =
         isMobile && browsingCollection && scrollEntries.isNotEmpty;
@@ -785,41 +788,44 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
       slivers: [
         SliverToBoxAdapter(
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(22, 20, 22, 0),
+            padding: EdgeInsets.fromLTRB(22, androidCollection ? 8 : 20, 22, 0),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  context.l10n.albumHeadline,
-                  style: const TextStyle(
-                    fontSize: 26,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  context.l10n.albumSubtitle,
-                  style: TextStyle(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    height: 1.5,
-                  ),
-                ),
-                const SizedBox(height: 22),
-                if (model.sharedFolders.isEmpty || model.downloadFolder == null)
-                  _setupCard(),
-                if (devices.isNotEmpty) ...[
-                  const SizedBox(height: 4),
-                  SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Row(
-                      children: [
-                        _filterChip(null, context.l10n.albumAllDevices, null),
-                        for (final device in devices)
-                          _filterChip(device.id, device.name, device.online),
-                      ],
+                if (!androidCollection) ...[
+                  Text(
+                    context.l10n.albumHeadline,
+                    style: const TextStyle(
+                      fontSize: 26,
+                      fontWeight: FontWeight.w700,
                     ),
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 8),
+                  Text(
+                    context.l10n.albumSubtitle,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      height: 1.5,
+                    ),
+                  ),
+                  const SizedBox(height: 22),
+                  if (model.sharedFolders.isEmpty ||
+                      model.downloadFolder == null)
+                    _setupCard(),
+                  if (devices.isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        children: [
+                          _filterChip(null, context.l10n.albumAllDevices, null),
+                          for (final device in devices)
+                            _filterChip(device.id, device.name, device.online),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                  ],
                 ],
                 for (final notice in _syncNotices.visible.where(
                   (notice) =>
@@ -843,13 +849,15 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
                     ),
                   ),
                 if (browsingCollection) ...[
-                  TextButton.icon(
-                    key: const Key('back-to-collections'),
-                    onPressed: () => _selectCollection(null),
-                    icon: const Icon(AppIcons.back),
-                    label: Text(context.l10n.albumAllCollections),
-                  ),
-                  const SizedBox(height: 8),
+                  if (!androidCollection) ...[
+                    TextButton.icon(
+                      key: const Key('back-to-collections'),
+                      onPressed: () => _selectCollection(null),
+                      icon: const Icon(AppIcons.back),
+                      label: Text(context.l10n.albumAllCollections),
+                    ),
+                    const SizedBox(height: 8),
+                  ],
                   Text(
                     collection?.sharedFolderName ??
                         context.l10n.albumSharedCollectionFallback,

@@ -1039,6 +1039,8 @@ void main() {
     expect(model.selectedDeviceId, isNull);
     expect(find.byKey(const Key('sync-progress-phone-b')), findsOneWidget);
     expect(find.byKey(const Key('sync-progress-phone-c')), findsNothing);
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(ChoiceChip, '第三部手机'));
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('sync-progress-phone-b')), findsNothing);
@@ -1691,24 +1693,74 @@ void main() {
     expect(find.byKey(Key('media-${model.items.first.key}')), findsOneWidget);
     expect(find.byKey(Key('media-${model.items.last.key}')), findsOneWidget);
     expect(model.downloadCalls, 0);
-    await tester.tap(find.byKey(const Key('back-to-collections')));
+    await tester.binding.handlePopRoute();
     await tester.pumpAndSettle();
     expect(model.selectedCollectionKey, isNull);
     expect(find.byKey(const Key('collection-phone-b/camera')), findsOneWidget);
     expect(find.byKey(Key('media-${model.items.first.key}')), findsNothing);
   });
 
-  testWidgets('system back returns from photos to the collection list', (
-    tester,
-  ) async {
-    final model = _withPhoto();
-    await _pump(tester, model);
-    expect(model.selectedCollectionKey, 'phone-b/camera');
-    await tester.binding.handlePopRoute();
-    await tester.pumpAndSettle();
-    expect(model.selectedCollectionKey, isNull);
-    expect(find.byKey(const Key('collection-phone-b/camera')), findsOneWidget);
-  });
+  testWidgets(
+    'Android collection details show photos immediately and back restores the filtered overview',
+    (tester) async {
+      final model = _withPhoto()..downloadFolder = null;
+      final tripPhoto = _photo(
+        id: 'trip-photo',
+        sharedFolderId: 'trip',
+        sharedFolderName: '秋の旅 2026',
+      );
+      model.items.add(tripPhoto);
+      await _pump(tester, model, openCollection: false);
+      final strings = lookupAppLocalizations(model.locale);
+      final device = find.widgetWithText(ChoiceChip, model.devices.single.name);
+      final collection = find.byKey(const Key('collection-phone-b/camera'));
+      expect(find.text(strings.albumHeadline), findsOneWidget);
+      expect(find.text(strings.albumSubtitle), findsOneWidget);
+      expect(find.byKey(const Key('setup-download')), findsOneWidget);
+      await _ensureVisible(tester, device);
+      await tester.tap(device);
+      await tester.pumpAndSettle();
+      await _scrollAlbumTo(tester, collection);
+      await tester.tap(collection);
+      await tester.pumpAndSettle();
+
+      expect(find.text(strings.albumHeadline), findsNothing);
+      expect(find.text(strings.albumSubtitle), findsNothing);
+      expect(find.byKey(const Key('setup-download')), findsNothing);
+      expect(find.byType(ChoiceChip), findsNothing);
+      expect(find.text(strings.albumAllCollections), findsNothing);
+      expect(find.text('Camera'), findsOneWidget);
+      expect(find.byKey(const Key('album-sort')).hitTestable(), findsOneWidget);
+      expect(find.text(strings.albumMomentCount(1)), findsOneWidget);
+      expect(find.text(strings.albumTapToDownloadHint), findsOneWidget);
+      expect(
+        find.byKey(Key('media-${model.items.first.key}')).hitTestable(),
+        findsOneWidget,
+      );
+
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      expect(model.selectedCollectionKey, isNull);
+      expect(model.selectedDeviceId, 'phone-b');
+      expect(tester.widget<ChoiceChip>(device).selected, isTrue);
+      expect(find.text(strings.albumHeadline), findsOneWidget);
+      expect(find.text(strings.albumSubtitle), findsOneWidget);
+      expect(find.byKey(const Key('setup-download')), findsOneWidget);
+      expect(collection, findsOneWidget);
+
+      final trip = find.byKey(const Key('collection-phone-b/trip'));
+      await _scrollAlbumTo(tester, trip);
+      await tester.tap(trip);
+      await tester.pumpAndSettle();
+      expect(find.text(tripPhoto.sharedFolderName), findsOneWidget);
+      expect(find.text('Camera'), findsNothing);
+      expect(
+        find.byKey(Key('media-${tripPhoto.key}')).hitTestable(),
+        findsOneWidget,
+      );
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.android),
+  );
 
   testWidgets('same named collections remain separate by folder and device', (
     tester,
@@ -1740,6 +1792,8 @@ void main() {
     expect(find.byKey(const Key('media-phone-b/other-root')), findsOneWidget);
     expect(find.byKey(const Key('media-phone-b/photo-1')), findsNothing);
     expect(find.byKey(const Key('media-phone-c/other-device')), findsNothing);
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(ChoiceChip, '第三部手机'));
     await tester.pumpAndSettle();
     expect(model.selectedCollectionKey, isNull);
@@ -2073,7 +2127,7 @@ void main() {
     tester,
   ) async {
     final model = _withPhoto();
-    await _pump(tester, model);
+    await _pump(tester, model, openCollection: false);
     await tester.tap(find.widgetWithText(ChoiceChip, '另一部手机'));
     await tester.pumpAndSettle();
     expect(model.selectedDeviceId, 'phone-b');
@@ -2113,7 +2167,6 @@ void main() {
       expect(model.selectedDeviceId, deviceId);
       await tester.tap(find.byKey(const Key('collection-$deviceId/camera')));
       await tester.pumpAndSettle();
-      expect(find.text(deviceName), findsOneWidget);
       expect(
         find.bySemanticsLabel(RegExp('IMG_20261008.jpg，来自$deviceName')),
         findsWidgets,
@@ -2133,8 +2186,13 @@ void main() {
       await tester.pumpAndSettle();
       expect(model.selectedDeviceId, deviceId);
       expect(model.selectedCollectionKey, '$deviceId/camera');
-      expect(find.text(deviceName), findsNothing);
-      expect(find.text(renamed), findsOneWidget);
+      expect(find.bySemanticsLabel(RegExp('来自$deviceName')), findsNothing);
+      expect(
+        find.bySemanticsLabel(RegExp('IMG_20261008.jpg，来自$renamed')),
+        findsWidgets,
+      );
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
       expect(
         tester
             .widget<ChoiceChip>(find.widgetWithText(ChoiceChip, renamed))

@@ -521,7 +521,8 @@ void main() {
     await tester.tap(find.byKey(const Key('collection-b/camera')));
     await _pump(tester);
     expect(model.selectedCollectionKey, 'b/camera');
-    await tester.tap(find.byKey(const Key('back-to-collections')));
+    expect(_notice('b'), findsOneWidget);
+    await tester.binding.handlePopRoute();
     await _pump(tester);
     await _filter(tester, '全部设备');
     expect(_notice('a'), findsNothing);
