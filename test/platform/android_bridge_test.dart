@@ -527,7 +527,7 @@ void main() {
       expect(call.method, 'share');
       throw PlatformException(
         code: 'FILE_NOT_FOUND',
-        message: '已下载文件已不可用，请重新下载',
+        message: '已下载的文件不可用，请重新下载',
       );
     });
     await expectLater(

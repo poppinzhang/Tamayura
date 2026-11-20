@@ -9,7 +9,7 @@
     <string name="sharing_notification_starting">玉响 · 后台共享正在启动</string>
     <string name="sharing_notification_starting_text">正在初始化共享服务，请稍候</string>
     <string name="sharing_notification_running">玉响 · 后台共享运行中</string>
-    <string name="sharing_notification_running_text">锁屏后继续通过局域网共享媒体，点击停止可恢复省电</string>
+    <string name="sharing_notification_running_text">锁屏后仍可共享媒体，点击停止可节省电量</string>
     <string name="sharing_notification_stop">停止共享</string>
     <string name="sharing_notification_failed">玉响 · 后台共享启动失败</string>
     <string name="sharing_notification_failed_text">%1$s；点击打开应用重试</string>
@@ -23,7 +23,7 @@
     <string name="transfer_channel_name">媒体下载</string>
     <string name="transfer_channel_description">媒体下载进度与完成结果</string>
     <string name="transfer_default_name">媒体文件</string>
-    <string name="transfer_waiting_title">等待上一下载停止</string>
+    <string name="transfer_waiting_title">等待上一个下载任务停止</string>
     <string name="transfer_waiting_text">正在保存下载进度</string>
     <string name="transfer_preparing">正在准备媒体下载</string>
     <string name="transfer_downloading">正在下载媒体</string>
@@ -49,7 +49,7 @@
     <string name="error_picker_open">目录选择器已打开</string>
     <string name="error_directory_unreadable">目录没有读取权限</string>
     <string name="error_document_uri">需要有效的 Android 文档 URI</string>
-    <string name="error_download_missing">已下载文件已不可用，请重新下载</string>
+    <string name="error_download_missing">已下载的文件不可用，请重新下载</string>
     <string name="error_invalid_task_id">无效的下载任务 ID</string>
     <string name="error_download_cancelled">下载已取消</string>
     <string name="error_schedule_failed">下载任务调度失败</string>

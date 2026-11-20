@@ -211,7 +211,7 @@ void main() {
       await _tapVisible(tester, find.byKey(const Key('device-start-sync-new')));
       expect(model.decisions, [('new', false), ('new', true)]);
       expect(find.byKey(const Key('device-start-sync-new')), findsNothing);
-      expect(_inDevice('new', '最后成功同步'), findsOneWidget);
+      expect(_inDevice('new', '尚未成功同步'), findsOneWidget);
       expect(find.byKey(const Key('sync-approval-dialog')), findsNothing);
     },
   );

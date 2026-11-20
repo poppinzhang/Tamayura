@@ -138,7 +138,7 @@ void main() {
       expect(model.confirmations, isEmpty);
       await tester.tap(find.byKey(const Key('tailscale-confirm-candidate')));
       await tester.pumpAndSettle();
-      expect(find.textContaining('read media'), findsOneWidget);
+      expect(find.textContaining('shared folders'), findsOneWidget);
       await tester.tap(find.text('Confirm'));
       await tester.pumpAndSettle();
       expect(model.confirmations, ['candidate']);

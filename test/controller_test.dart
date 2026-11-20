@@ -501,7 +501,7 @@ void main() {
     () async {
       await model.setThemeMode(ThemeMode.dark);
       expect(model.themeMode, ThemeMode.system);
-      expect(model.error, '应用尚未完成初始化，请重试后切换主题');
+      expect(model.error, '应用尚未完成初始化，请稍后再切换主题');
       await model.initialize();
       await model.setThemeMode(ThemeMode.dark);
       expect(model.themeMode, ThemeMode.dark);

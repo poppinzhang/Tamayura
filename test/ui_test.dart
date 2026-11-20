@@ -515,7 +515,7 @@ void main() {
       await tester.pumpAndSettle();
       final setting = find.byKey(const Key('auto-sync-interval'));
       await _scrollSettingsTo(tester, setting);
-      expect(find.textContaining('超过 10 分钟'), findsOneWidget);
+      expect(find.textContaining('每 10 分钟'), findsOneWidget);
       for (final minutes in [1, 525600, 24]) {
         await tester.tap(setting);
         await tester.pumpAndSettle();
@@ -531,7 +531,7 @@ void main() {
         await tester.pumpAndSettle();
         expect(find.byType(AlertDialog), findsNothing);
         expect(model.autoSyncIntervalMinutes, minutes);
-        expect(find.textContaining('超过 $minutes 分钟'), findsOneWidget);
+        expect(find.textContaining('每 $minutes 分钟'), findsOneWidget);
       }
       await tester.tap(setting);
       await tester.pumpAndSettle();
@@ -1195,7 +1195,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(model.backgroundSharingRequests, [true]);
     expect(tester.widget<SwitchListTile>(toggle).value, isTrue);
-    expect(find.text('后台共享正在运行，锁屏后仍可访问已选目录。'), findsOneWidget);
+    expect(find.text('后台共享运行中。'), findsOneWidget);
     model.backgroundSharingRunning = false;
     model.notifyListeners();
     await tester.pumpAndSettle();
@@ -1221,7 +1221,7 @@ void main() {
       final toggle = find.byKey(const Key('background-sharing-switch'));
       await _scrollSettingsTo(tester, toggle);
       expect(find.text('正在启动后台共享…'), findsOneWidget);
-      expect(find.text('后台共享正在运行，锁屏后仍可访问已选目录。'), findsNothing);
+      expect(find.text('后台共享运行中。'), findsNothing);
       expect(find.byKey(const Key('background-sharing-retry')), findsNothing);
       expect(tester.widget<SwitchListTile>(toggle).value, isTrue);
       expect(tester.widget<SwitchListTile>(toggle).onChanged, isNotNull);
@@ -1230,7 +1230,7 @@ void main() {
       model.notifyListeners();
       await tester.pumpAndSettle();
       expect(find.text('正在启动后台共享…'), findsNothing);
-      expect(find.text('后台共享正在运行，锁屏后仍可访问已选目录。'), findsOneWidget);
+      expect(find.text('后台共享运行中。'), findsOneWidget);
       model.backgroundSharingStarting = true;
       model.backgroundSharingRunning = false;
       model.notifyListeners();
@@ -1255,7 +1255,7 @@ void main() {
       await _scrollSettingsTo(tester, retry);
       expect(find.text('后台共享启动失败，请重试。'), findsOneWidget);
       expect(find.text('无法监听共享端口，请稍后重试。'), findsOneWidget);
-      expect(find.text('后台共享正在运行，锁屏后仍可访问已选目录。'), findsNothing);
+      expect(find.text('后台共享运行中。'), findsNothing);
       final toggle = find.byKey(const Key('background-sharing-switch'));
       expect(tester.widget<SwitchListTile>(toggle).value, isTrue);
       await tester.tap(retry);
@@ -1275,7 +1275,7 @@ void main() {
           .jumpTo(0);
       await tester.pumpAndSettle();
       await _scrollSettingsTo(tester, toggle);
-      expect(find.text('后台共享正在运行，锁屏后仍可访问已选目录。'), findsOneWidget);
+      expect(find.text('后台共享运行中。'), findsOneWidget);
       expect(retry, findsNothing);
     },
   );
@@ -1376,7 +1376,7 @@ void main() {
     expect(find.text('无法开启后台共享，请重试。'), findsOneWidget);
     expect(tester.widget<SwitchListTile>(toggle).value, isFalse);
     expect(tester.widget<SwitchListTile>(toggle).onChanged, isNotNull);
-    expect(find.text('后台共享正在运行，锁屏后仍可访问已选目录。'), findsNothing);
+    expect(find.text('后台共享运行中。'), findsNothing);
   });
 
   testWidgets(
@@ -1936,7 +1936,7 @@ void main() {
       for (final (id, details) in [
         ('phone-b', '局域网在线\n192.0.2.11:50728\n最后成功同步：2026-01-02 03:04:05'),
         ('offline', '离线 · 可浏览缓存\n192.0.2.12:50728\n最后成功同步：2025-12-31 23:59:58'),
-        ('never-synced', '局域网在线\n192.0.2.13:50728\n最后成功同步：尚未成功同步'),
+        ('never-synced', '局域网在线\n192.0.2.13:50728\n尚未成功同步'),
       ]) {
         final tile = find.byKey(Key('device-$id'));
         await _scrollDevicesTo(tester, tile);
@@ -1974,7 +1974,7 @@ void main() {
     await tester.pumpAndSettle();
     final tile = find.byKey(const Key('device-phone-b'));
     await _scrollDevicesTo(tester, tile);
-    expect(find.textContaining('最后成功同步：尚未成功同步'), findsOneWidget);
+    expect(find.textContaining('尚未成功同步'), findsOneWidget);
 
     for (final online in [true, false]) {
       model.devices = [
@@ -1989,7 +1989,7 @@ void main() {
       ];
       model.notifyListeners();
       await tester.pumpAndSettle();
-      expect(find.textContaining('最后成功同步：尚未成功同步'), findsNothing);
+      expect(find.textContaining('尚未成功同步'), findsNothing);
       expect(find.textContaining('最后成功同步：2026-01-02 03:04:05'), findsOneWidget);
     }
     expect(tester.takeException(), isNull);

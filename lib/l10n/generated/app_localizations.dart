@@ -247,7 +247,7 @@ abstract class AppLocalizations {
   /// No description provided for @albumSubtitle.
   ///
   /// In zh, this message translates to:
-  /// **'按共享文件夹浏览合集，轻点照片就存到这里。'**
+  /// **'按共享文件夹浏览合集，轻点即可保存原文件到本机。'**
   String get albumSubtitle;
 
   /// No description provided for @albumAllDevices.
@@ -691,13 +691,13 @@ abstract class AppLocalizations {
   /// No description provided for @devicesFooterWindows.
   ///
   /// In zh, this message translates to:
-  /// **'设备离线后仍会保留相册缩略图。共享与接收需要玉响运行、电脑保持唤醒，并与来源设备处于同一局域网。'**
+  /// **'设备离线后仍会保留相册缩略图。共享与接收需要玉响运行、电脑保持唤醒，并与来源设备保持网络连接。'**
   String get devicesFooterWindows;
 
   /// No description provided for @devicesFooterMac.
   ///
   /// In zh, this message translates to:
-  /// **'设备离线后仍会保留相册缩略图。共享与接收需要玉响保持运行、Mac 保持唤醒，并与来源设备处于同一局域网。'**
+  /// **'设备离线后仍会保留相册缩略图。共享与接收需要玉响保持运行、Mac 保持唤醒，并与来源设备保持网络连接。'**
   String get devicesFooterMac;
 
   /// No description provided for @devicesFooterMobile.
@@ -757,7 +757,7 @@ abstract class AppLocalizations {
   /// No description provided for @deviceStartSync.
   ///
   /// In zh, this message translates to:
-  /// **'开启同步'**
+  /// **'开启相册同步'**
   String get deviceStartSync;
 
   /// No description provided for @deviceForgotten.
@@ -1111,7 +1111,7 @@ abstract class AppLocalizations {
   /// No description provided for @settingsAutoSyncDescription.
   ///
   /// In zh, this message translates to:
-  /// **'上次同步尝试超过 {minutes} 分钟后自动同步。\n手动同步和同步失败都会重新计时。点击右上角刷新可立即同步。'**
+  /// **'每 {minutes} 分钟自动同步一次；点击右上角刷新可立即同步。'**
   String settingsAutoSyncDescription(int minutes);
 
   /// No description provided for @settingsFilesStorage.
@@ -1159,7 +1159,7 @@ abstract class AppLocalizations {
   /// No description provided for @settingsLocalScanDescription.
   ///
   /// In zh, this message translates to:
-  /// **'每 {hours} 小时完整核对本机共享文件夹，重启后继续计时。运行期间自动检查文件增删。'**
+  /// **'每 {hours} 小时完整核对一次本机共享文件夹，运行期间自动检测文件增删。'**
   String settingsLocalScanDescription(int hours);
 
   /// No description provided for @localScanDialogDescription.
@@ -1213,13 +1213,13 @@ abstract class AppLocalizations {
   /// No description provided for @errorLocalCatalogVersion.
   ///
   /// In zh, this message translates to:
-  /// **'本机共享目录索引使用当前应用不支持的格式，已保留原文件。完整扫描成功后仍可共享；请使用支持此索引格式的应用版本。'**
+  /// **'本机共享目录索引格式不受当前版本支持（原索引数据已保留）。完整扫描后仍可正常共享；请使用支持该格式的应用版本。'**
   String get errorLocalCatalogVersion;
 
   /// No description provided for @errorLocalCatalogCorrupt.
   ///
   /// In zh, this message translates to:
-  /// **'本机共享目录索引无法读取，已保留原文件并重新扫描。此次扫描结果仍可用于共享，但暂时无法保存索引缓存。'**
+  /// **'本机共享目录索引无法读取（原索引数据已保留），已重新扫描。当前仍可正常共享，但暂无法更新索引缓存。'**
   String get errorLocalCatalogCorrupt;
 
   /// No description provided for @errorLocalCatalogIo.
@@ -1249,19 +1249,19 @@ abstract class AppLocalizations {
   /// No description provided for @settingsBackgroundSharingWindows.
   ///
   /// In zh, this message translates to:
-  /// **'关闭窗口后玉响会留在系统托盘。开启此项后，关闭或最小化窗口仍可共享；关闭此项后在窗口隐藏时停止共享。电脑需要保持唤醒。'**
+  /// **'关闭窗口后玉响会留在系统托盘。开启后，隐藏或最小化窗口时仍继续共享（需保持电脑唤醒）。'**
   String get settingsBackgroundSharingWindows;
 
   /// No description provided for @settingsBackgroundSharingMac.
   ///
   /// In zh, this message translates to:
-  /// **'关闭窗口后玉响会留在菜单栏。开启此项后，关闭、隐藏或最小化窗口仍可共享；关闭此项后在窗口隐藏时停止共享。Mac 需要保持唤醒。'**
+  /// **'关闭窗口后玉响会留在菜单栏。开启后，关闭、隐藏或最小化窗口时仍继续共享（需保持 Mac 唤醒）。'**
   String get settingsBackgroundSharingMac;
 
   /// No description provided for @settingsBackgroundSharingLinux.
   ///
   /// In zh, this message translates to:
-  /// **'桌面提供状态托盘时，关闭窗口后玉响会留在托盘中；没有托盘时关闭窗口会退出玉响。开启此项后，窗口隐藏或最小化时仍可共享；关闭此项后在窗口隐藏时停止共享。电脑需要保持唤醒。'**
+  /// **'有状态托盘时关闭窗口会留在托盘，无托盘时关闭即退出。开启后，隐藏或最小化窗口时仍继续共享（需保持电脑唤醒）。'**
   String get settingsBackgroundSharingLinux;
 
   /// No description provided for @settingsBackgroundSharingMobile.
@@ -1297,19 +1297,19 @@ abstract class AppLocalizations {
   /// No description provided for @backgroundSharingRunningWindows.
   ///
   /// In zh, this message translates to:
-  /// **'后台共享正在运行。电脑睡眠或退出玉响后，共享会停止。'**
+  /// **'后台共享运行中。'**
   String get backgroundSharingRunningWindows;
 
   /// No description provided for @backgroundSharingRunningMac.
   ///
   /// In zh, this message translates to:
-  /// **'后台共享正在运行。Mac 睡眠或退出玉响后，共享会停止。'**
+  /// **'后台共享运行中。'**
   String get backgroundSharingRunningMac;
 
   /// No description provided for @backgroundSharingRunningMobile.
   ///
   /// In zh, this message translates to:
-  /// **'后台共享正在运行，锁屏后仍可访问已选目录。'**
+  /// **'后台共享运行中。'**
   String get backgroundSharingRunningMobile;
 
   /// No description provided for @backgroundSharingNotRunning.
@@ -1381,19 +1381,19 @@ abstract class AppLocalizations {
   /// No description provided for @tipNetworkTitle.
   ///
   /// In zh, this message translates to:
-  /// **'连接同一个网络'**
+  /// **'局域网与远程连接'**
   String get tipNetworkTitle;
 
   /// No description provided for @tipNetworkDescription.
   ///
   /// In zh, this message translates to:
-  /// **'目前仅支持局域网，设备无需登录账号。请只在可信的网络中共享目录。'**
+  /// **'同一局域网内无需登录即可直连；也可登录 Tailscale 跨网络访问。请只在可信的网络和设备间共享目录。'**
   String get tipNetworkDescription;
 
   /// No description provided for @tipWindowsTitle.
   ///
   /// In zh, this message translates to:
-  /// **'为 Windows 准备'**
+  /// **'Windows 使用须知'**
   String get tipWindowsTitle;
 
   /// No description provided for @tipWindowsDescription.
@@ -1405,7 +1405,7 @@ abstract class AppLocalizations {
   /// No description provided for @tipLinuxTitle.
   ///
   /// In zh, this message translates to:
-  /// **'为 Linux 准备'**
+  /// **'Linux 使用须知'**
   String get tipLinuxTitle;
 
   /// No description provided for @tipLinuxDescription.
@@ -1435,7 +1435,7 @@ abstract class AppLocalizations {
   /// Quotes the Linux tray menu item that quits the app.
   ///
   /// In zh, this message translates to:
-  /// **'桌面提供状态托盘（如 KDE Plasma、Ubuntu 默认桌面、Xfce）时，关闭窗口后已开始的下载继续，点击托盘中的玉响图标可重新打开，菜单中可选择「退出玉响」；没有托盘时关闭窗口即退出。任何时候都可按 Ctrl+Q 退出。电脑睡眠或断网后可在下载任务中重试。'**
+  /// **'有状态托盘时，关闭窗口后下载继续，可从托盘重新打开或选择「退出玉响」；无托盘时关闭窗口即退出（也可按 Ctrl+Q 退出）。睡眠或断网后可在下载任务中重试。'**
   String get tipBackgroundReceiveLinux;
 
   /// No description provided for @tipKeyboardTitle.
@@ -1465,7 +1465,7 @@ abstract class AppLocalizations {
   /// No description provided for @tipMacTitle.
   ///
   /// In zh, this message translates to:
-  /// **'为 Mac 准备'**
+  /// **'Mac 使用须知'**
   String get tipMacTitle;
 
   /// No description provided for @tipMacDescription.
@@ -1885,25 +1885,25 @@ abstract class AppLocalizations {
   /// No description provided for @downloadsHintWindows.
   ///
   /// In zh, this message translates to:
-  /// **'关闭窗口后仍可继续接收，从系统托盘可重新打开。请保持电脑唤醒，并与来源设备处于同一局域网；退出或睡眠中断后可重试。'**
+  /// **'关闭窗口后仍会在系统托盘继续接收。请保持电脑唤醒且网络连通；若中断可在此重试。'**
   String get downloadsHintWindows;
 
   /// No description provided for @downloadsHintMac.
   ///
   /// In zh, this message translates to:
-  /// **'关闭窗口后仍可继续接收，从菜单栏或 Dock 可重新打开。请保持 Mac 唤醒，并与来源设备处于同一局域网；退出或睡眠中断后可重试。'**
+  /// **'关闭窗口后仍会在后台继续接收，可从菜单栏或 Dock 重新打开。请保持 Mac 唤醒且网络连通；若中断可在此重试。'**
   String get downloadsHintMac;
 
   /// No description provided for @downloadsHintLinux.
   ///
   /// In zh, this message translates to:
-  /// **'有状态托盘时，关闭窗口后仍可继续接收，从托盘可重新打开；没有托盘时关闭窗口会退出并中断接收。请保持电脑唤醒，并与来源设备处于同一局域网；退出或睡眠中断后可重试。'**
+  /// **'有状态托盘时关闭窗口仍继续接收（无托盘时关闭即退出）。请保持电脑唤醒且网络连通；若中断可在此重试。'**
   String get downloadsHintLinux;
 
   /// No description provided for @downloadsHintMobile.
   ///
   /// In zh, this message translates to:
-  /// **'接收可在后台继续。来源设备需要保持玉响运行，并与这台设备处于同一局域网。'**
+  /// **'切换应用后仍可在后台继续接收。请确保来源设备在线并保持玉响运行。'**
   String get downloadsHintMobile;
 
   /// No description provided for @downloadsActionFailed.
@@ -2101,7 +2101,7 @@ abstract class AppLocalizations {
   /// No description provided for @updateConfirmAutomatic.
   ///
   /// In zh, this message translates to:
-  /// **'确认后下载并校验安装包，完成后自动发起安装。更新会中断共享和传输，未完成的下载可在重新打开后重试。\n\nv1.0.0 前不保证旧数据或跨版本互联兼容，请阅读更新说明；必要时需重新选择目录并连接设备。'**
+  /// **'确认后将下载并校验安装包，完成后自动开始安装。更新期间会中断共享和传输，未完成的下载可在重新打开后继续。'**
   String get updateConfirmAutomatic;
 
   /// No description provided for @updateConfirmAndroid.
@@ -2167,7 +2167,7 @@ abstract class AppLocalizations {
   /// No description provided for @updateHandedToSystem.
   ///
   /// In zh, this message translates to:
-  /// **'已交给系统安装，请完成系统提示'**
+  /// **'已交由系统安装，请按系统提示完成操作'**
   String get updateHandedToSystem;
 
   /// No description provided for @updateDownloadCancelled.
@@ -2233,13 +2233,13 @@ abstract class AppLocalizations {
   /// No description provided for @updateFinishExit.
   ///
   /// In zh, this message translates to:
-  /// **'完成退出并安装'**
+  /// **'退出并安装'**
   String get updateFinishExit;
 
   /// No description provided for @updateSourceNote.
   ///
   /// In zh, this message translates to:
-  /// **'从 GitHub 获取已公开版本（包括预发布），需要互联网连接。'**
+  /// **'从 GitHub 检查已发布的版本，需要互联网连接。'**
   String get updateSourceNote;
 
   /// No description provided for @updateReleaseNotes.
@@ -2413,7 +2413,7 @@ abstract class AppLocalizations {
   /// No description provided for @errorAppNotReadyTheme.
   ///
   /// In zh, this message translates to:
-  /// **'应用尚未完成初始化，请重试后切换主题'**
+  /// **'应用尚未完成初始化，请稍后再切换主题'**
   String get errorAppNotReadyTheme;
 
   /// No description provided for @errorDeviceOrderSave.
@@ -2503,7 +2503,7 @@ abstract class AppLocalizations {
   /// No description provided for @errorPeerStalled.
   ///
   /// In zh, this message translates to:
-  /// **'对端长时间没有响应，可能已休眠或离开局域网'**
+  /// **'对端长时间没有响应，可能已休眠或断开连接'**
   String get errorPeerStalled;
 
   /// No description provided for @errorSystemOperation.
@@ -2533,7 +2533,7 @@ abstract class AppLocalizations {
   /// No description provided for @errorPeerUnreachable.
   ///
   /// In zh, this message translates to:
-  /// **'暂时连不上这台设备，请确认两台设备在同一局域网，且对端应用已打开'**
+  /// **'暂时连不上这台设备，请确认两台设备网络互通，且对端已打开玉响'**
   String get errorPeerUnreachable;
 
   /// No description provided for @errorNetworkUnavailable.
@@ -2587,7 +2587,7 @@ abstract class AppLocalizations {
   /// No description provided for @errorAddressNotPrivate.
   ///
   /// In zh, this message translates to:
-  /// **'当前原型仅支持局域网私有 IPv4 地址'**
+  /// **'手动输入 IP 仅支持局域网私有或链路本地 IPv4 地址'**
   String get errorAddressNotPrivate;
 
   /// No description provided for @errorPortRange.
@@ -3175,7 +3175,7 @@ abstract class AppLocalizations {
   /// No description provided for @tailscaleConfirmMessage.
   ///
   /// In zh, this message translates to:
-  /// **'请确认这是你的设备。允许后，该 Tailscale 节点可以读取本机共享目录中的媒体。相册同步仍需另行确认，对端也需要允许本机访问。'**
+  /// **'请核对下方信息，确认这是你的设备。允许后，对方可通过 Tailscale 访问本机的共享目录（双向访问需对端也允许本机，相册同步需另行开启）。'**
   String get tailscaleConfirmMessage;
 
   /// No description provided for @tailscaleExistingDevice.
@@ -3187,19 +3187,19 @@ abstract class AppLocalizations {
   /// No description provided for @tailscaleReplacesNode.
   ///
   /// In zh, this message translates to:
-  /// **'此设备已关联到另一个 Tailscale 节点，而该节点不再以此设备的身份应答，可能是对端重新登录后更换了节点。请在对端的设置中核对设备与节点身份。'**
+  /// **'此设备原先关联的 Tailscale 节点已失效（可能是对端重新登录更换了节点）。请对照对端「设置」核对设备与节点身份。'**
   String get tailscaleReplacesNode;
 
   /// No description provided for @tailscaleReplaceConfirmMessage.
   ///
   /// In zh, this message translates to:
-  /// **'请确认这是你的设备，并与对端设置中显示的设备和节点身份核对一致。允许后，改由此 Tailscale 节点读取本机共享目录中的媒体，并撤销原先关联节点的远程共享。相册同步的确认保持不变，对端也需要允许本机访问。'**
+  /// **'请确认下方信息与对端「设置」中的设备及节点身份一致。确认后将改用新节点共享本机目录，并撤销旧节点的权限（原相册同步设置保持不变）。'**
   String get tailscaleReplaceConfirmMessage;
 
   /// No description provided for @tailscaleIdentityConflict.
   ///
   /// In zh, this message translates to:
-  /// **'发现设备身份冲突：有 Tailscale 节点报告的设备身份与已关联的记录不一致，不会使用身份不符的节点。请核对两端设置中显示的设备与节点身份。局域网和离线相册仍可使用。'**
+  /// **'设备身份冲突：有 Tailscale 节点返回的设备身份与已关联记录不符，已忽略该节点。请核对两端「设置」中的设备与节点身份。局域网和离线相册不受影响。'**
   String get tailscaleIdentityConflict;
 
   /// No description provided for @tailscaleRevoke.
@@ -3247,7 +3247,7 @@ abstract class AppLocalizations {
   /// No description provided for @tailscaleControlDisconnected.
   ///
   /// In zh, this message translates to:
-  /// **'管控连接暂时中断；已建立的设备连接可能仍可使用，在线状态以实际检查为准。'**
+  /// **'Tailscale 控制服务连接暂时中断；已连接的设备可能仍可通信，在线状态以实际连接为准。'**
   String get tailscaleControlDisconnected;
 
   /// No description provided for @tailscaleLocalIdentity.

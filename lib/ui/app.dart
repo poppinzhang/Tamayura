@@ -1261,9 +1261,12 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
     final forgetting = model.forgettingDeviceIds.contains(device.id);
     final l10n = context.l10n;
     final syncStatus = switch (device.syncApproval) {
-      PeerSyncApproval.approved => l10n.deviceLastSuccessfulSync(
-        _formatSuccessfulSync(l10n, device.lastSuccessfulSync),
-      ),
+      PeerSyncApproval.approved =>
+        device.lastSuccessfulSync == null
+            ? l10n.deviceNeverSynced
+            : l10n.deviceLastSuccessfulSync(
+                _formatSuccessfulSync(device.lastSuccessfulSync!),
+              ),
       PeerSyncApproval.pending => l10n.devicePendingApproval,
       PeerSyncApproval.declined => l10n.deviceSyncDeclined,
     };
@@ -2665,8 +2668,7 @@ class _MediaCard extends StatelessWidget {
   }
 }
 
-String _formatSuccessfulSync(AppLocalizations l10n, DateTime? timestamp) {
-  if (timestamp == null) return l10n.deviceNeverSynced;
+String _formatSuccessfulSync(DateTime timestamp) {
   final local = timestamp.toLocal();
   String twoDigits(int value) => value.toString().padLeft(2, '0');
   return '${local.year.toString().padLeft(4, '0')}-'

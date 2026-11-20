@@ -213,7 +213,7 @@ void main() {
       await tester.pumpAndSettle();
       final sharing = find.byKey(const Key('background-sharing-switch'));
       await _settingsItem(tester, sharing);
-      expect(find.textContaining('关闭此项后在窗口隐藏时停止共享'), findsOneWidget);
+      expect(find.textContaining('隐藏或最小化窗口时仍继续共享'), findsOneWidget);
       expect(tester.widget<SwitchListTile>(sharing).value, isFalse);
       await tester.tap(sharing);
       await tester.pumpAndSettle();
@@ -366,18 +366,18 @@ void main() {
     await tester.pumpAndSettle();
     final sharing = find.byKey(const Key('background-sharing-switch'));
     await _settingsItem(tester, sharing);
-    expect(find.textContaining('没有托盘时关闭窗口会退出玉响'), findsOneWidget);
+    expect(find.textContaining('无托盘时关闭即退出'), findsOneWidget);
     await tester.tap(sharing);
     await tester.pumpAndSettle();
     expect(model.backgroundSharingEnabled, isTrue);
-    expect(find.textContaining('电脑睡眠或退出玉响后'), findsOneWidget);
-    final tray = find.textContaining('Ubuntu 默认桌面');
+    expect(find.text('后台共享运行中。'), findsOneWidget);
+    final tray = find.textContaining('有状态托盘时，关闭窗口后下载继续');
     await _settingsItem(tester, tray);
     expect(find.textContaining('「退出玉响」'), findsOneWidget);
     expect(find.textContaining('右键菜单'), findsNothing);
     await tester.tap(find.byKey(const Key('downloads-entry')));
     await tester.pumpAndSettle();
-    expect(find.textContaining('没有托盘时关闭窗口会退出并中断接收'), findsOneWidget);
+    expect(find.textContaining('有状态托盘时关闭窗口仍继续接收（无托盘时关闭即退出）'), findsOneWidget);
     expect(tester.takeException(), isNull);
   }, variant: TargetPlatformVariant.only(TargetPlatform.linux));
 
@@ -487,8 +487,8 @@ void main() {
       await tester.tap(sharing);
       await tester.pumpAndSettle();
       expect(model.backgroundSharingEnabled, isTrue);
-      expect(find.textContaining('关闭此项后在窗口隐藏时停止共享'), findsOneWidget);
-      expect(find.textContaining('Mac 睡眠或退出玉响'), findsOneWidget);
+      expect(find.textContaining('隐藏或最小化窗口时仍继续共享'), findsOneWidget);
+      expect(find.text('后台共享运行中。'), findsOneWidget);
       expect(
         find.byKey(const Key('background-sharing-battery-settings')),
         findsNothing,
@@ -552,7 +552,7 @@ void main() {
       expect(model.transfers[model.photo.key]!.running, isTrue);
       await tester.tap(find.byKey(const Key('downloads-entry')));
       await tester.pumpAndSettle();
-      expect(find.textContaining('退出或睡眠中断后可重试'), findsOneWidget);
+      expect(find.textContaining('若中断可在此重试'), findsOneWidget);
       expect(
         tester
             .getSize(find.byKey(const PageStorageKey('downloads-list')))

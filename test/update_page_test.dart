@@ -168,7 +168,7 @@ void main() {
       await _tap(tester, 'update-confirm');
       expect(service.downloads, 1);
       expect(platform.events, ['install']);
-      expect(find.text('已交给系统安装，请完成系统提示'), findsOneWidget);
+      expect(find.text('已交由系统安装，请按系统提示完成操作'), findsOneWidget);
       platform.installStatus = {'state': 'failed', 'message': '已取消安装，请重试'};
       await tester.pump(const Duration(seconds: 2));
       expect(find.text('已取消安装，请重试'), findsOneWidget);

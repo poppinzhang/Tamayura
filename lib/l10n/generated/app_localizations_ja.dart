@@ -82,7 +82,7 @@ class AppLocalizationsJa extends AppLocalizations {
   String get albumHeadline => 'どの瞬間も、すぐそばに。';
 
   @override
-  String get albumSubtitle => '共有フォルダーごとにコレクションを閲覧。写真をタップするとこの端末に保存されます。';
+  String get albumSubtitle => '共有フォルダーごとにコレクションを閲覧。タップするとオリジナルをこの端末に保存します。';
 
   @override
   String get albumAllDevices => 'すべてのデバイス';
@@ -351,11 +351,11 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get devicesFooterWindows =>
-      'デバイスがオフラインでもアルバムのサムネイルは残ります。共有と受信には、Tamayura の起動、PC がスリープしていないこと、送信元デバイスと同じローカルネットワークにいることが必要です。';
+      'デバイスがオフラインでもアルバムのサムネイルは残ります。共有と受信には、Tamayura の起動、PC がスリープしていないこと、送信元デバイスとのネットワーク接続が必要です。';
 
   @override
   String get devicesFooterMac =>
-      'デバイスがオフラインでもアルバムのサムネイルは残ります。共有と受信には、Tamayura の起動、Mac がスリープしていないこと、送信元デバイスと同じローカルネットワークにいることが必要です。';
+      'デバイスがオフラインでもアルバムのサムネイルは残ります。共有と受信には、Tamayura の起動、Mac がスリープしていないこと、送信元デバイスとのネットワーク接続が必要です。';
 
   @override
   String get devicesFooterMobile =>
@@ -367,7 +367,7 @@ class AppLocalizationsJa extends AppLocalizations {
   }
 
   @override
-  String get deviceNeverSynced => 'なし';
+  String get deviceNeverSynced => 'まだ同期されていません';
 
   @override
   String get devicePendingApproval => '新しく見つかったデバイス · アルバム同期はオフ';
@@ -388,7 +388,7 @@ class AppLocalizationsJa extends AppLocalizations {
   String get deviceForget => 'デバイスの登録を解除';
 
   @override
-  String get deviceStartSync => '同期をオン';
+  String get deviceStartSync => 'アルバム同期をオン';
 
   @override
   String deviceForgotten(String name) {
@@ -595,7 +595,7 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String settingsAutoSyncDescription(int minutes) {
-    return '前回の同期の試行から $minutes 分を過ぎると自動で同期します。\n手動同期や同期の失敗でもタイマーはリセットされます。右上の更新ですぐに同期できます。';
+    return '$minutes 分ごとに自動同期します。右上の更新ですぐに同期できます。';
   }
 
   @override
@@ -622,7 +622,7 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String settingsLocalScanDescription(int hours) {
-    return 'この端末の共有フォルダー全体を $hours 時間ごとに確認し、再起動後も計時を継続します。アプリの動作中はファイルの追加・削除を自動で確認します。';
+    return 'この端末の共有フォルダー全体を $hours 時間ごとに確認します。アプリの動作中はファイルの追加・削除を自動で検出します。';
   }
 
   @override
@@ -654,11 +654,11 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get errorLocalCatalogVersion =>
-      'この端末の共有フォルダー索引は現在のアプリが対応していない形式です。元のファイルは保持されています。完全スキャンが成功すれば共有できます。この索引形式に対応するアプリをご利用ください。';
+      'この端末の共有フォルダー索引は現在のバージョンが対応していない形式です（既存の索引データは保持されています）。全体スキャン後に共有できます。この形式に対応するアプリをご利用ください。';
 
   @override
   String get errorLocalCatalogCorrupt =>
-      'この端末の共有フォルダー索引を読み取れないため、元のファイルを保持して再スキャンします。スキャン結果で共有できますが、索引キャッシュはまだ保存できません。';
+      'この端末の共有フォルダー索引を読み取れないため（既存の索引データは保持されています）、再スキャンしました。共有は引き続き利用できますが、索引キャッシュは現在更新できません。';
 
   @override
   String get errorLocalCatalogIo =>
@@ -677,15 +677,15 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get settingsBackgroundSharingWindows =>
-      'ウィンドウを閉じても Tamayura はシステムトレイに残ります。オンの場合は、ウィンドウを閉じても最小化しても共有を続けます。オフの場合は、ウィンドウが非表示の間は共有を停止します。PC をスリープさせないでください。';
+      'ウィンドウを閉じても Tamayura はシステムトレイに残ります。オンにすると、ウィンドウを非表示または最小化しても共有を続けます（PC のスリープ解除が必要）。';
 
   @override
   String get settingsBackgroundSharingMac =>
-      'ウィンドウを閉じても Tamayura はメニューバーに残ります。オンの場合は、ウィンドウを閉じても、隠しても、最小化しても共有を続けます。オフの場合は、ウィンドウが非表示の間は共有を停止します。Mac をスリープさせないでください。';
+      'ウィンドウを閉じても Tamayura はメニューバーに残ります。オンにすると、ウィンドウを閉じた状態や非表示・最小化時も共有を続けます（Mac のスリープ解除が必要）。';
 
   @override
   String get settingsBackgroundSharingLinux =>
-      'デスクトップにステータストレイがある場合、ウィンドウを閉じても Tamayura はトレイに残ります。トレイがない場合は、ウィンドウを閉じると Tamayura は終了します。オンの場合は、ウィンドウが非表示または最小化されていても共有を続けます。オフの場合は、ウィンドウが非表示の間は共有を停止します。PC をスリープさせないでください。';
+      'ステータストレイがある場合はウィンドウを閉じてもトレイに残り、ない場合は終了します。オンにすると、ウィンドウを非表示または最小化しても共有を続けます（PC のスリープ解除が必要）。';
 
   @override
   String get settingsBackgroundSharingMobile =>
@@ -705,16 +705,13 @@ class AppLocalizationsJa extends AppLocalizations {
   String get backgroundSharingOff => 'バックグラウンド共有はオフです。';
 
   @override
-  String get backgroundSharingRunningWindows =>
-      'バックグラウンド共有を実行中です。PC がスリープするか Tamayura を終了すると共有は停止します。';
+  String get backgroundSharingRunningWindows => 'バックグラウンド共有を実行中です。';
 
   @override
-  String get backgroundSharingRunningMac =>
-      'バックグラウンド共有を実行中です。Mac がスリープするか Tamayura を終了すると共有は停止します。';
+  String get backgroundSharingRunningMac => 'バックグラウンド共有を実行中です。';
 
   @override
-  String get backgroundSharingRunningMobile =>
-      'バックグラウンド共有を実行中です。画面ロック中も選択したフォルダーにアクセスできます。';
+  String get backgroundSharingRunningMobile => 'バックグラウンド共有を実行中です。';
 
   @override
   String get backgroundSharingNotRunning => 'バックグラウンド共有はまだ実行されていません。';
@@ -754,11 +751,11 @@ class AppLocalizationsJa extends AppLocalizations {
   String get settingsTips => '使い方のヒント';
 
   @override
-  String get tipNetworkTitle => '同じネットワークに接続';
+  String get tipNetworkTitle => 'ローカルネットワークとリモート接続';
 
   @override
   String get tipNetworkDescription =>
-      '現在はローカルネットワークのみに対応しており、アカウントは不要です。フォルダーは信頼できるネットワークでのみ共有してください。';
+      '同じローカルネットワーク内ではアカウントなしで直接接続でき、Tailscale にログインすればインターネット経由でもアクセスできます。信頼できるネットワークとデバイス間でのみフォルダーを共有してください。';
 
   @override
   String get tipWindowsTitle => 'Windows で使うために';
@@ -787,7 +784,7 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get tipBackgroundReceiveLinux =>
-      'デスクトップにステータストレイがある場合（KDE Plasma、Ubuntu の標準デスクトップ、Xfce など）、ウィンドウを閉じても開始済みのダウンロードは続きます。トレイの Tamayura アイコンをクリックすると再び開き、メニューから「Tamayura を終了」を選べます。トレイがない場合は、ウィンドウを閉じると終了します。Ctrl+Q でいつでも終了できます。PC のスリープや切断のあとは、ダウンロードから再試行できます。';
+      'ステータストレイがある場合は、ウィンドウを閉じてもダウンロードは続き、トレイから再び開くか「Tamayura を終了」を選べます。トレイがない場合はウィンドウを閉じると終了します（Ctrl+Q でも終了可能）。スリープや切断のあとはダウンロードから再試行できます。';
 
   @override
   String get tipKeyboardTitle => 'キーボードですばやく切り替え';
@@ -1042,19 +1039,19 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get downloadsHintWindows =>
-      'ウィンドウを閉じても受信を続け、システムトレイから再び開けます。PC をスリープさせず、送信元デバイスと同じローカルネットワークにいてください。終了やスリープで中断した場合は再試行できます。';
+      'ウィンドウを閉じてもシステムトレイで受信を続けます。PC のスリープを解除しネットワーク接続を保ってください。中断した場合はここで再試行できます。';
 
   @override
   String get downloadsHintMac =>
-      'ウィンドウを閉じても受信を続け、メニューバーまたは Dock から再び開けます。Mac をスリープさせず、送信元デバイスと同じローカルネットワークにいてください。終了やスリープで中断した場合は再試行できます。';
+      'ウィンドウを閉じてもバックグラウンドで受信を続け、メニューバーや Dock から再び開けます。Mac のスリープを解除しネットワーク接続を保ってください。中断した場合はここで再試行できます。';
 
   @override
   String get downloadsHintLinux =>
-      'ステータストレイがある場合は、ウィンドウを閉じても受信を続け、トレイから再び開けます。トレイがない場合は、ウィンドウを閉じると終了し、受信も中断します。PC をスリープさせず、送信元デバイスと同じローカルネットワークにいてください。終了やスリープで中断した場合は再試行できます。';
+      'ステータストレイがある場合はウィンドウを閉じても受信を続けます（ない場合は終了します）。PC のスリープを解除しネットワーク接続を保ってください。中断した場合はここで再試行できます。';
 
   @override
   String get downloadsHintMobile =>
-      '受信はバックグラウンドで続きます。送信元デバイスでは Tamayura を起動したままにし、このデバイスと同じローカルネットワークにいる必要があります。';
+      '他のアプリに切り替えてもバックグラウンドで受信を続けます。送信元デバイスがオンラインで Tamayura を起動していることを確認してください。';
 
   @override
   String get downloadsActionFailed => 'タスクの操作を完了できませんでした。もう一度お試しください。';
@@ -1167,7 +1164,7 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get updateConfirmAutomatic =>
-      '確認後にパッケージをダウンロードして検証し、完了するとインストールを自動で開始します。アップデート中は共有と転送が中断されます。未完了のダウンロードは再度開いたあとに再試行できます。\n\nv1.0.0 より前は、古いデータやバージョン間の接続の互換性を保証しません。リリースノートをお読みください。必要に応じてフォルダーを選び直し、デバイスを再接続してください。';
+      '確認後にパッケージをダウンロードして検証し、完了するとインストールを自動で開始します。アップデート中は共有と転送が中断されますが、未完了のダウンロードは再度開いたあとに再開できます。';
 
   @override
   String get updateConfirmAndroid =>
@@ -1241,8 +1238,7 @@ class AppLocalizationsJa extends AppLocalizations {
   String get updateFinishExit => '終了してインストール';
 
   @override
-  String get updateSourceNote =>
-      '公開済みのバージョン（プレリリースを含む）を GitHub から取得します。インターネット接続が必要です。';
+  String get updateSourceNote => '公開済みのバージョンを GitHub で確認します。インターネット接続が必要です。';
 
   @override
   String get updateReleaseNotes => 'リリースノート';
@@ -1386,7 +1382,7 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get errorPeerStalled =>
-      '相手のデバイスから長時間応答がありません。スリープしているか、ローカルネットワークから離れた可能性があります';
+      '相手のデバイスから長時間応答がありません。スリープしているか、接続が切れた可能性があります';
 
   @override
   String get errorSystemOperation => 'システムの操作に失敗しました。もう一度お試しください';
@@ -1403,7 +1399,7 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get errorPeerUnreachable =>
-      '現在このデバイスに接続できません。両方のデバイスが同じローカルネットワークにあり、相手側でアプリが開いていることを確認してください';
+      '現在このデバイスに接続できません。両方のデバイスがネットワークで通信でき、相手側で Tamayura が開いていることを確認してください';
 
   @override
   String get errorNetworkUnavailable =>
@@ -1437,7 +1433,7 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get errorAddressNotPrivate =>
-      '現在はローカルネットワークのプライベート IPv4 アドレスのみに対応しています';
+      '手動での IP 接続はローカルネットワークのプライベートまたはリンクローカル IPv4 アドレスのみに対応しています';
 
   @override
   String get errorPortRange => 'ポートは 1–65535 で指定してください';
@@ -1769,22 +1765,22 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get tailscaleConfirmMessage =>
-      '自分の端末であることを確認してください。許可すると、この Tailscale ノードはこの端末の共有フォルダー内のメディアを読み取れます。アルバム同期は別途確認し、相手側でもこの端末のアクセスを許可する必要があります。';
+      '以下の情報を確認し、自分の端末であることを確かめてください。許可すると、相手は Tailscale 経由でこの端末の共有フォルダーにアクセスできます（双方向のアクセスには相手側の許可も必要で、アルバム同期は別途オンにします）。';
 
   @override
   String get tailscaleExistingDevice => '既存の端末に関連付けます。両側の端末情報を確認してください。';
 
   @override
   String get tailscaleReplacesNode =>
-      'この端末は別の Tailscale ノードに関連付けられていますが、そのノードはこの端末として応答しなくなりました。相手側が再ログインしてノードが変わった可能性があります。相手側の設定で端末とノードの識別情報を確認してください。';
+      'この端末に以前関連付けられた Tailscale ノードは現在無効です（相手側が再ログインしてノードが変わった可能性があります）。相手側の「設定」で端末とノードの識別情報を確認してください。';
 
   @override
   String get tailscaleReplaceConfirmMessage =>
-      '自分の端末であること、相手側の設定に表示される端末とノードの識別情報と一致することを確認してください。許可すると、この Tailscale ノードがこの端末の共有フォルダー内のメディアを読み取れるようになり、以前に関連付けたノードのリモート共有は取り消されます。アルバム同期の選択は変わりません。相手側でもこの端末からのアクセスを許可する必要があります。';
+      '以下の情報が相手側の「設定」に表示される端末・ノードの識別情報と一致することを確認してください。確認すると新しいノードでの共有に切り替え、古いノードの権限を取り消します（アルバム同期の設定は維持されます）。';
 
   @override
   String get tailscaleIdentityConflict =>
-      '端末の識別情報が競合しています。関連付け済みの記録と一致しない端末情報を報告する Tailscale ノードがあります。識別情報が一致しないノードは使用しません。両側の設定に表示される端末とノードの識別情報を確認してください。LAN とオフラインアルバムは利用できます。';
+      '端末の識別情報が競合しています。関連付け済みの記録と一致しない端末情報を返した Tailscale ノードがあるため、そのノードは無視されました。両側の「設定」で端末とノードの識別情報を確認してください。LAN とオフラインアルバムには影響ありません。';
 
   @override
   String get tailscaleRevoke => 'リモート共有を取り消す';
@@ -1812,7 +1808,7 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get tailscaleControlDisconnected =>
-      '管理サーバーへの接続が中断しています。既存の端末接続は使える場合があり、実際の接続確認に基づいて表示します。';
+      'Tailscale 管理サービスへの接続が一時的に中断しています。接続済みの端末とは通信できる場合があり、オンライン状態は実際の接続結果に基づきます。';
 
   @override
   String get tailscaleLocalIdentity => 'この端末と Tailscale ノードの識別情報';

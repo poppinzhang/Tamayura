@@ -229,7 +229,7 @@ void main() {
           isA<FormatException>().having(
             (error) => error.message,
             'message',
-            '現在はローカルネットワークのプライベート IPv4 アドレスのみに対応しています',
+            '手動での IP 接続はローカルネットワークのプライベートまたはリンクローカル IPv4 アドレスのみに対応しています',
           ),
         ),
       );

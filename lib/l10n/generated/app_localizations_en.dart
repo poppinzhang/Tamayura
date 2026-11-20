@@ -83,7 +83,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get albumSubtitle =>
-      'Browse collections by shared folder. Tap a photo to save it here.';
+      'Browse collections by shared folder. Tap to save the original to this device.';
 
   @override
   String get albumAllDevices => 'All devices';
@@ -381,11 +381,11 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get devicesFooterWindows =>
-      'Album thumbnails stay available when a device is offline. Sharing and receiving need Tamayura running, the PC awake, and the source device on the same local network.';
+      'Album thumbnails stay available when a device is offline. Sharing and receiving need Tamayura running, the PC awake, and a network connection to the source device.';
 
   @override
   String get devicesFooterMac =>
-      'Album thumbnails stay available when a device is offline. Sharing and receiving need Tamayura running, the Mac awake, and the source device on the same local network.';
+      'Album thumbnails stay available when a device is offline. Sharing and receiving need Tamayura running, the Mac awake, and a network connection to the source device.';
 
   @override
   String get devicesFooterMobile =>
@@ -397,7 +397,7 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
-  String get deviceNeverSynced => 'never';
+  String get deviceNeverSynced => 'Not synced yet';
 
   @override
   String get devicePendingApproval => 'Newly found · Album sync not turned on';
@@ -418,7 +418,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get deviceForget => 'Forget device';
 
   @override
-  String get deviceStartSync => 'Turn on sync';
+  String get deviceStartSync => 'Turn on album sync';
 
   @override
   String deviceForgotten(String name) {
@@ -635,11 +635,10 @@ class AppLocalizationsEn extends AppLocalizations {
     String _temp0 = intl.Intl.pluralLogic(
       minutes,
       locale: localeName,
-      other:
-          'Syncs automatically $minutes minutes after the last sync attempt.',
-      one: 'Syncs automatically 1 minute after the last sync attempt.',
+      other: 'Syncs automatically every $minutes minutes.',
+      one: 'Syncs automatically every minute.',
     );
-    return '$_temp0\nManual and failed syncs restart the timer. Refresh at the top right to sync now.';
+    return '$_temp0 Refresh at the top right to sync now.';
   }
 
   @override
@@ -674,7 +673,7 @@ class AppLocalizationsEn extends AppLocalizations {
       other: 'Checks all local shared folders every $hours hours.',
       one: 'Checks all local shared folders every hour.',
     );
-    return '$_temp0 The timer continues after a restart. Added and removed files are detected while the app is running.';
+    return '$_temp0 Added and removed files are detected while the app is running.';
   }
 
   @override
@@ -709,11 +708,11 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get errorLocalCatalogVersion =>
-      'The local shared-folder index uses an unsupported format and has been preserved. Sharing remains available after a successful full scan. Use an app version that supports this index format.';
+      'The local shared-folder index format isn\'t supported by this version (existing index data is preserved). Sharing remains available after a full scan; please use an app version that supports this format.';
 
   @override
   String get errorLocalCatalogCorrupt =>
-      'The local shared-folder index could not be read and has been preserved. A fresh scan can still provide sharing, but its index cannot be cached yet.';
+      'The local shared-folder index couldn\'t be read (existing index data is preserved) and has been rescanned. Sharing remains available, but the index cache can\'t be updated right now.';
 
   @override
   String get errorLocalCatalogIo =>
@@ -732,15 +731,15 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get settingsBackgroundSharingWindows =>
-      'Closing the window keeps Tamayura in the system tray. When on, sharing continues while the window is closed or minimized; when off, sharing stops while the window is hidden. The PC must stay awake.';
+      'Closing the window keeps Tamayura in the system tray. When on, sharing continues while the window is hidden or minimized (the PC must stay awake).';
 
   @override
   String get settingsBackgroundSharingMac =>
-      'Closing the window keeps Tamayura in the menu bar. When on, sharing continues while the window is closed, hidden or minimized; when off, sharing stops while the window is hidden. The Mac must stay awake.';
+      'Closing the window keeps Tamayura in the menu bar. When on, sharing continues while the window is closed, hidden or minimized (the Mac must stay awake).';
 
   @override
   String get settingsBackgroundSharingLinux =>
-      'On desktops with a status tray, closing the window keeps Tamayura in the tray; without one, closing the window quits Tamayura. When on, sharing continues while the window is hidden or minimized; when off, sharing stops while the window is hidden. The PC must stay awake.';
+      'With a status tray, closing the window keeps Tamayura in the tray; without one, closing quits. When on, sharing continues while the window is hidden or minimized (the PC must stay awake).';
 
   @override
   String get settingsBackgroundSharingMobile =>
@@ -761,15 +760,13 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get backgroundSharingRunningWindows =>
-      'Background sharing is running. It stops if the PC sleeps or Tamayura exits.';
+      'Background sharing is running.';
 
   @override
-  String get backgroundSharingRunningMac =>
-      'Background sharing is running. It stops if the Mac sleeps or Tamayura quits.';
+  String get backgroundSharingRunningMac => 'Background sharing is running.';
 
   @override
-  String get backgroundSharingRunningMobile =>
-      'Background sharing is running. Your chosen folders stay available while locked.';
+  String get backgroundSharingRunningMobile => 'Background sharing is running.';
 
   @override
   String get backgroundSharingNotRunning =>
@@ -823,21 +820,21 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsTips => 'Tips';
 
   @override
-  String get tipNetworkTitle => 'Join the same network';
+  String get tipNetworkTitle => 'Local & remote connections';
 
   @override
   String get tipNetworkDescription =>
-      'Only local networks are supported, and no account is needed. Share folders only on networks you trust.';
+      'Connect directly on the same local network without an account, or sign in to Tailscale for remote access. Share folders only on networks and devices you trust.';
 
   @override
-  String get tipWindowsTitle => 'Ready for Windows';
+  String get tipWindowsTitle => 'Using on Windows';
 
   @override
   String get tipWindowsDescription =>
       'Supports Windows 10 1809 or later and Windows 11 (x64). Allow Tamayura through the firewall for private networks, or connect by IP manually.';
 
   @override
-  String get tipLinuxTitle => 'Ready for Linux';
+  String get tipLinuxTitle => 'Using on Linux';
 
   @override
   String get tipLinuxDescription =>
@@ -856,7 +853,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get tipBackgroundReceiveLinux =>
-      'On desktops with a status tray (such as KDE Plasma, Ubuntu\'s default desktop or Xfce), downloads already started continue after you close the window; click the Tamayura icon in the tray to reopen it, or choose “Quit Tamayura” from its menu. Without a tray, closing the window quits. Press Ctrl+Q to quit at any time. If the PC sleeps or goes offline, retry in Downloads.';
+      'With a status tray, downloads continue after you close the window; reopen from the tray or choose “Quit Tamayura”. Without a tray, closing the window quits (or press Ctrl+Q). Retry in Downloads after sleep or disconnection.';
 
   @override
   String get tipKeyboardTitle => 'Switch with the keyboard';
@@ -874,7 +871,7 @@ class AppLocalizationsEn extends AppLocalizations {
       'Ctrl+1 Album · Ctrl+2 Devices · Ctrl+3 or Ctrl+, Settings · Ctrl+R Refresh · Ctrl+Q Quit.';
 
   @override
-  String get tipMacTitle => 'Ready for Mac';
+  String get tipMacTitle => 'Using on Mac';
 
   @override
   String get tipMacDescription =>
@@ -1127,19 +1124,19 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get downloadsHintWindows =>
-      'Receiving continues after you close the window; reopen it from the system tray. Keep the PC awake and on the same local network as the source device. Retry if exiting or sleep interrupts a download.';
+      'Receiving continues in the system tray after you close the window. Keep the PC awake and connected; retry here if interrupted.';
 
   @override
   String get downloadsHintMac =>
-      'Receiving continues after you close the window; reopen it from the menu bar or the Dock. Keep the Mac awake and on the same local network as the source device. Retry if quitting or sleep interrupts a download.';
+      'Receiving continues in the background after you close the window; reopen from the menu bar or Dock. Keep the Mac awake and connected; retry here if interrupted.';
 
   @override
   String get downloadsHintLinux =>
-      'With a status tray, receiving continues after you close the window and you can reopen it from the tray; without one, closing the window quits and interrupts receiving. Keep the PC awake and on the same local network as the source device. Retry if exiting or sleep interrupts a download.';
+      'With a status tray, receiving continues after you close the window (without one, closing quits). Keep the PC awake and connected; retry here if interrupted.';
 
   @override
   String get downloadsHintMobile =>
-      'Receiving continues in the background. The source device must keep Tamayura running and be on the same local network as this device.';
+      'Receiving continues in the background when you switch apps. Keep the source device online with Tamayura running.';
 
   @override
   String get downloadsActionFailed =>
@@ -1255,7 +1252,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get updateConfirmAutomatic =>
-      'The package will be downloaded and verified, then installation starts automatically. Updating interrupts sharing and transfers; unfinished downloads can be retried after reopening.\n\nBefore v1.0.0, old data and connections between different versions aren\'t guaranteed to work. Read the release notes; you may need to choose folders and connect devices again.';
+      'The package will be downloaded and verified, then installation starts automatically. Updating interrupts sharing and transfers; unfinished downloads can continue after reopening.';
 
   @override
   String get updateConfirmAndroid =>
@@ -1334,7 +1331,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get updateSourceNote =>
-      'Published versions (including pre-releases) come from GitHub and need an internet connection.';
+      'Checks published releases on GitHub. An internet connection is required.';
 
   @override
   String get updateReleaseNotes => 'Release notes';
@@ -1491,7 +1488,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get errorPeerStalled =>
-      'The other device hasn\'t responded for a while. It may be asleep or off the local network.';
+      'The other device hasn\'t responded for a while. It may be asleep or disconnected.';
 
   @override
   String get errorSystemOperation =>
@@ -1511,7 +1508,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get errorPeerUnreachable =>
-      'Can\'t reach this device right now. Make sure both devices are on the same local network and the app is open on the other device.';
+      'Can\'t reach this device right now. Make sure both devices can reach each other on the network and Tamayura is open on the other device.';
 
   @override
   String get errorNetworkUnavailable =>
@@ -1547,7 +1544,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get errorAddressNotPrivate =>
-      'Only private local IPv4 addresses are supported for now.';
+      'Manual IP connection only supports private or link-local IPv4 addresses.';
 
   @override
   String get errorPortRange => 'The port must be from 1 to 65535.';
@@ -1921,7 +1918,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get tailscaleConfirmMessage =>
-      'Verify that this is your device. This Tailscale node will be able to read media in your shared folders. Album sync needs separate approval, and the other device must also allow access from this device.';
+      'Check the details below to verify that this is your device. Once allowed, it can access your shared folders over Tailscale (two-way access requires permission on both devices, and album sync is enabled separately).';
 
   @override
   String get tailscaleExistingDevice =>
@@ -1929,15 +1926,15 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get tailscaleReplacesNode =>
-      'This device is linked to another Tailscale node that no longer answers as it, as happens after the other device signs in again and gets a new node. Check the device and node identity in the other device\'s settings.';
+      'The Tailscale node previously linked to this device is no longer active (the other device may have signed in again with a new node). Check the device and node identity in the other device\'s Settings.';
 
   @override
   String get tailscaleReplaceConfirmMessage =>
-      'Verify that this is your device and that its device and node identity match what the other device shows in its settings. This Tailscale node will then be able to read media in your shared folders, and remote sharing for the previously linked node is revoked. Your album sync choice is kept, and the other device must also allow access from this device.';
+      'Verify that the details below match the device and node identity shown in the other device\'s Settings. Confirming switches shared-folder access to the new node and revokes the old node (your album sync setting is kept).';
 
   @override
   String get tailscaleIdentityConflict =>
-      'Device identity conflict: a Tailscale node reports a device identity that does not match the linked record. Nodes with a mismatched identity are not used. Check the device and node identity shown in the settings on both devices. LAN and offline albums remain available.';
+      'Device identity conflict: a Tailscale node returned a device identity that doesn\'t match the linked record, so it was ignored. Check the device and node identity in Settings on both devices. LAN and offline albums aren\'t affected.';
 
   @override
   String get tailscaleRevoke => 'Revoke remote sharing';
@@ -1965,7 +1962,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get tailscaleControlDisconnected =>
-      'The control connection is interrupted. Existing device connections may still work; device status is based on actual checks.';
+      'Connection to the Tailscale control service is temporarily interrupted. Connected devices may still communicate; online status reflects actual connectivity.';
 
   @override
   String get tailscaleLocalIdentity =>
