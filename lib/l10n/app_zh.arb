@@ -979,5 +979,21 @@
   "tailscaleRuntimeMissing": "此安装缺少 Tailscale 组件。请使用包含该组件的完整构建。",
   "tailscaleControlDisconnected": "管控连接暂时中断；已建立的设备连接可能仍可使用，在线状态以实际检查为准。",
   "tailscaleLocalIdentity": "本机设备与 Tailscale 节点身份",
+  "tailscaleSharingReady": "本机远程共享入口已就绪",
+  "tailscaleSharingNotReady": "本机远程共享入口尚未就绪",
+  "tailscaleScanPending": "等待获取 Tailscale 节点列表…",
+  "tailscaleProbePending": "等待 Tamayura 探测结果…",
+  "tailscaleVisibleNodes": "最近扫描发现 {count} 个其他 Tailscale 节点",
+  "@tailscaleVisibleNodes": {
+    "placeholders": {
+      "count": {"type": "int"}
+    }
+  },
+  "tailscaleRespondingNodes": "其中 {count} 个节点响应了 Tamayura 探测",
+  "@tailscaleRespondingNodes": {
+    "placeholders": {
+      "count": {"type": "int"}
+    }
+  },
   "errorPeerAccessDenied": "远端访问被拒绝或节点身份验证失败。请核对两端设备身份和共享授权后重试。"
 }

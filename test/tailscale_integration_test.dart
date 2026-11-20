@@ -54,6 +54,8 @@ class _Node implements TailscaleNode {
   /// Thrown by the next status read only.
   TailscaleException? statusFailure;
   Completer<NodeStatus>? statusGate;
+  Completer<void>? peersGate;
+  int peerReads = 0;
 
   /// Replaces [current] while set: a node that is starting or signing in.
   NodeStatus Function()? liveStatus;
@@ -81,7 +83,13 @@ class _Node implements TailscaleNode {
   }
 
   @override
-  Future<List<TailscalePeer>> peers() async => visible;
+  Future<List<TailscalePeer>> peers() async {
+    peerReads++;
+    final snapshot = visible;
+    await peersGate?.future;
+    return snapshot;
+  }
+
   @override
   Future<NodeStatus> logout() async {
     logouts++;
@@ -151,6 +159,13 @@ const _successor = PeerRef(networkScope: 'test-network', nodeId: 'new-node');
 const _starting = NodeStatus(
   sessionEpoch: 'session-one',
   state: NodeState.connecting,
+);
+const _registeredStarting = NodeStatus(
+  sessionEpoch: 'session-one',
+  state: NodeState.connecting,
+  networkScope: 'test-network',
+  selfNodeId: 'local-node',
+  controlState: NodeControlState.connected,
 );
 
 Future<void> _eventually(bool Function() condition) async {
@@ -356,6 +371,160 @@ void main() {
       expect((await client.listMediaPage()).items, isNotEmpty);
       await client.close();
       expect((await repository.listPeers()).single.host, _peer.host);
+    },
+  );
+
+  test(
+    'diagnostics count visible nodes separately from actual port responses',
+    () async {
+      final remote = node.visible.single;
+      TailscalePeer controlOnline(String scope, String id) => TailscalePeer(
+        ref: PeerRef(networkScope: scope, nodeId: id),
+        name: 'Node',
+        online: true,
+        addresses: const [],
+      );
+      node.visible = [
+        remote,
+        remote,
+        controlOnline('test-network', 'local-node'),
+        controlOnline('test-network', 'ordinary-node'),
+        controlOnline('different-network', 'foreign-node'),
+      ];
+      sharingAvailable = true;
+      node.peersGate = Completer();
+      node.publishGate = Completer();
+      expect(service.diagnostics, isNull);
+      await service.login();
+      expect(service.diagnostics, (
+        visibleNodes: null,
+        respondingNodes: null,
+        sharingReady: false,
+      ));
+      node.peersGate!.complete();
+      await node.publishStarted.future;
+      expect(service.diagnostics, (
+        visibleNodes: 2,
+        respondingNodes: null,
+        sharingReady: false,
+      ));
+      node.publishGate!.complete();
+      await service.refresh();
+      expect(service.diagnostics, (
+        visibleNodes: 2,
+        respondingNodes: 1,
+        sharingReady: true,
+      ));
+      expect(service.onlineDeviceIds, isEmpty);
+
+      // Once associated, only the media port's response counts. Its remote
+      // policy may still deny us until the other device confirms.
+      node.peersGate = Completer();
+      node.targets.remove(tailscaleMediaPort);
+      await service.confirmCandidate(service.candidates.single.key);
+      expect(service.diagnostics?.respondingNodes, isNull);
+      node.peersGate!.complete();
+      await service.refresh();
+      expect(service.diagnostics?.respondingNodes, 0);
+      expect(service.onlineDeviceIds, isEmpty);
+      node.targets[tailscaleMediaPort] = media.port;
+      await service.refresh();
+      expect(service.diagnostics?.respondingNodes, 1);
+
+      // A bound node absent from the map can still answer a direct probe.
+      node.visible = [];
+      await service.refresh();
+      expect(service.onlineDeviceIds, contains(_peer.id));
+      expect(service.diagnostics, (
+        visibleNodes: 0,
+        respondingNodes: 0,
+        sharingReady: true,
+      ));
+      await service.setSharing(false);
+      expect(service.diagnostics?.sharingReady, isFalse);
+      await service.logout();
+      expect(service.diagnostics, isNull);
+    },
+  );
+
+  test(
+    'a delayed scan cannot expose results from a previous session',
+    () async {
+      sharingAvailable = true;
+      await service.login();
+      await service.refresh();
+      expect(service.diagnostics?.respondingNodes, 1);
+
+      final oldScan = Completer<void>();
+      node.peersGate = oldScan;
+      final previousReads = node.peerReads;
+      final oldRefresh = service.refresh();
+      await _eventually(() => node.peerReads > previousReads);
+      node.current = const NodeStatus(
+        sessionEpoch: 'new-session',
+        state: NodeState.connected,
+        networkScope: 'another-network',
+        selfNodeId: 'another-local-node',
+      );
+      node.visible = [];
+      node.peersGate = Completer();
+      await service.retry();
+      expect(service.diagnostics, (
+        visibleNodes: null,
+        respondingNodes: null,
+        sharingReady: false,
+      ));
+      oldScan.complete();
+      await oldRefresh;
+      expect(service.diagnostics?.visibleNodes, isNull);
+      expect(service.diagnostics?.respondingNodes, isNull);
+      node.peersGate!.complete();
+      await service.refresh();
+      expect(service.diagnostics, (
+        visibleNodes: 0,
+        respondingNodes: 0,
+        sharingReady: true,
+      ));
+    },
+  );
+
+  test(
+    'identity deadlines allow cold Tailscale connections on both ports',
+    () async {
+      final deadlines = <Duration?>[];
+      final endpoint = Server.create(
+        services: [discovery.lookupService('tamayura.v1.MediaLibrary')!],
+        interceptors: [
+          (call, method) {
+            deadlines.add(
+              fromTimeoutString(call.clientMetadata?['grpc-timeout']),
+            );
+            return null;
+          },
+        ],
+      );
+      await endpoint.serve(address: InternetAddress.loopbackIPv4, port: 0);
+      addTearDown(endpoint.shutdown);
+      final lan = MediaRpcClient(
+        _peer.copyWith(host: '127.0.0.1', port: endpoint.port!),
+      );
+      addTearDown(lan.close);
+      await lan.identity();
+      expect(deadlines.single, const Duration(seconds: 8));
+      deadlines.clear();
+
+      node.targets[tailscaleIdentityPort] = endpoint.port!;
+      node.targets[tailscaleMediaPort] = endpoint.port!;
+      await service.login();
+      await service.refresh();
+      await service.confirmCandidate(service.candidates.single.key);
+      await service.refresh();
+      expect(service.onlineDeviceIds, contains(_peer.id));
+      final remote = service.createClient(_peer);
+      addTearDown(remote.close);
+      await remote.identity();
+      expect(deadlines, isNotEmpty);
+      expect(deadlines, everyElement(const Duration(seconds: 40)));
     },
   );
 
@@ -814,6 +983,39 @@ void main() {
   );
 
   test(
+    'a registered node waits for Running before discovery and publication',
+    () async {
+      await rebuild();
+      node.liveStatus = () => _registeredStarting;
+      sharingAvailable = true;
+      await service.login();
+      await service.refresh();
+      expect(service.status?.registered, true);
+      expect(node.peerReads, 0);
+      expect(node.publications, isEmpty);
+      expect(service.error, isNull);
+
+      // A running data plane can discover and share using its network map
+      // even while its connection to control is interrupted.
+      node.current = const NodeStatus(
+        sessionEpoch: 'session-one',
+        state: NodeState.connected,
+        networkScope: 'test-network',
+        selfNodeId: 'local-node',
+        controlState: NodeControlState.disconnected,
+      );
+      node.liveStatus = null;
+      // With a regular poll interval of one hour, only fast polling can
+      // discover the device in time.
+      await _eventually(() => service.candidates.isNotEmpty);
+      expect(node.publications.map((lease) => lease.port), [
+        tailscaleIdentityPort,
+        tailscaleMediaPort,
+      ]);
+    },
+  );
+
+  test(
     'an authentication URL is noticed without waiting for the regular interval',
     () async {
       await rebuild();
@@ -855,11 +1057,11 @@ void main() {
   );
 
   test(
-    'a transfer engine that just started the node waits for its registration',
+    'a transfer engine waits for Running even after the scope arrives',
     () async {
       await saveAssociation();
       await rebuild(transferEngine: true);
-      final register = holdRegistration();
+      node.liveStatus = () => _starting;
       await service.initialize();
       expect(service.status?.networkScope, isNull);
       // The scope is unknown, so the association cannot be matched yet. The
@@ -868,10 +1070,13 @@ void main() {
       final remoteOnly = service.createClient(_peer.copyWith(host: ''));
       expect(remoteOnly.usesTailscale, false);
       final identity = remoteOnly.identity();
-      // The route waits on the starting node; only then does it register.
+      node.liveStatus = () => _registeredStarting;
+      await _eventually(() => service.status?.registered == true);
+      expect(service.hasAssociation(_peer.id), true);
       final reads = node.statusReads;
       await _eventually(() => node.statusReads > reads);
-      register();
+      expect(node.dialedPorts, isEmpty);
+      node.liveStatus = null;
       expect((await identity).id, _peer.id);
       expect(remoteOnly.usesTailscale, true);
       expect((await remoteOnly.listMediaPage()).items, isNotEmpty);
@@ -978,32 +1183,38 @@ void main() {
     },
   );
 
-  test('the wait for a starting node is bounded', () async {
-    await saveAssociation();
-    await rebuild(
-      route: const Duration(milliseconds: 150),
-      transferEngine: true,
+  for (final starting in [_starting, _registeredStarting]) {
+    test(
+      'a starting node times out without dialing with scope ${starting.networkScope}',
+      () async {
+        await saveAssociation();
+        await rebuild(
+          route: const Duration(milliseconds: 150),
+          transferEngine: true,
+        );
+        node.liveStatus = () => starting;
+        await service.initialize();
+        final client = service.createClient(_peer.copyWith(host: ''));
+        final watch = Stopwatch()..start();
+        await expectLater(
+          client.identity(),
+          throwsA(
+            isA<GrpcError>()
+                .having((error) => error.code, 'status', StatusCode.unavailable)
+                .having(isTransientTransferError, 'retryable', true),
+          ),
+        );
+        expect(
+          watch.elapsed,
+          greaterThanOrEqualTo(const Duration(milliseconds: 150)),
+        );
+        expect(watch.elapsed, lessThan(const Duration(seconds: 3)));
+        expect(node.dialedPorts, isEmpty);
+        expect(client.usesTailscale, false);
+        await client.close();
+      },
     );
-    node.liveStatus = () => _starting;
-    await service.initialize();
-    final client = service.createClient(_peer.copyWith(host: ''));
-    final watch = Stopwatch()..start();
-    await expectLater(
-      client.identity(),
-      throwsA(
-        isA<GrpcError>()
-            .having((error) => error.code, 'status', StatusCode.unavailable)
-            .having(isTransientTransferError, 'retryable', true),
-      ),
-    );
-    expect(
-      watch.elapsed,
-      greaterThanOrEqualTo(const Duration(milliseconds: 150)),
-    );
-    expect(watch.elapsed, lessThan(const Duration(seconds: 3)));
-    expect(client.usesTailscale, false);
-    await client.close();
-  });
+  }
 
   test('closing a client ends its wait for a starting node', () async {
     await saveAssociation();

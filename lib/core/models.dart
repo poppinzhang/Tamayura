@@ -59,6 +59,13 @@ void validateMediaLocation(MediaMetadata item) {
 /// scanned by the user are approved by that action.
 enum PeerSyncApproval { pending, approved, declined }
 
+/// Session-local discovery results. A missing count is still awaiting a result.
+typedef TailscaleDiagnostics = ({
+  int? visibleNodes,
+  int? respondingNodes,
+  bool sharingReady,
+});
+
 class Peer {
   const Peer({
     required this.id,

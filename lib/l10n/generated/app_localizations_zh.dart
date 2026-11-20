@@ -1752,5 +1752,27 @@ class AppLocalizationsZh extends AppLocalizations {
   String get tailscaleLocalIdentity => '本机设备与 Tailscale 节点身份';
 
   @override
+  String get tailscaleSharingReady => '本机远程共享入口已就绪';
+
+  @override
+  String get tailscaleSharingNotReady => '本机远程共享入口尚未就绪';
+
+  @override
+  String get tailscaleScanPending => '等待获取 Tailscale 节点列表…';
+
+  @override
+  String get tailscaleProbePending => '等待 Tamayura 探测结果…';
+
+  @override
+  String tailscaleVisibleNodes(int count) {
+    return '最近扫描发现 $count 个其他 Tailscale 节点';
+  }
+
+  @override
+  String tailscaleRespondingNodes(int count) {
+    return '其中 $count 个节点响应了 Tamayura 探测';
+  }
+
+  @override
   String get errorPeerAccessDenied => '远端访问被拒绝或节点身份验证失败。请核对两端设备身份和共享授权后重试。';
 }

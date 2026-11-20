@@ -3256,6 +3256,42 @@ abstract class AppLocalizations {
   /// **'本机设备与 Tailscale 节点身份'**
   String get tailscaleLocalIdentity;
 
+  /// No description provided for @tailscaleSharingReady.
+  ///
+  /// In zh, this message translates to:
+  /// **'本机远程共享入口已就绪'**
+  String get tailscaleSharingReady;
+
+  /// No description provided for @tailscaleSharingNotReady.
+  ///
+  /// In zh, this message translates to:
+  /// **'本机远程共享入口尚未就绪'**
+  String get tailscaleSharingNotReady;
+
+  /// No description provided for @tailscaleScanPending.
+  ///
+  /// In zh, this message translates to:
+  /// **'等待获取 Tailscale 节点列表…'**
+  String get tailscaleScanPending;
+
+  /// No description provided for @tailscaleProbePending.
+  ///
+  /// In zh, this message translates to:
+  /// **'等待 Tamayura 探测结果…'**
+  String get tailscaleProbePending;
+
+  /// No description provided for @tailscaleVisibleNodes.
+  ///
+  /// In zh, this message translates to:
+  /// **'最近扫描发现 {count} 个其他 Tailscale 节点'**
+  String tailscaleVisibleNodes(int count);
+
+  /// No description provided for @tailscaleRespondingNodes.
+  ///
+  /// In zh, this message translates to:
+  /// **'其中 {count} 个节点响应了 Tamayura 探测'**
+  String tailscaleRespondingNodes(int count);
+
   /// No description provided for @errorPeerAccessDenied.
   ///
   /// In zh, this message translates to:

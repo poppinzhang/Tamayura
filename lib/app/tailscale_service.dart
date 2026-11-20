@@ -61,6 +61,8 @@ class TailscaleCandidate {
 
 /// What one discovery pass established, applied once all its probes finish.
 class _Sweep {
+  final responding = <PeerRef>{};
+
   /// Keys of the candidates found, so that vanished ones are dropped.
   final seen = <String>{};
 
@@ -111,7 +113,7 @@ class TamayuraTailscaleService {
   /// in. See [_pollDelay].
   final Duration settleInterval;
 
-  /// How long a new route waits for a starting node. See [_awaitRegistration].
+  /// How long a new route waits for a starting node. See [_awaitRunning].
   final Duration routeTimeout;
   final bool discoveryEnabled;
 
@@ -147,6 +149,28 @@ class TamayuraTailscaleService {
   ServiceLease? _identityLease, _mediaLease;
   Server? _identityServer, _mediaServer;
   MediaRpcServer? _publishedSource;
+  ({int visible, int? responding})? _scan;
+
+  TailscaleDiagnostics? get diagnostics {
+    if (_closed || !_enabled || _status?.registered != true) return null;
+    final source = _publishedSource;
+    return (
+      visibleNodes: _scan?.visible,
+      respondingNodes: _scan?.responding,
+      sharingReady:
+          _sharing &&
+          source != null &&
+          source == server() &&
+          source.port != 0 &&
+          _identityLease != null &&
+          _mediaLease != null,
+    );
+  }
+
+  void _invalidateDiscovery() {
+    _generation++;
+    _scan = null;
+  }
 
   /// Loads the saved associations and resumes a saved sign-in. The host does
   /// not wait for it before its own start-up work; see [createClient].
@@ -234,7 +258,7 @@ class TamayuraTailscaleService {
       }
       // A dead desktop helper cannot be repaired by reusing its closed pipes.
       // Release this owner and attach a fresh runtime to the same private state.
-      _generation++;
+      _invalidateDiscovery();
       _online.clear();
       _candidates.clear();
       await _closePublications();
@@ -279,7 +303,7 @@ class TamayuraTailscaleService {
   Future<void> logout() => _command(() async {
     await repository.setSetting(TailscaleBindings.enabledKey, 'false');
     _enabled = false;
-    _generation++;
+    _invalidateDiscovery();
     _timer?.cancel();
     _timer = null;
     _candidates.clear();
@@ -296,22 +320,21 @@ class TamayuraTailscaleService {
     }
   });
 
-  /// A started node has no registration scope until its first network map
-  /// arrives, and sign-in ends when the person in the browser finishes.
-  bool get _settling {
-    final status = _status;
-    return status == null ||
-        !status.registered &&
-            (status.state == NodeState.connecting ||
-                status.state == NodeState.authorizing);
-  }
+  bool get _starting =>
+      _status == null || _status!.state == NodeState.connecting;
+
+  // tsnet can report a registration scope before its backend reaches Running.
+  // Peers, listeners and new dials require Running even then. Once running,
+  // the data plane can remain usable through a control-plane interruption.
+  bool get _running =>
+      _status?.state == NodeState.connected && _status?.registered == true;
 
   /// Start-up and sign-in change state within seconds. At the regular interval
   /// an authentication URL would open that much later, and a ready node would
   /// publish and be routable that much later. They are followed closely at
   /// first; a node that stays unsettled falls back to the regular interval.
   Duration _pollDelay() {
-    if (!_settling) {
+    if (!_starting && _status?.state != NodeState.authorizing) {
       _settlingPolls = 0;
       return pollInterval;
     }
@@ -373,12 +396,15 @@ class TamayuraTailscaleService {
     if (previous != null &&
         (previous.sessionEpoch != next.sessionEpoch ||
             previous.networkScope != next.networkScope)) {
-      _generation++;
+      _invalidateDiscovery();
+      _publishedSource = null;
       _online.clear();
       await _closeRemoteClients();
       _candidates.clear();
       _suppressed.clear();
       await _closePublications();
+    } else if (previous?.registered == true && !next.registered) {
+      _invalidateDiscovery();
     }
     _changed();
   }
@@ -392,7 +418,7 @@ class TamayuraTailscaleService {
     await _updateStatus(next);
     generation = _generation;
     if (!_current(generation)) return;
-    if (!next.registered || !discoveryEnabled) {
+    if (!_running || !discoveryEnabled) {
       // The status was read: a failure recorded before this pass is over.
       if (_error != null && identical(_error, previousError)) {
         _error = null;
@@ -401,25 +427,24 @@ class TamayuraTailscaleService {
       return;
     }
     // A control-plane interruption does not forcibly close existing sockets.
-    final visiblePeers = (await node.peers())
-        .where(
-          (peer) =>
-              peer.ref.networkScope == next.networkScope &&
-              peer.ref.nodeId != next.selfNodeId,
-        )
-        .take(256)
-        .toList();
+    final visiblePeers = {
+      for (final peer in await node.peers())
+        if (peer.ref.networkScope == next.networkScope &&
+            peer.ref.nodeId != next.selfNodeId)
+          peer.ref: peer,
+    };
     if (!_current(generation)) return;
-    await _reconcilePublications(
-      visiblePeers.map((peer) => peer.ref).toSet(),
-      generation,
-    );
+    if (_scan?.responding == null && _scan?.visible != visiblePeers.length) {
+      _scan = (visible: visiblePeers.length, responding: null);
+      _changed();
+    }
+    final peersByRef = Map.fromEntries(visiblePeers.entries.take(256));
+    await _reconcilePublications(peersByRef.keys.toSet(), generation);
     if (!_current(generation)) return;
     final remembered = {
       for (final peer in await repository.listPeers()) peer.id: peer,
     };
     if (!_current(generation)) return;
-    final peersByRef = {for (final peer in visiblePeers) peer.ref: peer};
     _suppressed.removeWhere((ref) => !peersByRef.containsKey(ref));
     // Missing from a control snapshot is not an RPC result. Recheck known
     // bindings directly so cached data-plane paths remain usable if possible.
@@ -463,6 +488,12 @@ class TamayuraTailscaleService {
     // Unconfirmed candidates are session-local. Persisted devices and bindings
     // remain available offline even if the current network hides that node.
     _candidates.removeWhere((key, _) => !sweep.seen.contains(key));
+    // Known bindings absent from this network map are probed as well, but
+    // their answers are not responses from the visible peers shown together.
+    _scan = (
+      visible: visiblePeers.length,
+      responding: sweep.responding.where(visiblePeers.containsKey).length,
+    );
     // A conflict lasts as long as a pass observes it, not until a command.
     if (sweep.conflict) {
       _error = const TailscaleException('identityConflict');
@@ -502,11 +533,13 @@ class TamayuraTailscaleService {
     final client = MediaRpcClient(
       candidate,
       channel: channel,
+      usesTailscale: true,
       translateTransportError: (error) => _transportError(error, channel),
     );
     try {
       final identified = await client.identity();
       if (!_current(generation) || identified.id == identity().id) return;
+      sweep.responding.add(remote.ref);
       if (binding != null) {
         if (identified.id != binding.deviceId) {
           throw const TailscaleException('identityConflict');
@@ -570,7 +603,7 @@ class TamayuraTailscaleService {
         candidate.ref.networkScope != _status?.networkScope) {
       throw const TailscaleException('staleCandidate');
     }
-    _generation++;
+    _invalidateDiscovery();
     // The device's present association in this network, which the candidate
     // may succeed only as the pass that found it established: the associated
     // node did not answer as the device.
@@ -628,7 +661,7 @@ class TamayuraTailscaleService {
   }
 
   Future<void> forgetDevice(String deviceId) => _command(() async {
-    _generation++;
+    _invalidateDiscovery();
     // A callback may already be writing the remembered peer. Drain it before
     // the host deletes that row, so a late write cannot resurrect the device.
     try {
@@ -674,7 +707,7 @@ class TamayuraTailscaleService {
       .toSet();
 
   Future<void> setSharing(bool enabled) async {
-    if (_sharing != enabled) _generation++;
+    if (_sharing != enabled) _invalidateDiscovery();
     _sharing = enabled;
     if (!enabled) {
       await _closePublications();
@@ -728,6 +761,7 @@ class TamayuraTailscaleService {
         return;
       }
       _mediaLease = lease;
+      _changed();
     } else {
       await _mediaLease!.updatePolicy(_currentAllowedPeers());
     }
@@ -759,7 +793,7 @@ class TamayuraTailscaleService {
       if (restoring != null) {
         await restoring.timeout(routeTimeout, onTimeout: () {});
       }
-      await _awaitRegistration();
+      await _awaitRunning();
       final node = _node;
       final status = _status;
       final associated = _bindings.any((entry) => entry.deviceId == peer.id);
@@ -781,9 +815,11 @@ class TamayuraTailscaleService {
                 entry.ref.networkScope == status?.networkScope,
           )
           .firstOrNull;
-      if (!_enabled || _closed || node == null || binding == null) {
-        // Not signed in, not registered in time, or registered as another
-        // node than the one this device was associated with.
+      if (!_enabled ||
+          _closed ||
+          !_running ||
+          node == null ||
+          binding == null) {
         if (peer.host.isEmpty) {
           throw const GrpcError.unavailable('Tailscale is not connected');
         }
@@ -808,14 +844,6 @@ class TamayuraTailscaleService {
     return client;
   }
 
-  /// A started node has not yet received the network map that carries its
-  /// registration scope.
-  bool get _awaitingScope {
-    final status = _status;
-    return status == null ||
-        !status.registered && status.state == NodeState.connecting;
-  }
-
   /// Whether this device has an association that a new operation may use.
   /// While the scope is unknown any saved association counts, so that a
   /// transfer can be scheduled; the route itself is matched when it is used.
@@ -825,23 +853,21 @@ class TamayuraTailscaleService {
     return _bindings.any(
       (entry) =>
           entry.deviceId == deviceId &&
-          (scope == null ? _awaitingScope : entry.ref.networkScope == scope),
+          (scope == null ? _starting : entry.ref.networkScope == scope),
     );
   }
 
-  /// The scope usually arrives within seconds of starting. A route requested
-  /// before that waits for it, up to [routeTimeout], instead of failing; an
-  /// engine that started the node for one transfer would otherwise give up
-  /// first, on every run. The wait reads the status itself, so it does not
-  /// depend on the poll schedule, and ends at once in any other state.
-  Future<void> _awaitRegistration() async {
+  /// A transfer engine can request a route while tsnet is still starting.
+  /// Read the status independently of the poll schedule until startup ends
+  /// or [routeTimeout] expires.
+  Future<void> _awaitRunning() async {
     final watch = Stopwatch()..start();
     while (!_closed &&
         _enabled &&
         _node != null &&
-        _awaitingScope &&
+        _starting &&
         watch.elapsed < routeTimeout) {
-      // Not awaited: once registered, a pass goes on to probe every peer.
+      // Once running, a pass can go on to probe every peer.
       unawaited(_safeRefresh());
       await Future<void>.delayed(settleInterval);
     }
@@ -866,6 +892,7 @@ class TamayuraTailscaleService {
     _identityLease = _mediaLease = null;
     _identityServer = _mediaServer = null;
     _publishedSource = null;
+    if (leases.any((lease) => lease != null)) _changed();
     for (final lease in leases) {
       try {
         await lease?.close();

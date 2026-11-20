@@ -1818,6 +1818,28 @@ class AppLocalizationsJa extends AppLocalizations {
   String get tailscaleLocalIdentity => 'この端末と Tailscale ノードの識別情報';
 
   @override
+  String get tailscaleSharingReady => 'この端末のリモート共有は準備完了です';
+
+  @override
+  String get tailscaleSharingNotReady => 'この端末のリモート共有はまだ準備できていません';
+
+  @override
+  String get tailscaleScanPending => 'Tailscale のノード一覧を待っています…';
+
+  @override
+  String get tailscaleProbePending => 'Tamayura の接続確認の結果を待っています…';
+
+  @override
+  String tailscaleVisibleNodes(int count) {
+    return '直近のスキャンで、この端末以外に $count 台の Tailscale ノードが見つかりました。';
+  }
+
+  @override
+  String tailscaleRespondingNodes(int count) {
+    return 'このうち $count 台が Tamayura の接続確認に応答しました。';
+  }
+
+  @override
   String get errorPeerAccessDenied =>
       'リモートアクセスが拒否されたか、ノードの認証に失敗しました。両端末の識別情報と共有許可を確認してください。';
 }

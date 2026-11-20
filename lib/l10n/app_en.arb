@@ -526,5 +526,11 @@
   "tailscaleRuntimeMissing": "This installation is missing the Tailscale component. Use a complete build that includes it.",
   "tailscaleControlDisconnected": "The control connection is interrupted. Existing device connections may still work; device status is based on actual checks.",
   "tailscaleLocalIdentity": "This device and Tailscale node identity",
+  "tailscaleSharingReady": "Remote sharing is ready on this device",
+  "tailscaleSharingNotReady": "Remote sharing is not ready on this device",
+  "tailscaleScanPending": "Waiting for the Tailscale node list…",
+  "tailscaleProbePending": "Waiting for Tamayura probe results…",
+  "tailscaleVisibleNodes": "The last scan found {count, plural, =1{one other Tailscale node} other{{count} other Tailscale nodes}}.",
+  "tailscaleRespondingNodes": "Of these, {count, plural, =1{one node answered} other{{count} nodes answered}} the Tamayura probe.",
   "errorPeerAccessDenied": "Remote access was denied or node verification failed. Check both device identities and sharing permissions before retrying."
 }

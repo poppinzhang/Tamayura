@@ -10,6 +10,7 @@ export '../core/models.dart'
         MediaSortOrder,
         MediaScrollEntry,
         PeerSyncApproval,
+        TailscaleDiagnostics,
         SyncPhase,
         SyncProgress;
 
@@ -131,6 +132,7 @@ abstract class TamayuraModel extends ChangeNotifier {
   bool get tailscaleBusy => false;
   bool get tailscaleCanOpenLogin => false;
   bool get tailscaleControlDisconnected => false;
+  TailscaleDiagnostics? get tailscaleDiagnostics => null;
   String? get tailscaleLocalDeviceId => null;
   String? get tailscaleNodeId => null;
   String? get tailscaleError => null;

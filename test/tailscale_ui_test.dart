@@ -10,6 +10,8 @@ class _Model extends TamayuraModel {
   @override
   TailscaleConnectionState tailscaleState = TailscaleConnectionState.signedOut;
   @override
+  TailscaleDiagnostics? tailscaleDiagnostics;
+  @override
   List<TailscaleDeviceView> tailscaleCandidates = [];
   @override
   bool get tailscaleCanOpenLogin =>
@@ -144,6 +146,47 @@ void main() {
   );
 
   for (final language in ['zh', 'ja', 'en']) {
+    testWidgets(
+      'remote diagnostics distinguish pending and zero in $language',
+      (tester) async {
+        final model = _Model();
+        final text = lookupAppLocalizations(Locale(language));
+        Future<void> show() => tester.pumpWidget(
+          _app(TailscaleSettings(model: model), language: language),
+        );
+        await show();
+        expect(find.text(text.tailscaleScanPending), findsNothing);
+        model.tailscaleDiagnostics = (
+          visibleNodes: null,
+          respondingNodes: null,
+          sharingReady: false,
+        );
+        await show();
+        expect(find.text(text.tailscaleSharingNotReady), findsOneWidget);
+        expect(find.text(text.tailscaleScanPending), findsOneWidget);
+        expect(find.text(text.tailscaleVisibleNodes(0)), findsNothing);
+        model.tailscaleDiagnostics = (
+          visibleNodes: 1,
+          respondingNodes: null,
+          sharingReady: true,
+        );
+        await show();
+        expect(find.text(text.tailscaleSharingReady), findsOneWidget);
+        expect(find.text(text.tailscaleVisibleNodes(1)), findsOneWidget);
+        expect(find.text(text.tailscaleProbePending), findsOneWidget);
+        expect(find.text(text.tailscaleRespondingNodes(0)), findsNothing);
+        model.tailscaleDiagnostics = (
+          visibleNodes: 1,
+          respondingNodes: 0,
+          sharingReady: true,
+        );
+        await show();
+        expect(find.text(text.tailscaleVisibleNodes(1)), findsOneWidget);
+        expect(find.text(text.tailscaleRespondingNodes(0)), findsOneWidget);
+        expect(find.text(text.tailscaleProbePending), findsNothing);
+      },
+    );
+
     testWidgets(
       'a successor node states that it revokes the previous one in $language',
       (tester) async {

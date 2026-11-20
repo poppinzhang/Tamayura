@@ -58,13 +58,50 @@ func (b *tsBackend) Start() error {
 	if err := requireNetworkSnapshot(); err != nil {
 		return err
 	}
-	if err := b.server.Start(); err != nil {
+	var err error
+	if runtime.GOOS == "android" {
+		err = startWithAndroidLogsDir(b.server.Dir, b.server.Start)
+	} else {
+		err = b.server.Start()
+	}
+	if err != nil {
 		return err
 	}
 	lc, err := b.server.LocalClient()
 	b.client = lc
 	return err
 }
+
+// Even with uploads disabled, tsnet's synchronous LocalBackend initialization
+// calls logpolicy.LogsDir. Android app processes have no usable default there.
+// Supply the private node directory only for startup; the runtime serializes
+// control calls, and sockstatlog retains the resolved path after Start returns.
+func startWithAndroidLogsDir(dir string, start func() error) error {
+	if err := os.Mkdir(dir, 0700); err != nil && !os.IsExist(err) {
+		return err
+	}
+	info, err := os.Lstat(dir)
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() {
+		return failure("storageUnavailable")
+	}
+	const key = "TS_LOGS_DIR"
+	previous, present := os.LookupEnv(key)
+	if err := os.Setenv(key, dir); err != nil {
+		return err
+	}
+	defer func() {
+		if present {
+			os.Setenv(key, previous)
+		} else {
+			os.Unsetenv(key)
+		}
+	}()
+	return start()
+}
+
 func (b *tsBackend) Close() error { return b.server.Close() }
 func (b *tsBackend) Status(ctx context.Context) (*ipnstate.Status, error) {
 	return b.client.Status(ctx)

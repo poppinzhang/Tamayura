@@ -526,5 +526,11 @@
   "tailscaleRuntimeMissing": "このインストールには Tailscale コンポーネントがありません。コンポーネントを含む完全なビルドを使用してください。",
   "tailscaleControlDisconnected": "管理サーバーへの接続が中断しています。既存の端末接続は使える場合があり、実際の接続確認に基づいて表示します。",
   "tailscaleLocalIdentity": "この端末と Tailscale ノードの識別情報",
+  "tailscaleSharingReady": "この端末のリモート共有は準備完了です",
+  "tailscaleSharingNotReady": "この端末のリモート共有はまだ準備できていません",
+  "tailscaleScanPending": "Tailscale のノード一覧を待っています…",
+  "tailscaleProbePending": "Tamayura の接続確認の結果を待っています…",
+  "tailscaleVisibleNodes": "直近のスキャンで、この端末以外に {count} 台の Tailscale ノードが見つかりました。",
+  "tailscaleRespondingNodes": "このうち {count} 台が Tamayura の接続確認に応答しました。",
   "errorPeerAccessDenied": "リモートアクセスが拒否されたか、ノードの認証に失敗しました。両端末の識別情報と共有許可を確認してください。"
 }

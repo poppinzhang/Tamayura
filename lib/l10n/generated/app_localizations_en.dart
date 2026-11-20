@@ -1972,6 +1972,41 @@ class AppLocalizationsEn extends AppLocalizations {
       'This device and Tailscale node identity';
 
   @override
+  String get tailscaleSharingReady => 'Remote sharing is ready on this device';
+
+  @override
+  String get tailscaleSharingNotReady =>
+      'Remote sharing is not ready on this device';
+
+  @override
+  String get tailscaleScanPending => 'Waiting for the Tailscale node list…';
+
+  @override
+  String get tailscaleProbePending => 'Waiting for Tamayura probe results…';
+
+  @override
+  String tailscaleVisibleNodes(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count other Tailscale nodes',
+      one: 'one other Tailscale node',
+    );
+    return 'The last scan found $_temp0.';
+  }
+
+  @override
+  String tailscaleRespondingNodes(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count nodes answered',
+      one: 'one node answered',
+    );
+    return 'Of these, $_temp0 the Tamayura probe.';
+  }
+
+  @override
   String get errorPeerAccessDenied =>
       'Remote access was denied or node verification failed. Check both device identities and sharing permissions before retrying.';
 }

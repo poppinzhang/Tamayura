@@ -47,6 +47,8 @@ Android 原生核心按 `ownerId` 共享一个节点。前台和 UIDT Engine 各
 
 Android 网络接口使用 `java.net.NetworkInterface` 与 `ConnectivityManager` 提供给 Go 注册的 interface getter，避免直接依赖受限制的 netlink 枚举。默认网络变化会刷新快照；这不代替真机上的切网、DNS、蜂窝和后台任务验收。
 
+Android 启动节点时将 `TS_LOGS_DIR` 指向应用私有状态目录。Tailscale 1.104.7 创建本地后端时，即使已禁用日志也会调用 `logpolicy.LogsDir`。在没有用户缓存和可写系统临时目录的应用进程里，该调用会引发 Go panic 并终止宿主。首次登录和恢复节点走同一启动流程。
+
 ## gRPC 与传输边界
 
 `package:flutter_tailscale/grpc.dart` 提供 `TailscaleChannel` 和 `serveGrpcConnection`。CONNECT 完成后才交给 HTTP/2；应用 Protobuf 无需改变。`TailscaleChannel.lastConnectionFailure` 保留 SDK 的类型化连接原因，即使 grpc 4 把连接失败包装为 UNAVAILABLE，宿主仍可将可确认的证书/身份/本机鉴权拒绝与可重试网络错误分开，不能通过分析任意错误文本作判断。传输不重放 RPC，不把失败的新连接伪装成旧连接继续运行。

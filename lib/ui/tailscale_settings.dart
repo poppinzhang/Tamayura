@@ -20,6 +20,7 @@ class TailscaleSettings extends StatelessWidget {
       TailscaleConnectionState.unavailable => text.tailscaleUnavailable,
     };
     final enabled = !model.loading && !model.tailscaleBusy;
+    final diagnostics = model.tailscaleDiagnostics;
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(18),
@@ -46,6 +47,22 @@ class TailscaleSettings extends StatelessWidget {
                 '${model.deviceName}\n'
                 '${model.tailscaleLocalDeviceId ?? ""}\n${model.tailscaleNodeId}',
               ),
+            ],
+            if (diagnostics != null) ...[
+              const SizedBox(height: 8),
+              Text(
+                diagnostics.sharingReady
+                    ? text.tailscaleSharingReady
+                    : text.tailscaleSharingNotReady,
+              ),
+              if (diagnostics.visibleNodes case final count?) ...[
+                Text(text.tailscaleVisibleNodes(count)),
+                if (diagnostics.respondingNodes case final replies?)
+                  Text(text.tailscaleRespondingNodes(replies))
+                else
+                  Text(text.tailscaleProbePending),
+              ] else
+                Text(text.tailscaleScanPending),
             ],
             if (model.tailscaleBusy) const LinearProgressIndicator(),
             if (model.tailscaleError != null) ...[

@@ -751,7 +751,13 @@ class MediaRpcClient implements MediaTransferClient {
   Future<wire.DeviceIdentity> _requestIdentity() => _rpc(
     () => _client.getIdentity(
       wire.Empty(),
-      options: CallOptions(timeout: const Duration(seconds: 8)),
+      // The gRPC deadline starts before dialing. On Tailscale the SDK first
+      // resolves a forward and can spend 25 seconds establishing the tunnel.
+      options: CallOptions(
+        timeout: _usesTailscale
+            ? const Duration(seconds: 40)
+            : const Duration(seconds: 8),
+      ),
     ),
   );
 

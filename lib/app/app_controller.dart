@@ -77,6 +77,8 @@ class AppController extends TamayuraModel {
   bool get tailscaleControlDisconnected =>
       _tailscale?.status?.controlState == NodeControlState.disconnected;
   @override
+  TailscaleDiagnostics? get tailscaleDiagnostics => _tailscale?.diagnostics;
+  @override
   String? get tailscaleLocalDeviceId => tailscaleEnabled ? _id : null;
   @override
   String? get tailscaleNodeId => _tailscale?.status?.selfNodeId;
