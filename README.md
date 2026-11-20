@@ -44,6 +44,8 @@ It is for browsing and transferring media between your own devices. It does not 
 
 **1.2.0** adds optional Tailscale internet access: sign in under **Settings → Tailscale remote access**, confirm each remote device, and browse albums and download originals over the internet as you do on your LAN. If you do not sign in, nothing changes: Tamayura stays on your LAN, starts no remote component, and keeps compatibility with the 1.0.0–1.1.0 data formats, so settings, albums, and downloads are preserved on upgrade. On Windows, **Settings → Shared folder full check interval** (1–8760 whole hours, default 24, added in 1.1.0) still controls how often a full folder check runs.
 
+**Upcoming in 1.2.1.** The `1.2.1` source fixes an Android exit after confirming Tailscale sign-in and before the browser opens, allows more time for remote identity checks when the tunnel is slow, and waits until the node is running before discovering devices or starting remote downloads. On Android, an open collection shows its name, sort order, photo count, and grid directly under the app bar, and the fast-scroll thumb stays for 1.5 seconds after scrolling stops. Tailscale settings also show whether local remote sharing is ready and how many visible nodes answer Tamayura. These changes are not in the published 1.2.0 packages. Build and validation status are in the [1.2.1 release record](docs/releases/1.2.1.md). Settings, albums, and downloads stay compatible with 1.2.0.
+
 **1 · Install and connect.** Choose the package for your platform from [GitHub Releases](https://github.com/poppinzhang/Tamayura/releases) and read the [installation notes](docs/releases/1.2.0.md#安装与数据). Android keeps the release certificate used since 0.6.1 and can update an app with the same signature. A debug or older differently signed app must be uninstalled first, which clears its app data and folder permissions. Connect both devices to the same local network and open Tamayura. Allow local network access when prompted; on Windows, allow the app through the firewall on your trusted private network. To connect away from your LAN, see step 3.
 
 **2 · Choose your folders.** In **Settings (设置)**, add the folders you want to share and choose where downloaded files should go. For example, share `DCIM` and receive files in `Pictures/Tamayura`. Subfolders are included automatically. On Android, choose a subfolder rather than the storage root or the `Download` root.
@@ -129,6 +131,7 @@ Most detailed documentation is currently in Chinese.
 | :-- | :-- |
 | [Changelog](CHANGELOG.md) | Released and unreleased changes |
 | [GitHub Releases](https://github.com/poppinzhang/Tamayura/releases) | Published packages and checksums |
+| [1.2.1 release record](docs/releases/1.2.1.md) | Upcoming release status, installation impact, and validation scope |
 | [1.2.0 release record](docs/releases/1.2.0.md) | Stable publication status, installation impact, and validation scope |
 | [Tailscale remote access](docs/Tailscale实现.md) | Internet access design, security boundary, and validation scope |
 | [Sync behavior](docs/自动与手动同步.md) | Automatic intervals, manual refresh, and sync status |

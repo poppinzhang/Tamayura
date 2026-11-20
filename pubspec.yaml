@@ -1,7 +1,7 @@
 name: tamayura
 description: 局域网中的随身相册。Android、macOS、Windows 与 Linux 媒体共享应用。
 publish_to: none
-version: 1.2.0+19
+version: 1.2.1+20
 
 environment:
   sdk: '>=3.8.0 <4.0.0'
