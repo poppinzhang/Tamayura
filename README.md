@@ -40,15 +40,15 @@ It is for browsing and transferring media between your own devices. It does not 
 
 ## Quick start
 
-**v1.2.1 is the latest stable release**, available for Android, macOS, Windows, and Linux from [GitHub Releases](https://github.com/poppinzhang/Tamayura/releases/tag/v1.2.1). See the [1.2.1 release record](docs/releases/1.2.1.md) for installation notes and validation scope. Stable releases began with v1.0.0 and follow the [compatibility and upgrade policy](docs/兼容与升级.md).
+**v1.2.2 is the latest stable release**, available for Android, macOS, Windows, and Linux from [GitHub Releases](https://github.com/poppinzhang/Tamayura/releases/tag/v1.2.2). See the [1.2.2 release record](docs/releases/1.2.2.md) for installation notes and validation scope. Stable releases began with v1.0.0 and follow the [compatibility and upgrade policy](docs/兼容与升级.md).
 
 **1.2.0** adds optional Tailscale internet access: sign in under **Settings → Tailscale remote access**, confirm each remote device, and browse albums and download originals over the internet as you do on your LAN. If you do not sign in, nothing changes: Tamayura stays on your LAN, starts no remote component, and keeps compatibility with the 1.0.0–1.1.0 data formats, so settings, albums, and downloads are preserved on upgrade. On Windows, **Settings → Shared folder full check interval** (1–8760 whole hours, default 24, added in 1.1.0) still controls how often a full folder check runs.
 
 **1.2.1** fixes an Android exit after confirming Tailscale sign-in and before the browser opens, allows more time for remote identity checks when the tunnel is slow, and waits until the node is running before discovering devices or starting remote downloads. On Android, an open collection shows its name, sort order, photo count, and grid directly under the app bar, and the fast-scroll thumb stays for 1.5 seconds after scrolling stops. Tailscale settings also show whether local remote sharing is ready and how many visible nodes answer Tamayura. Settings, albums, and downloads stay compatible with 1.2.0.
 
-**1.2.2** moves remote sharing permissions into Tailscale settings and fixes desktop connectivity issues. See the [1.2.2 release record](docs/releases/1.2.2.md) for release status.
+**1.2.2** moves remote sharing permissions into Tailscale settings and fixes desktop connectivity issues.
 
-**1 · Install and connect.** Choose the package for your platform from [GitHub Releases](https://github.com/poppinzhang/Tamayura/releases) and read the [installation notes](docs/releases/1.2.1.md#安装与数据). Android keeps the release certificate used since 0.6.1 and can update an app with the same signature. A debug or older differently signed app must be uninstalled first, which clears its app data and folder permissions. Connect both devices to the same local network and open Tamayura. Allow local network access when prompted; on Windows, allow the app through the firewall on your trusted private network. To connect away from your LAN, see step 3.
+**1 · Install and connect.** Choose the package for your platform from [GitHub Releases](https://github.com/poppinzhang/Tamayura/releases) and read the [installation notes](docs/releases/1.2.2.md#安装与数据). Android keeps the release certificate used since 0.6.1 and can update an app with the same signature. A debug or older differently signed app must be uninstalled first, which clears its app data and folder permissions. Connect both devices to the same local network and open Tamayura. Allow local network access when prompted; on Windows, allow the app through the firewall on your trusted private network. To connect away from your LAN, see step 3.
 
 **2 · Choose your folders.** In **Settings (设置)**, add the folders you want to share and choose where downloaded files should go. For example, share `DCIM` and receive files in `Pictures/Tamayura`. Subfolders are included automatically. On Android, choose a subfolder rather than the storage root or the `Download` root.
 
@@ -60,7 +60,7 @@ It is for browsing and transferring media between your own devices. It does not 
 
 Open **Settings → Check for updates** to check stable GitHub Releases. Tamayura asks for your confirmation before proceeding. Android downloads and verifies the APK, then opens the system installation flow; allow this installation source when prompted and confirm the update. Windows downloads and verifies the full ZIP, replaces the complete application folder, and restarts. It requires a complete release bundle in a dedicated writable local folder whose parent is also writable; it does not provide a separate installer or automatically request administrator access. macOS opens the selected release page for you to download and install the update yourself. Linux also opens the release page; download the tar.gz for your architecture and replace the app folder yourself.
 
-Users of 0.8.0 or later can find 1.2.1 through Check for updates; older versions require manual installation. Checking and downloading updates requires internet access. Updating interrupts sharing and transfers; interrupted media downloads can be retried after reopening the app. On Windows, quit the old v1.0.0 app from its tray menu before launching the upgraded app for the first time. See the [1.2.1 release record](docs/releases/1.2.1.md) for limitations and device validation scope.
+Users of 0.8.0 or later can find 1.2.2 through Check for updates; older versions require manual installation. Checking and downloading updates requires internet access. Updating interrupts sharing and transfers; interrupted media downloads can be retried after reopening the app. On Windows, quit the old v1.0.0 app from its tray menu before launching the upgraded app for the first time. See the [1.2.2 release record](docs/releases/1.2.2.md) for limitations and device validation scope.
 
 ## Supported platforms
 
@@ -71,7 +71,7 @@ Users of 0.8.0 or later can find 1.2.1 through Check for updates; older versions
 | Windows | Windows 10 1809+ / Windows 11 · x64 | ZIP; Visual C++ x64 runtime required |
 | Linux (from 1.0.0) | Ubuntu 24.04 LTS or a newer desktop with glibc 2.39+ and GTK 3.24 · x64 / arm64 | tar.gz app folder |
 
-The macOS app uses ad-hoc signing and is not notarized; Windows and Linux packages are unsigned. A stable GitHub Release does not imply platform notarization or app-store distribution. Installation details and validation limits are in the [1.2.1 release record](docs/releases/1.2.1.md). Linux is included from 1.0.0; older releases do not contain Linux packages. iOS is planned but does not yet have a runnable or downloadable build.
+The macOS app uses ad-hoc signing and is not notarized; Windows and Linux packages are unsigned. A stable GitHub Release does not imply platform notarization or app-store distribution. Installation details and validation limits are in the [1.2.2 release record](docs/releases/1.2.2.md). Linux is included from 1.0.0; older releases do not contain Linux packages. iOS is planned but does not yet have a runnable or downloadable build.
 
 Windows can display a connection QR code, open downloaded files in the default app, and reveal them in Explorer. Camera scanning and the system share sheet are available on Android and macOS.
 
@@ -133,7 +133,7 @@ Most detailed documentation is currently in Chinese.
 | :-- | :-- |
 | [Changelog](CHANGELOG.md) | Released and unreleased changes |
 | [GitHub Releases](https://github.com/poppinzhang/Tamayura/releases) | Published packages and checksums |
-| [1.2.1 release record](docs/releases/1.2.1.md) | Stable publication status, installation impact, and validation scope |
+| [1.2.2 release record](docs/releases/1.2.2.md) | Stable publication status, installation impact, and validation scope |
 | [Tailscale remote access](docs/Tailscale实现.md) | Internet access design, security boundary, and validation scope |
 | [Sync behavior](docs/自动与手动同步.md) | Automatic intervals, manual refresh, and sync status |
 | [New and forgotten devices](docs/新设备确认与忘记设备.md) | Confirming newly discovered devices, retrying when a device comes back, and forgetting devices |
