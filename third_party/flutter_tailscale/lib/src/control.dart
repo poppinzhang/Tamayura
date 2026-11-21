@@ -85,6 +85,7 @@ class ProcessBridgeControl implements BridgeControl {
   final Process _process;
   final _pending = <int, Completer<Map<String, dynamic>>>{};
   final _buffer = <int>[];
+  Future<void> _writes = Future.value();
   late final StreamSubscription<List<int>> _stdout;
   late final StreamSubscription<List<int>> _stderr;
   int _nextId = 0;
@@ -150,20 +151,25 @@ class ProcessBridgeControl implements BridgeControl {
     }
     final completer = Completer<Map<String, dynamic>>();
     _pending[id] = completer;
-    try {
-      _process.stdin.writeln(message);
-      await _process.stdin.flush();
-      return await completer.future.timeout(const Duration(seconds: 40));
-    } on TimeoutException {
-      // A timeout cannot safely leave an unobserved native resource alive.
-      _fail('controlTimeout');
-      throw const TailscaleException('controlTimeout');
-    } on TailscaleException {
-      rethrow;
-    } catch (_) {
-      _fail('runtimeStopped');
-      throw const TailscaleException('runtimeStopped');
-    }
+    // IOSink rejects writes while a flush is pending. Queue only the frames;
+    // each caller still receives its own response by request ID.
+    _writes = _writes.then((_) async {
+      if (_closed) return;
+      try {
+        _process.stdin.writeln(message);
+        await _process.stdin.flush();
+      } catch (_) {
+        _fail('runtimeStopped');
+      }
+    });
+    return completer.future.timeout(
+      const Duration(seconds: 40),
+      onTimeout: () {
+        // A timeout cannot safely leave an unobserved native resource alive.
+        _fail('controlTimeout');
+        throw const TailscaleException('controlTimeout');
+      },
+    );
   }
 
   @override
@@ -172,13 +178,14 @@ class ProcessBridgeControl implements BridgeControl {
     await _stdout.cancel();
     await _stderr.cancel();
     try {
-      await _process.stdin.close();
-    } catch (_) {}
-    try {
       await _process.exitCode.timeout(const Duration(seconds: 3));
     } on TimeoutException {
       _process.kill(ProcessSignal.sigkill);
     }
+    await _writes;
+    try {
+      await _process.stdin.close();
+    } catch (_) {}
   }
 }
 

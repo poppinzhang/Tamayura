@@ -2,6 +2,9 @@
 
 ## unstaged
 
+- 修复 macOS 内嵌 Tailscale 节点在登录或恢复后绕过系统隧道、导致官方管控页显示离线的问题。
+- 修复桌面端同时探测多台设备时控制管道写入冲突、节点进程意外退出并持续离线的问题。设备发现仍可并发进行。
+
 ## 1.2.1
 
 版本日期：2026-11-21。Android、macOS、Windows 与 Linux 统一使用 `1.2.1+20`，Windows 数字文件版本为 `1.2.1.20`。本版修复 Android 上确认 Tailscale 登录后、打开浏览器前应用退出的问题，放宽较慢隧道上的远端身份查询时限，并等到节点运行就绪再开始远程发现与下载；同时调整 Android 合集页、快速滚动停留时间、Tailscale 设置中的就绪与发现计数，以及中日英界面文案。计划发布正式 Release 并标记 Latest，提供 Android APK、macOS Universal ZIP、Windows x64 ZIP、Linux x64 / arm64 tar.gz，以及 `SHA256SUMS`、`release.json` 共七个附件。准备提交时，本次完整测试、打包、四平台分支 CI 和 Tag 发布仍待完成；实际结果见 `docs/releases/1.2.1.md`。

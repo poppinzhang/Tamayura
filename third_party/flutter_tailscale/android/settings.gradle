@@ -1,1 +1,5 @@
 rootProject.name = 'flutter_tailscale'
+
+dependencyResolutionManagement {
+    repositories { google(); mavenCentral() }
+}

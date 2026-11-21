@@ -1,6 +1,6 @@
 # 当前实现与验证
 
-更新：2026-11-15。本文描述未发布源码，优先于 01–07 中的接口建议；没有发布软件包、Tag 或 Release。
+更新于 2026-11-18。本文描述未发布源码，优先于 01–07 中的接口建议；没有发布软件包、Tag 或 Release。
 
 ## 组成与构建
 
@@ -41,6 +41,10 @@ Android 插件要求 API 36，使用 NDK 28.2.13676358；原生编译 API 35 与
 
 控制协议 v1 采用继承管道上的 NDJSON，每帧最多 1 MiB；Android 的 `ft_request`/`ft_free` 使用同样的 JSON。初始化校验协议版本与所需安全能力。当前采用有界状态快照轮询，尚未实现草案中的 JSON-RPC 长度帧、有序事件、请求幂等记录和通用取消协议；网络操作有自己的截止时间。桌面控制超时会终止自有辅助进程以避免未知资源残留，进程内 FFI 不在 UI isolate 阻塞。
 
+桌面宿主可以同时发起多个控制请求。Dart 端按调用顺序写入完整的 NDJSON 帧，每次等待上一帧写入并刷新后再写下一帧。各调用独立按请求 ID 接收结果，等待原生响应期间可以发送其他请求。此前并发设备探测可能在同一个 `IOSink` 上重叠写入和刷新，触发错误处理并终止仍在运行的辅助进程。
+
+macOS 的独立辅助进程运行用户态节点。默认关闭上游的接口绑定机制，让控制连接持续遵循系统为目的地址选择的路由。Tailscale 1.104.7 会在应用网络图时更新其物理接口绑定开关，初始化时只设置一次这个开关无法保证之后的连接走同一路径。这对经过宿主隧道解析和访问控制服务器的环境尤其重要。若启动环境通过 `ALL_PROXY` 显式配置了 Go 支持的 SOCKS 代理，则沿用上游的 SOCKS 拨号器及 `NO_PROXY` 排除规则。HTTP(S) 代理的处理仍由上游 HTTP 传输负责。
+
 Android 初始化经过平台 MethodChannel，在后台线程经 JNI 请求核心；平台先原子登记 owner 再交给 Dart。Engine 销毁会释放已登记 owner；初始化尚未返回时销毁 Engine，返回的 owner 立即被释放，避免旧固定端口和节点所有者遗留。后续请求使用 isolate 中的 FFI。新增 4 项 JVM 测试覆盖登记/销毁先后顺序与正常释放；执行结果以宿主 Android Gradle 验证记录为准。
 
 Android 原生核心按 `ownerId` 共享一个节点。前台和 UIDT Engine 各自初始化，使用相同私有状态目录与节点名。`dispose` 只释放本 owner 的资源，最后一个 owner 释放时停止节点；`stop` 与 `logout` 是应用级操作。跨进程状态目录锁拒绝第二个所有者，不会并发重写身份。停止保留身份，退出先禁止恢复并清理 SDK 节点子目录，不删除宿主数据库、媒体或下载分片，也不声称删除云端节点。
@@ -59,7 +63,41 @@ Android 启动节点时将 `TS_LOGS_DIR` 指向应用私有状态目录。Tailsc
 
 gRPC 4.2.0 / http2 2.3.1 在客户端期限 RST 与服务器迟到 HEADERS 交错时可能关闭 HTTP/2 连接。SDK 保留期限错误并允许下一次操作建立新通道，不改写 HTTP/2 字节或自动重放原 RPC；宿主仍须在已有业务重试/续传边界恢复。测试验证取消、期限与新连接恢复，不保证期限后同一 TCP 连接继续存活。
 
-## 本轮验证与尚未验证范围
+## 持续集成与本地复验
+
+分支推送、Pull Request 和手动触发均运行以下检查。测试使用临时状态目录，运行时无需 Tailscale 账号或密钥。
+
+| 工作流 | 检查范围 |
+| --- | --- |
+| [桌面 SDK](../.github/workflows/desktop.yml) | Ubuntu 24.04、macOS 15 和 Windows Server 2022 分别运行 Go 测试、构建本机 helper 与许可证、执行无登录启动检查，并将该 helper 交给完整 Flutter 测试套件。Linux 和 macOS 启用 Go 竞争检测，Windows 使用 `CGO_ENABLED=0`。Linux 另检查工作流语法、Go / Dart 格式与 Flutter 静态分析。 |
+| [Android 插件](../.github/workflows/android.yml) | Ubuntu 上独立运行 Engine 所有权 JVM 测试并构建 debug AAR。从归档逐项核对 arm64-v8a、armeabi-v7a、x86_64 共享库的 ELF 架构，以及各 ABI 的 Go 和 Tailscale 许可证。 |
+
+在 macOS 或 Linux 的仓库根目录可复验桌面检查：
+
+```sh
+flutter pub get --enforce-lockfile
+dart format --output=none --set-exit-if-changed lib test
+flutter analyze --no-pub
+(cd native && go test -race ./...)
+export FLUTTER_TAILSCALE_HELPER="$PWD/build/ci/flutter-tailscale-bridge"
+scripts/build-native.sh "$(go env GOOS)" "$(go env GOARCH)" "$FLUTTER_TAILSCALE_HELPER"
+python3 scripts/smoke-native.py "$FLUTTER_TAILSCALE_HELPER"
+flutter test --no-pub
+```
+
+未设置 `FLUTTER_TAILSCALE_HELPER` 时，本地 Flutter 套件会跳过 3 项真实辅助进程测试。回环测试使用仓库内的公开测试证书和私钥。
+
+在 macOS 或 Linux 上独立验证 Android 插件需 JDK 21、Gradle 8.14.3、Android SDK 36、Build Tools 36.0.0 及上文固定的 NDK。将 `FLUTTER_ROOT` 和 `ANDROID_HOME` 分别指向 Flutter SDK 和 Android SDK 后运行：
+
+```sh
+flutter precache --android
+gradle -p android testDebugUnitTest assembleDebug
+python3 scripts/check-android-aar.py android/build/outputs/aar/flutter_tailscale-debug.aar
+```
+
+2026-11-18 在 macOS arm64 本地通过 30 项 Flutter 测试（含 3 项真实 helper 测试）、20 项 Go 测试（启用竞争检测）和 5 项 Android JVM 测试。两份工作流通过 actionlint；三种 Android ABI 均已构建并通过 AAR 核验。
+
+## 历史验证与尚未验证范围
 
 已执行：
 
@@ -71,18 +109,6 @@ gRPC 4.2.0 / http2 2.3.1 在客户端期限 RST 与服务器迟到 HEADERS 交�
 - Windows x64 本机另已通过 17 项 Go 测试（`CGO_ENABLED=0`，未运行 Windows race）、SDK 静态分析和 22 项 Flutter 测试；后者使用宿主本次 Release 构建的真实 helper，两项原生检查均执行。Windows 打包与窗口级原生检查的具体范围见 Tamayura 实现记录。
 - 2026-11-16 修复会话证书 30 天到期后入站流无法交付的问题，仅在 macOS 复验：Go 核心 18 项测试及 race 检查通过，新增用例在签发前 10 年与签发后 50 年两个时刻校验证书；`flutter analyze --no-pub` 无问题，23 项 Flutter 测试通过，其中 3 项由新构建的真实辅助进程执行，新增一项以辅助进程签发的证书完成 Dart 两端严格双向 TLS 握手并检查有效期。两项新增用例在修复前的实现上均失败。本次未在 Windows、Linux 或 Android 复验。
 
-测试入口：
-
-```sh
-flutter pub get
-flutter analyze --no-pub
-flutter test --no-pub
-(cd native && go test -race ./...)
-FLUTTER_TAILSCALE_HELPER=/absolute/output/flutter-tailscale-bridge flutter test --no-pub
-```
-
 另已分别执行 macOS helper 和 Windows 完整 ZIP 解压后 helper 的临时空状态目录匿名启动，取得官方认证 URL（未展示、未打开、未完成账号登录），核验日志未包含认证 URL 并清理临时身份。该检查发现并修复 macOS 用户态 tsnet 强制物理接口绑定绕过宿主路由的问题，以及上游 logtail 默认记录认证 URL 的问题；当前禁用 logtail 缓冲/上传。匿名启动结果不等于已登录节点互联验收。
-
-未提供辅助程序环境变量时，2 项原生 smoke 测试明确跳过；不能把跳过写成通过。测试证书和私钥是公开、专用于回环测试的夹具，不用于真实节点。
 
 仍需真实平台验收：官方首次认证/审批/恢复、两个内嵌节点互联、直连与 DERP、Android 16 蜂窝与 UIDT 前台 Engine 销毁后的连续性、系统切网/休眠/锁屏、最低系统和架构安装。官方独立 Tailscale 客户端的直连结果证明目标网络具有可行性，不能替代这些嵌入实现检查。iOS、Web、Headscale、UDP、系统 VPN 和通用服务发现仍未实现。

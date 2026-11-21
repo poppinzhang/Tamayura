@@ -51,4 +51,15 @@ def nativeBuild = tasks.register('buildTailscaleNative') {
 }
 tasks.named('preBuild').configure { dependsOn(nativeBuild) }
 
-dependencies { testImplementation 'junit:junit:4.13.2' }
+dependencies {
+    // Flutter applications supply the embedding when they include this plugin.
+    if (project == rootProject) {
+        def sdk = providers.environmentVariable('FLUTTER_ROOT').getOrNull()
+        def jar = sdk ? new File(sdk, 'bin/cache/artifacts/engine/android-x64/flutter.jar') : null
+        if (!jar?.isFile()) {
+            throw new GradleException('Set FLUTTER_ROOT to a Flutter SDK and run flutter precache --android.')
+        }
+        compileOnly files(jar)
+    }
+    testImplementation 'junit:junit:4.13.2'
+}

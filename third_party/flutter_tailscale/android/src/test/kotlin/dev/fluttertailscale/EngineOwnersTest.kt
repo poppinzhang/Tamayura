@@ -12,7 +12,7 @@ class EngineOwnersTest {
         assertTrue(owners.register("foreground"))
         assertTrue(owners.register("foreground"))
         assertTrue(owners.register("task"))
-        assertEquals(setOf("foreground", "task"), owners.detach().toSet())
+        assertEquals(listOf("foreground", "task"), owners.detach().sorted())
         assertTrue(owners.detach().isEmpty())
         assertFalse(owners.register("late"))
     }
@@ -22,6 +22,18 @@ class EngineOwnersTest {
         owners.register("task")
         owners.unregister("task")
         assertTrue(owners.detach().isEmpty())
+    }
+
+    @Test fun repeatedDisposeLeavesOtherOwnersForEngineCleanup() {
+        val owners = EngineOwners()
+        owners.register("foreground")
+        owners.register("task")
+
+        owners.unregister("foreground")
+        owners.unregister("foreground")
+
+        assertTrue(owners.isAttached())
+        assertEquals(listOf("task"), owners.detach())
     }
 
     @Test fun nativeInitializationReturningAfterDetachMustBeDisposed() {

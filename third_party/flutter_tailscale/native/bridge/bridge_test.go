@@ -35,6 +35,7 @@ type fakeBackend struct {
 	identity    string
 	dials       atomic.Int32
 	started     atomic.Int32
+	logins      atomic.Int32
 	closed      atomic.Int32
 	listener    net.Listener
 	connections []net.Conn
@@ -66,7 +67,7 @@ func (f *fakeBackend) Status(context.Context) (*ipnstate.Status, error) {
 	snapshot := *f.status
 	return &snapshot, nil
 }
-func (f *fakeBackend) Login(context.Context) error  { return nil }
+func (f *fakeBackend) Login(context.Context) error  { f.logins.Add(1); return nil }
 func (f *fakeBackend) Logout(context.Context) error { return errors.New("offline") }
 func (f *fakeBackend) NetworkChanged()              {}
 func (f *fakeBackend) Dial(context.Context, string) (net.Conn, error) {

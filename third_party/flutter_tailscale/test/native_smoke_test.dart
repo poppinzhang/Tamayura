@@ -69,6 +69,70 @@ void main() {
   );
 
   test(
+    'concurrent helper requests keep their responses and the node stays usable',
+    () async {
+      final state = await Directory.systemTemp.createTemp(
+        'flutter-tailscale-concurrent-',
+      );
+      final control = await ProcessBridgeControl.start(helper!);
+      try {
+        final session = await control.request('initialize', {
+          'stateDirectory': state.path,
+          'hostname': 'sdk-concurrent',
+          'protocolVersion': 1,
+        });
+        final owner = {'ownerId': session['ownerId']};
+        final stopped = containsPair('state', 'stopped');
+        await Future.wait([
+          expectLater(control.request('status', owner), completion(stopped)),
+          expectLater(
+            control.request('status'),
+            throwsA(
+              isA<TailscaleException>().having(
+                (error) => error.code,
+                'code',
+                'invalidOwner',
+              ),
+            ),
+          ),
+          expectLater(control.request('status', owner), completion(stopped)),
+          expectLater(control.request('status', owner), completion(stopped)),
+        ]);
+        expect(await control.request('status', owner), stopped);
+      } finally {
+        await control.close();
+        await state.delete(recursive: true);
+      }
+    },
+    skip: helper == null
+        ? 'Set FLUTTER_TAILSCALE_HELPER to a freshly built native helper.'
+        : false,
+  );
+
+  test(
+    'closing the helper fails queued requests and rejects further writes',
+    () async {
+      final control = await ProcessBridgeControl.start(helper!);
+      final stopped = throwsA(
+        isA<TailscaleException>().having(
+          (error) => error.code,
+          'code',
+          'runtimeStopped',
+        ),
+      );
+      await Future.wait([
+        expectLater(control.request('status'), stopped),
+        expectLater(control.request('status'), stopped),
+        control.close(),
+      ]);
+      await expectLater(control.request('status'), stopped);
+    },
+    skip: helper == null
+        ? 'Set FLUTTER_TAILSCALE_HELPER to a freshly built native helper.'
+        : false,
+  );
+
+  test(
     'shared native owner disposal leaves the other owner attached',
     () async {
       final state = await Directory.systemTemp.createTemp(

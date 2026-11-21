@@ -9,12 +9,14 @@ import (
 	"strconv"
 	"sync"
 
+	"golang.org/x/net/proxy"
 	"tailscale.com/client/local"
 	"tailscale.com/envknob"
 	"tailscale.com/ipn/ipnstate"
 	"tailscale.com/logtail"
 	"tailscale.com/net/netns"
 	"tailscale.com/tsnet"
+	"tailscale.com/types/logger"
 )
 
 type tsBackend struct {
@@ -37,10 +39,16 @@ func configurePrivacy() {
 func newTSBackend(dir, hostname string) Backend {
 	configurePrivacy()
 	if runtime.GOOS == "darwin" {
-		// This embedded userspace node installs no system TUN or routes. The
-		// system daemon's physical-interface binding bypasses host VPN routes
-		// and can stall control authentication. Follow the OS route instead.
-		netns.SetDisableBindConnToInterface(func(string, ...any) {}, true)
+		if proxy.FromEnvironment() == proxy.Direct {
+			// Like userspace tailscaled, this helper installs no system routes.
+			// Network maps may reset the capability that controls interface
+			// binding. Disable netns so sockets keep following the host route.
+			netns.SetEnabled(false)
+		} else {
+			// netns also applies an explicitly configured SOCKS dialer and its
+			// NO_PROXY exclusions. Keep that transport for these launches.
+			netns.SetDisableBindConnToInterface(logger.Discard, true)
+		}
 	}
 	return &tsBackend{server: &tsnet.Server{
 		Dir: dir, Hostname: hostname, ControlURL: "https://controlplane.tailscale.com",
