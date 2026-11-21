@@ -36,7 +36,7 @@ Your phone holds the everyday photos. Your computer holds the trips, videos, and
 
 It is for browsing and transferring media between your own devices. It does not automatically copy entire albums or track edits to file contents.
 
-**Optional internet access (1.2.0).** Besides your local network, Tamayura can reach your own devices over the internet through an embedded Tailscale node, with separate LAN and Tailscale status for each device and explicit approval for remote sharing. In **Settings → Tailscale remote access**, sign in on both devices, then confirm the discovered device under **Devices** on each side; album sync approval remains separate, and using Tamayura on your LAN never requires signing in. Embedded-node account sign-in, cellular background use, and cross-device acceptance on real devices are still pending; see [implementation and validation](docs/Tailscale实现.md).
+**Optional internet access (since 1.2.0).** Sign in on both devices under **Settings → Tailscale remote access** to discover other Tamayura devices visible on your network. In releases 1.2.0 and 1.2.1, allow remote sharing under **Devices**. In the current unreleased source, open **Settings → Tailscale remote access → Discovered remote sharing devices** to allow or revoke sharing next to a device’s name. Two-way sharing requires approval on both devices. Under **Devices**, you can see LAN and Tailscale status separately and manage album sync. LAN use requires no sign-in. For account sign-in, cellular background use, and cross-device testing on real hardware, see [implementation and validation](docs/Tailscale实现.md).
 
 ## Quick start
 

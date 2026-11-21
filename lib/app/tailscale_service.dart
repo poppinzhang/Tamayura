@@ -660,7 +660,34 @@ class TamayuraTailscaleService {
     await _safeRefresh();
   }
 
-  Future<void> forgetDevice(String deviceId) => _command(() async {
+  Future<void> forgetDevice(String deviceId) =>
+      _command(() => _removeDeviceBindings(deviceId));
+
+  Future<void> revokeDevice(String deviceId) {
+    final scope = _status?.networkScope;
+    final binding = _bindings
+        .where(
+          (entry) =>
+              entry.deviceId == deviceId && entry.ref.networkScope == scope,
+        )
+        .firstOrNull;
+    return _command(() async {
+      // A queued command must not revoke a successor or a different account's
+      // association if the user made the choice before a session change.
+      if (binding == null ||
+          !_enabled ||
+          _status?.networkScope != scope ||
+          !_bindings.contains(binding)) {
+        return;
+      }
+      await _removeDeviceBindings(deviceId, binding: binding);
+    });
+  }
+
+  Future<void> _removeDeviceBindings(
+    String deviceId, {
+    TailscaleBinding? binding,
+  }) async {
     _invalidateDiscovery();
     // A callback may already be writing the remembered peer. Drain it before
     // the host deletes that row, so a late write cannot resurrect the device.
@@ -669,12 +696,14 @@ class TamayuraTailscaleService {
     } catch (_) {
       /* its generation is already obsolete */
     }
-    final revoked = _bindings
-        .where((entry) => entry.deviceId == deviceId)
-        .map((entry) => entry.ref)
-        .toSet();
+    final revoked = binding != null
+        ? {binding.ref}
+        : {
+            for (final entry in _bindings)
+              if (entry.deviceId == deviceId) entry.ref,
+          };
     final next = _bindings
-        .where((entry) => entry.deviceId != deviceId)
+        .where((entry) => !revoked.contains(entry.ref))
         .toList();
     // Persist removal first: a failed native policy reply must not cause a
     // later refresh or process restart to silently grant access again.
@@ -687,7 +716,9 @@ class TamayuraTailscaleService {
       ..addAll(next);
     _online.remove(deviceId);
     await _closeRemoteClients(deviceId);
-    _suppressed.addAll(revoked);
+    // Forgetting suppresses rediscovery until the node goes away. Revoking
+    // sharing leaves it discoverable through the identity-only port.
+    if (binding == null) _suppressed.addAll(revoked);
     _candidates.removeWhere((_, value) => value.peer.id == deviceId);
     try {
       await _mediaLease?.updatePolicy(_currentAllowedPeers());
@@ -697,9 +728,7 @@ class TamayuraTailscaleService {
       await _closePublications();
       rethrow;
     }
-  });
-
-  Future<void> revokeDevice(String deviceId) => forgetDevice(deviceId);
+  }
 
   Set<PeerRef> _currentAllowedPeers() => _bindings
       .where((entry) => entry.ref.networkScope == _status?.networkScope)

@@ -133,11 +133,9 @@ abstract class TamayuraModel extends ChangeNotifier {
   bool get tailscaleCanOpenLogin => false;
   bool get tailscaleControlDisconnected => false;
   TailscaleDiagnostics? get tailscaleDiagnostics => null;
-  String? get tailscaleLocalDeviceId => null;
-  String? get tailscaleNodeId => null;
   String? get tailscaleError => null;
   List<TailscaleDeviceView> get tailscaleCandidates => const [];
-  List<String> get tailscaleAuthorizedDeviceIds => const [];
+  Map<String, String> get tailscaleAuthorizedDevices => const {};
   Future<void> loginTailscale() async {}
   Future<void> openTailscaleLogin() async {}
   Future<void> retryTailscale() async {}

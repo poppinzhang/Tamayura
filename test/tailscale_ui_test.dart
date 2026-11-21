@@ -2,7 +2,16 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:tamayura/app/view_state.dart';
 import 'package:tamayura/l10n/app_locale.dart';
+import 'package:tamayura/ui/app.dart';
 import 'package:tamayura/ui/tailscale_settings.dart';
+
+const _candidate = TailscaleDeviceView(
+  key: 'candidate',
+  deviceId: 'device-id',
+  name: 'Tablet',
+  nodeId: 'node-id',
+  existingDevice: false,
+);
 
 class _Model extends TamayuraModel {
   @override
@@ -14,10 +23,17 @@ class _Model extends TamayuraModel {
   @override
   List<TailscaleDeviceView> tailscaleCandidates = [];
   @override
+  Map<String, String> tailscaleAuthorizedDevices = {};
+  @override
+  String? tailscaleError;
+  @override
   bool get tailscaleCanOpenLogin =>
       tailscaleState == TailscaleConnectionState.needsLogin;
-  int logins = 0, logouts = 0, opens = 0;
+  int logins = 0, logouts = 0, opens = 0, retries = 0;
   final confirmations = <String>[];
+  final revocations = <String>[];
+  bool failRevocation = false;
+
   @override
   Future<void> loginTailscale() async {
     logins++;
@@ -34,8 +50,31 @@ class _Model extends TamayuraModel {
   }
 
   @override
+  Future<void> retryTailscale() async {
+    retries++;
+  }
+
+  @override
   Future<void> confirmTailscaleDevice(String key) async {
     confirmations.add(key);
+    final candidate = tailscaleCandidates.singleWhere(
+      (item) => item.key == key,
+    );
+    tailscaleCandidates.remove(candidate);
+    tailscaleAuthorizedDevices[candidate.deviceId] = candidate.name;
+    notifyListeners();
+  }
+
+  @override
+  Future<void> revokeTailscaleDevice(String deviceId) async {
+    revocations.add(deviceId);
+    if (failRevocation) {
+      tailscaleError = 'Could not revoke sharing';
+    } else {
+      tailscaleError = null;
+      tailscaleAuthorizedDevices.remove(deviceId);
+    }
+    notifyListeners();
   }
 
   @override
@@ -46,6 +85,8 @@ class _Model extends TamayuraModel {
   String? get error => null;
   @override
   String get deviceName => 'local';
+  @override
+  AppLanguage get language => AppLanguage.zh;
   @override
   List<String> get addresses => [];
   @override
@@ -122,26 +163,111 @@ void main() {
   );
 
   testWidgets(
-    'remote association requires explicit source sharing confirmation',
+    'remote sharing actions are in Settings and absent from Devices',
     (tester) async {
       final model = _Model()
-        ..tailscaleCandidates = [
-          const TailscaleDeviceView(
-            key: 'candidate',
-            deviceId: 'device-id',
-            name: 'Remote',
-            nodeId: 'node-id',
-            existingDevice: true,
+        ..tailscaleEnabled = true
+        ..tailscaleState = TailscaleConnectionState.connected
+        ..tailscaleCandidates = [_candidate]
+        ..tailscaleAuthorizedDevices = {'laptop-id': 'Laptop'};
+      final text = lookupAppLocalizations(model.locale);
+      await tester.pumpWidget(TamayuraApp(model: model));
+      await tester.tap(find.byKey(const Key('devices-tab')));
+      await tester.pumpAndSettle();
+      // The former sharing controls appeared below the remembered devices.
+      final devices = find.byKey(const PageStorageKey('devices-scroll'));
+      await tester.drag(devices, const Offset(0, -900));
+      await tester.pumpAndSettle();
+      expect(find.text('Tablet'), findsNothing);
+      expect(find.text(text.tailscaleConfirm), findsNothing);
+      expect(find.text(text.tailscaleRevoke), findsNothing);
+
+      await tester.tap(find.byKey(const Key('settings-tab')));
+      await tester.pumpAndSettle();
+      final allow = find.byKey(const Key('tailscale-confirm-candidate'));
+      await tester.scrollUntilVisible(
+        allow,
+        240,
+        scrollable: find
+            .descendant(
+              of: find.byKey(const PageStorageKey('settings-scroll')),
+              matching: find.byType(Scrollable),
+            )
+            .first,
+      );
+      final card = find.byType(TailscaleSettings);
+      Finder inCard(String value) =>
+          find.descendant(of: card, matching: find.text(value));
+      expect(inCard(text.tailscaleDescription), findsOneWidget);
+      expect(inCard(text.tailscaleConnected), findsOneWidget);
+      expect(inCard(model.deviceName), findsNothing);
+      expect(inCard('发现远程共享设备'), findsOneWidget);
+      expect(inCard('Tablet'), findsOneWidget);
+      expect(inCard('允许远程共享'), findsOneWidget);
+      expect(inCard('Laptop'), findsOneWidget);
+      expect(inCard('撤销远程共享'), findsOneWidget);
+      expect(find.textContaining('device-id'), findsNothing);
+      expect(find.textContaining('node-id'), findsNothing);
+      expect(find.textContaining('laptop-id'), findsNothing);
+      expect(inCard('检查连接与设备'), findsOneWidget);
+      final retry = find.byKey(const Key('tailscale-retry'));
+      await Scrollable.ensureVisible(tester.element(retry), alignment: .5);
+      await tester.pumpAndSettle();
+      expect(retry.hitTestable(), findsOneWidget);
+      await tester.tap(retry);
+      await tester.pumpAndSettle();
+      expect(model.retries, 1);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'allow requires confirmation and a failed revocation can be retried',
+    (tester) async {
+      final model = _Model()
+        ..tailscaleEnabled = true
+        ..tailscaleState = TailscaleConnectionState.connected
+        ..tailscaleCandidates = [_candidate]
+        ..tailscaleAuthorizedDevices = {'other-id': 'Other'};
+      await tester.pumpWidget(
+        _app(
+          ListenableBuilder(
+            listenable: model,
+            builder: (context, _) => TailscaleSettings(model: model),
           ),
-        ];
-      await tester.pumpWidget(_app(TailscaleCandidates(model: model)));
-      expect(model.confirmations, isEmpty);
-      await tester.tap(find.byKey(const Key('tailscale-confirm-candidate')));
+        ),
+      );
+      final allow = find.byKey(const Key('tailscale-confirm-candidate'));
+      await tester.tap(allow);
       await tester.pumpAndSettle();
       expect(find.textContaining('shared folders'), findsOneWidget);
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      expect(model.confirmations, isEmpty);
+      await tester.tap(allow);
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Confirm'));
       await tester.pumpAndSettle();
       expect(model.confirmations, ['candidate']);
+      expect(allow, findsNothing);
+
+      final revoke = find.byKey(const Key('tailscale-revoke-device-id'));
+      model.failRevocation = true;
+      await tester.tap(revoke);
+      await tester.pumpAndSettle();
+      expect(find.text('Could not revoke sharing'), findsOneWidget);
+      expect(revoke, findsOneWidget);
+      model.failRevocation = false;
+      await tester.tap(revoke);
+      await tester.pumpAndSettle();
+      expect(model.revocations, ['device-id', 'device-id']);
+      expect(revoke, findsNothing);
+      expect(find.byKey(const Key('tailscale-error')), findsNothing);
+      expect(
+        find.byKey(const Key('tailscale-revoke-other-id')),
+        findsOneWidget,
+      );
+      expect(tester.takeException(), isNull);
     },
   );
 
@@ -191,6 +317,9 @@ void main() {
       'a successor node states that it revokes the previous one in $language',
       (tester) async {
         final model = _Model()
+          ..tailscaleEnabled = true
+          ..tailscaleState = TailscaleConnectionState.connected
+          ..tailscaleAuthorizedDevices = {'device-id': 'Remote'}
           ..tailscaleCandidates = [
             const TailscaleDeviceView(
               key: 'successor',
@@ -202,12 +331,15 @@ void main() {
             ),
           ];
         await tester.pumpWidget(
-          _app(TailscaleCandidates(model: model), language: language),
+          _app(TailscaleSettings(model: model), language: language),
         );
         final text = lookupAppLocalizations(Locale(language));
-        expect(find.text(text.tailscaleReplacesNode), findsOneWidget);
-        // The plain "existing device" note would understate the change.
-        expect(find.text(text.tailscaleExistingDevice), findsNothing);
+        expect(find.text('Remote'), findsOneWidget);
+        expect(
+          find.byKey(const Key('tailscale-revoke-device-id')),
+          findsOneWidget,
+        );
+        expect(find.textContaining('new-node-id'), findsNothing);
         await tester.tap(find.byKey(const Key('tailscale-confirm-successor')));
         await tester.pumpAndSettle();
         expect(

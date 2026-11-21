@@ -1717,7 +1717,7 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get tailscaleDescription =>
-      '任意でログインし、インターネット経由で Tamayura に接続できます。LAN 機能はそのまま使えます。';
+      'ログインは任意です。ログインすると、Tamayura をインターネット経由で接続できます。';
 
   @override
   String get tailscaleSignedOut => '未ログイン';
@@ -1744,7 +1744,7 @@ class AppLocalizationsJa extends AppLocalizations {
   String get tailscaleOpenLogin => 'ログインページを開く';
 
   @override
-  String get tailscaleRetry => '再接続して端末を確認';
+  String get tailscaleRetry => '接続と端末を確認';
 
   @override
   String get tailscaleLogout => 'Tailscale からログアウト';
@@ -1758,35 +1758,28 @@ class AppLocalizationsJa extends AppLocalizations {
       'リモート同期とダウンロードではモバイルデータを含む現在の回線を使用し、通信料がかかる場合があります。自動アルバム同期は既存の間隔に従います。リモート共有は端末ごとの確認が必要です。';
 
   @override
-  String get tailscaleCandidates => '検出されたリモート端末';
+  String get tailscaleCandidates => '検出したリモート共有端末';
 
   @override
-  String get tailscaleConfirm => '確認してリモート共有を許可';
+  String get tailscaleConfirm => 'リモート共有を許可';
 
   @override
   String get tailscaleConfirmMessage =>
       '以下の情報を確認し、自分の端末であることを確かめてください。許可すると、相手は Tailscale 経由でこの端末の共有フォルダーにアクセスできます（双方向のアクセスには相手側の許可も必要で、アルバム同期は別途オンにします）。';
 
   @override
-  String get tailscaleExistingDevice => '既存の端末に関連付けます。両側の端末情報を確認してください。';
-
-  @override
-  String get tailscaleReplacesNode =>
-      'この端末に以前関連付けられた Tailscale ノードは現在無効です（相手側が再ログインしてノードが変わった可能性があります）。相手側の「設定」で端末とノードの識別情報を確認してください。';
+  String get tailscaleExistingDevice => '共有を許可すると、登録済みの端末に関連付けられます。';
 
   @override
   String get tailscaleReplaceConfirmMessage =>
-      '以下の情報が相手側の「設定」に表示される端末・ノードの識別情報と一致することを確認してください。確認すると新しいノードでの共有に切り替え、古いノードの権限を取り消します（アルバム同期の設定は維持されます）。';
+      'ご自身の端末であることを確認してください。許可すると、新しいノードがこの端末の共有フォルダーにアクセスできるようになり、古いノードのアクセス権は取り消されます。アルバム同期の設定は維持されます。';
 
   @override
   String get tailscaleIdentityConflict =>
-      '端末の識別情報が競合しています。関連付け済みの記録と一致しない端末情報を返した Tailscale ノードがあるため、そのノードは無視されました。両側の「設定」で端末とノードの識別情報を確認してください。LAN とオフラインアルバムには影響ありません。';
+      '既存のリモート共有の記録と識別情報が競合するノードを除外しました。相手の端末を確かめてから、もう一度接続と端末を確認してください。';
 
   @override
   String get tailscaleRevoke => 'リモート共有を取り消す';
-
-  @override
-  String get tailscaleAuthorized => 'リモート共有を許可した端末';
 
   @override
   String get tailscaleLanOnline => 'LAN オンライン';
@@ -1809,9 +1802,6 @@ class AppLocalizationsJa extends AppLocalizations {
   @override
   String get tailscaleControlDisconnected =>
       'Tailscale 管理サービスへの接続が一時的に中断しています。接続済みの端末とは通信できる場合があり、オンライン状態は実際の接続結果に基づきます。';
-
-  @override
-  String get tailscaleLocalIdentity => 'この端末と Tailscale ノードの識別情報';
 
   @override
   String get tailscaleSharingReady => 'この端末のリモート共有は準備完了です';

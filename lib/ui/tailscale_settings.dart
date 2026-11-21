@@ -21,6 +21,8 @@ class TailscaleSettings extends StatelessWidget {
     };
     final enabled = !model.loading && !model.tailscaleBusy;
     final diagnostics = model.tailscaleDiagnostics;
+    final candidates = model.tailscaleCandidates;
+    final authorized = Map.of(model.tailscaleAuthorizedDevices);
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(18),
@@ -40,14 +42,6 @@ class TailscaleSettings extends StatelessWidget {
                 text.tailscaleControlDisconnected,
                 key: const Key('tailscale-control-warning'),
               ),
-            if (model.tailscaleNodeId != null) ...[
-              const SizedBox(height: 8),
-              Text(text.tailscaleLocalIdentity),
-              SelectableText(
-                '${model.deviceName}\n'
-                '${model.tailscaleLocalDeviceId ?? ""}\n${model.tailscaleNodeId}',
-              ),
-            ],
             if (diagnostics != null) ...[
               const SizedBox(height: 8),
               Text(
@@ -131,26 +125,30 @@ class TailscaleSettings extends StatelessWidget {
                 ],
               ],
             ),
-            if (model.tailscaleAuthorizedDeviceIds.isNotEmpty) ...[
+            if (candidates.isNotEmpty || authorized.isNotEmpty) ...[
               const Divider(height: 24),
-              Text(text.tailscaleAuthorized),
-              for (final id in model.tailscaleAuthorizedDeviceIds)
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: Text(
-                    model.devices
-                            .where((device) => device.id == id)
-                            .firstOrNull
-                            ?.name ??
-                        id,
-                  ),
-                  trailing: TextButton(
-                    key: Key('tailscale-revoke-$id'),
-                    onPressed: enabled
-                        ? () => model.revokeTailscaleDevice(id)
-                        : null,
-                    child: Text(text.tailscaleRevoke),
-                  ),
+              Text(
+                text.tailscaleCandidates,
+                style: Theme.of(context).textTheme.titleSmall,
+              ),
+              for (final candidate in candidates)
+                _SharingDevice(
+                  model: model,
+                  name: candidate.name,
+                  candidate: candidate,
+                  // Re-registration offers a new node while the previous
+                  // grant can still be revoked independently.
+                  authorizedId: authorized.remove(candidate.deviceId) != null
+                      ? candidate.deviceId
+                      : null,
+                  enabled: enabled,
+                ),
+              for (final device in authorized.entries)
+                _SharingDevice(
+                  model: model,
+                  name: device.value,
+                  authorizedId: device.key,
+                  enabled: enabled,
                 ),
             ],
           ],
@@ -160,64 +158,73 @@ class TailscaleSettings extends StatelessWidget {
   }
 }
 
-class TailscaleCandidates extends StatelessWidget {
-  const TailscaleCandidates({super.key, required this.model});
+class _SharingDevice extends StatelessWidget {
+  const _SharingDevice({
+    required this.model,
+    required this.name,
+    required this.enabled,
+    this.candidate,
+    this.authorizedId,
+  });
+
   final TamayuraModel model;
+  final String name;
+  final bool enabled;
+  final TailscaleDeviceView? candidate;
+  final String? authorizedId;
 
   @override
   Widget build(BuildContext context) {
     final text = context.l10n;
-    if (model.tailscaleCandidates.isEmpty) return const SizedBox.shrink();
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const SizedBox(height: 24),
-        Text(
-          text.tailscaleCandidates,
-          style: Theme.of(context).textTheme.titleMedium,
-        ),
-        for (final candidate in model.tailscaleCandidates)
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    candidate.name,
-                    style: Theme.of(context).textTheme.titleSmall,
-                  ),
-                  SelectableText('${candidate.deviceId}\n${candidate.nodeId}'),
-                  if (candidate.replacesAssociation)
-                    Text(
-                      text.tailscaleReplacesNode,
-                      key: Key('tailscale-replaces-${candidate.key}'),
-                    )
-                  else if (candidate.existingDevice)
-                    Text(text.tailscaleExistingDevice),
-                  const SizedBox(height: 8),
-                  OutlinedButton(
-                    key: Key('tailscale-confirm-${candidate.key}'),
-                    onPressed: model.tailscaleBusy
-                        ? null
-                        : () async {
-                            if (await _confirm(
-                              context,
-                              text.tailscaleConfirm,
-                              '${candidate.replacesAssociation ? text.tailscaleReplaceConfirmMessage : text.tailscaleConfirmMessage}'
-                              '\n\n${candidate.name}\n'
-                              '${candidate.deviceId}\n${candidate.nodeId}',
-                            )) {
-                              await model.confirmTailscaleDevice(candidate.key);
-                            }
-                          },
-                    child: Text(text.tailscaleConfirm),
-                  ),
-                ],
-              ),
-            ),
+    return SizedBox(
+      width: double.infinity,
+      child: Wrap(
+        alignment: WrapAlignment.spaceBetween,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        spacing: 8,
+        children: [
+          Text(name),
+          Wrap(
+            spacing: 8,
+            children: [
+              if (candidate case final device?)
+                OutlinedButton(
+                  key: Key('tailscale-confirm-${device.key}'),
+                  onPressed: enabled
+                      ? () async {
+                          final message = [
+                            if (device.replacesAssociation)
+                              text.tailscaleReplaceConfirmMessage
+                            else ...[
+                              text.tailscaleConfirmMessage,
+                              if (device.existingDevice)
+                                text.tailscaleExistingDevice,
+                            ],
+                            '${device.name}\n${device.deviceId}\n${device.nodeId}',
+                          ].join('\n\n');
+                          if (await _confirm(
+                            context,
+                            text.tailscaleConfirm,
+                            message,
+                          )) {
+                            await model.confirmTailscaleDevice(device.key);
+                          }
+                        }
+                      : null,
+                  child: Text(text.tailscaleConfirm),
+                ),
+              if (authorizedId case final id?)
+                TextButton(
+                  key: Key('tailscale-revoke-$id'),
+                  onPressed: enabled
+                      ? () => model.revokeTailscaleDevice(id)
+                      : null,
+                  child: Text(text.tailscaleRevoke),
+                ),
+            ],
           ),
-      ],
+        ],
+      ),
     );
   }
 }

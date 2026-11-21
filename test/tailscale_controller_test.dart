@@ -218,8 +218,13 @@ void main() {
         TailscaleBindings.encode([
           const TailscaleBinding(
             deviceId: 'remote',
-            name: 'Remote',
+            name: 'Earlier name',
             ref: PeerRef(networkScope: 'scope', nodeId: 'node'),
+          ),
+          const TailscaleBinding(
+            deviceId: 'offline',
+            name: 'Offline tablet',
+            ref: PeerRef(networkScope: 'scope', nodeId: 'offline-node'),
           ),
         ]),
       );
@@ -244,6 +249,12 @@ void main() {
       // been tried yet: the catalog was read over the LAN.
       expect(model.media, hasLength(1));
       expect(model.devices.single.lanOnline, true);
+      expect(
+        model.tailscaleAuthorizedDevices,
+        status.networkScope == 'scope'
+            ? {'remote': 'Remote', 'offline': 'Offline tablet'}
+            : isEmpty,
+      );
       await model.download(model.media.single);
       expect(model.error, isNull);
       expect(bridge.remote, hasLength(remote ? 1 : 0));

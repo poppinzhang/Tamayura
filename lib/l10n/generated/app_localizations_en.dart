@@ -1869,7 +1869,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get tailscaleDescription =>
-      'Sign in optionally to reach Tamayura over the internet. LAN features remain available.';
+      'Sign-in is optional. Sign in to connect Tamayura over the internet.';
 
   @override
   String get tailscaleSignedOut => 'Signed out';
@@ -1897,7 +1897,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get tailscaleOpenLogin => 'Open sign-in page';
 
   @override
-  String get tailscaleRetry => 'Reconnect and check devices';
+  String get tailscaleRetry => 'Check connection and devices';
 
   @override
   String get tailscaleLogout => 'Sign out of Tailscale';
@@ -1911,10 +1911,10 @@ class AppLocalizationsEn extends AppLocalizations {
       'Remote sync and downloads use your current connection, including mobile data, and may incur charges. Automatic album sync follows your existing interval. Remote sharing requires separate approval for each device.';
 
   @override
-  String get tailscaleCandidates => 'Discovered remote devices';
+  String get tailscaleCandidates => 'Discovered remote sharing devices';
 
   @override
-  String get tailscaleConfirm => 'Confirm and allow remote sharing';
+  String get tailscaleConfirm => 'Allow remote sharing';
 
   @override
   String get tailscaleConfirmMessage =>
@@ -1922,25 +1922,18 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get tailscaleExistingDevice =>
-      'This will link to an existing device record. Check the identity on both devices.';
-
-  @override
-  String get tailscaleReplacesNode =>
-      'The Tailscale node previously linked to this device is no longer active (the other device may have signed in again with a new node). Check the device and node identity in the other device\'s Settings.';
+      'Allowing sharing will link this device to its existing record.';
 
   @override
   String get tailscaleReplaceConfirmMessage =>
-      'Verify that the details below match the device and node identity shown in the other device\'s Settings. Confirming switches shared-folder access to the new node and revokes the old node (your album sync setting is kept).';
+      'Confirm that this is your device. Allowing sharing gives the new node access to your shared folders and revokes access for the old node. Your album sync setting is preserved.';
 
   @override
   String get tailscaleIdentityConflict =>
-      'Device identity conflict: a Tailscale node returned a device identity that doesn\'t match the linked record, so it was ignored. Check the device and node identity in Settings on both devices. LAN and offline albums aren\'t affected.';
+      'Tamayura ignored a node whose identity conflicts with an existing remote sharing record. Verify the remote device, then check the connection and devices again.';
 
   @override
   String get tailscaleRevoke => 'Revoke remote sharing';
-
-  @override
-  String get tailscaleAuthorized => 'Devices allowed remote sharing';
 
   @override
   String get tailscaleLanOnline => 'LAN online';
@@ -1963,10 +1956,6 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get tailscaleControlDisconnected =>
       'Connection to the Tailscale control service is temporarily interrupted. Connected devices may still communicate; online status reflects actual connectivity.';
-
-  @override
-  String get tailscaleLocalIdentity =>
-      'This device and Tailscale node identity';
 
   @override
   String get tailscaleSharingReady => 'Remote sharing is ready on this device';

@@ -1543,7 +1543,6 @@ class _HomeState extends State<_Home> with TickerProviderStateMixin {
           ),
         ),
       for (final device in model.devices) _deviceCard(device),
-      TailscaleCandidates(model: model),
       const SizedBox(height: 12),
       Text(
         // The Windows wording is not Windows-specific and applies to Linux.

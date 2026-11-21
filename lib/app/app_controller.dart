@@ -79,10 +79,6 @@ class AppController extends TamayuraModel {
   @override
   TailscaleDiagnostics? get tailscaleDiagnostics => _tailscale?.diagnostics;
   @override
-  String? get tailscaleLocalDeviceId => tailscaleEnabled ? _id : null;
-  @override
-  String? get tailscaleNodeId => _tailscale?.status?.selfNodeId;
-  @override
   String? get tailscaleError =>
       _tailscaleFailure ??
       (_tailscale?.error == null ? null : describeError(_tailscale!.error!));
@@ -113,11 +109,11 @@ class AppController extends TamayuraModel {
       ),
   ];
   @override
-  List<String> get tailscaleAuthorizedDeviceIds => [
-    for (final binding in _tailscale?.bindings ?? [])
+  Map<String, String> get tailscaleAuthorizedDevices => {
+    for (final binding in _tailscale?.bindings ?? const [])
       if (binding.ref.networkScope == _tailscale?.status?.networkScope)
-        binding.deviceId,
-  ];
+        binding.deviceId: _peers[binding.deviceId]?.name ?? binding.name,
+  };
 
   Future<void> _ensureTailscale() =>
       _tailscaleInitializing ??= _initializeTailscale();
@@ -235,7 +231,7 @@ class AppController extends TamayuraModel {
   @override
   Future<void> revokeTailscaleDevice(String deviceId) =>
       _tailscaleOperation(() async {
-        await _tailscale?.forgetDevice(deviceId);
+        await _tailscale?.revokeDevice(deviceId);
       });
   final DateTime Function() _clock;
   final Duration _resumeRescanInterval;

@@ -753,7 +753,7 @@ void main() {
   );
 
   test(
-    'media publication defaults to deny and association/revoke updates its policy',
+    'forgetting removes access and suppresses discovery until the node leaves',
     () async {
       sharingAvailable = true;
       await service.login();
@@ -789,6 +789,79 @@ void main() {
       ];
       await service.refresh();
       expect(service.candidates, hasLength(1));
+    },
+  );
+
+  test(
+    'revoking current-network sharing rediscovers the device for explicit approval',
+    () async {
+      const otherNetwork = PeerRef(
+        networkScope: 'other-network',
+        nodeId: 'other-node',
+      );
+      await repository.setSetting(
+        TailscaleBindings.settingKey,
+        TailscaleBindings.encode([
+          TailscaleBinding(
+            deviceId: _peer.id,
+            name: _peer.name,
+            ref: otherNetwork,
+          ),
+        ]),
+      );
+      await repository.upsertPeer(_peer);
+      await service.initialize();
+      sharingAvailable = true;
+      await service.login();
+      await service.refresh();
+      final key = service.candidates.single.key;
+      await service.confirmCandidate(key);
+      await service.refresh();
+      final mediaLease = node.publications.singleWhere(
+        (lease) => lease.port == tailscaleMediaPort,
+      );
+      expect(mediaLease.allowed, {_ref});
+      final client = service.createClient(_peer);
+      addTearDown(client.close);
+      await client.identity();
+
+      // Hold an older scan across revocation, as when the user taps the
+      // button during a poll. Only a fresh identity-port probe may rediscover it.
+      final gate = node.peersGate = Completer<void>();
+      final reads = node.peerReads;
+      final scanning = service.refresh();
+      await _eventually(() => node.peerReads > reads);
+      node.dialedPorts.clear();
+      final revoking = service.revokeDevice(_peer.id);
+      await _eventually(() => service.busy);
+      gate.complete();
+      await scanning;
+      await revoking;
+      expect(mediaLease.allowed, isEmpty);
+      expect(service.onlineDeviceIds, isEmpty);
+      await expectLater(client.listMediaPage(), throwsA(isA<GrpcError>()));
+      expect(service.hasAssociation(_peer.id), isFalse);
+      final saved = TailscaleBindings.decode(
+        await repository.getSetting(TailscaleBindings.settingKey),
+      );
+      expect(saved.single.ref, otherNetwork);
+      expect((await repository.listPeers()).single.id, _peer.id);
+
+      // With the regular poll an hour away, the revoke command itself
+      // triggers rediscovery. Answering discovery does not restore access.
+      await _eventually(() => service.candidates.isNotEmpty);
+      expect(service.candidates.single.key, key);
+      expect(node.dialedPorts, isNotEmpty);
+      expect(node.dialedPorts, everyElement(tailscaleIdentityPort));
+      expect(mediaLease.allowed, isEmpty);
+      await service.confirmCandidate(key);
+      expect(mediaLease.allowed, {_ref});
+      expect(
+        service.bindings.map((entry) => entry.ref),
+        unorderedEquals([otherNetwork, _ref]),
+      );
+      await service.forgetDevice(_peer.id);
+      expect(service.bindings, isEmpty);
     },
   );
 
@@ -844,7 +917,7 @@ void main() {
       );
       mediaLease.failPolicy = true;
       await expectLater(
-        service.forgetDevice(_peer.id),
+        service.revokeDevice(_peer.id),
         throwsA(isA<TailscaleException>()),
       );
       expect(mediaLease.closes, 1);
@@ -901,7 +974,12 @@ void main() {
       await service.refresh();
       expect(service.candidates.single.key, candidate.key);
 
-      await service.confirmCandidate(candidate.key);
+      // A revocation requested on the old binding while replacement is queued
+      // cannot accidentally revoke the successor when its turn arrives.
+      await Future.wait([
+        service.confirmCandidate(candidate.key),
+        service.revokeDevice(_peer.id),
+      ]);
       expect(service.bindings.single.ref, _successor);
       expect(service.bindings.single.deviceId, _peer.id);
       expect(mediaLease.allowed, {_successor});

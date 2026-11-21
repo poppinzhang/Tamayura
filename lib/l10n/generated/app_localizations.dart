@@ -3085,7 +3085,7 @@ abstract class AppLocalizations {
   /// No description provided for @tailscaleDescription.
   ///
   /// In zh, this message translates to:
-  /// **'可选登录。登录后可通过互联网连接其它 Tamayura；局域网功能始终可用。'**
+  /// **'可选登陆，登陆后 Tamayura 可通过互联网连接。'**
   String get tailscaleDescription;
 
   /// No description provided for @tailscaleSignedOut.
@@ -3139,7 +3139,7 @@ abstract class AppLocalizations {
   /// No description provided for @tailscaleRetry.
   ///
   /// In zh, this message translates to:
-  /// **'重新连接与检查设备'**
+  /// **'检查连接与设备'**
   String get tailscaleRetry;
 
   /// No description provided for @tailscaleLogout.
@@ -3163,13 +3163,13 @@ abstract class AppLocalizations {
   /// No description provided for @tailscaleCandidates.
   ///
   /// In zh, this message translates to:
-  /// **'发现的远程设备'**
+  /// **'发现远程共享设备'**
   String get tailscaleCandidates;
 
   /// No description provided for @tailscaleConfirm.
   ///
   /// In zh, this message translates to:
-  /// **'确认并允许远程共享'**
+  /// **'允许远程共享'**
   String get tailscaleConfirm;
 
   /// No description provided for @tailscaleConfirmMessage.
@@ -3181,25 +3181,19 @@ abstract class AppLocalizations {
   /// No description provided for @tailscaleExistingDevice.
   ///
   /// In zh, this message translates to:
-  /// **'将与已有设备记录关联；请核对两端的设备身份。'**
+  /// **'允许后将关联已有的设备记录。'**
   String get tailscaleExistingDevice;
-
-  /// No description provided for @tailscaleReplacesNode.
-  ///
-  /// In zh, this message translates to:
-  /// **'此设备原先关联的 Tailscale 节点已失效（可能是对端重新登录更换了节点）。请对照对端「设置」核对设备与节点身份。'**
-  String get tailscaleReplacesNode;
 
   /// No description provided for @tailscaleReplaceConfirmMessage.
   ///
   /// In zh, this message translates to:
-  /// **'请确认下方信息与对端「设置」中的设备及节点身份一致。确认后将改用新节点共享本机目录，并撤销旧节点的权限（原相册同步设置保持不变）。'**
+  /// **'请确认这是你的设备。允许后，新节点可以访问本机共享目录，旧节点的权限将被撤销。原有相册同步设置会保留。'**
   String get tailscaleReplaceConfirmMessage;
 
   /// No description provided for @tailscaleIdentityConflict.
   ///
   /// In zh, this message translates to:
-  /// **'设备身份冲突：有 Tailscale 节点返回的设备身份与已关联记录不符，已忽略该节点。请核对两端「设置」中的设备与节点身份。局域网和离线相册不受影响。'**
+  /// **'设备身份与已有的远程共享记录冲突，已忽略该节点。请确认对端设备后重新检查连接与设备。'**
   String get tailscaleIdentityConflict;
 
   /// No description provided for @tailscaleRevoke.
@@ -3207,12 +3201,6 @@ abstract class AppLocalizations {
   /// In zh, this message translates to:
   /// **'撤销远程共享'**
   String get tailscaleRevoke;
-
-  /// No description provided for @tailscaleAuthorized.
-  ///
-  /// In zh, this message translates to:
-  /// **'已允许远程共享的设备'**
-  String get tailscaleAuthorized;
 
   /// No description provided for @tailscaleLanOnline.
   ///
@@ -3249,12 +3237,6 @@ abstract class AppLocalizations {
   /// In zh, this message translates to:
   /// **'Tailscale 控制服务连接暂时中断；已连接的设备可能仍可通信，在线状态以实际连接为准。'**
   String get tailscaleControlDisconnected;
-
-  /// No description provided for @tailscaleLocalIdentity.
-  ///
-  /// In zh, this message translates to:
-  /// **'本机设备与 Tailscale 节点身份'**
-  String get tailscaleLocalIdentity;
 
   /// No description provided for @tailscaleSharingReady.
   ///

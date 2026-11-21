@@ -1658,7 +1658,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get tailscaleTitle => 'Tailscale 远程连接';
 
   @override
-  String get tailscaleDescription => '可选登录。登录后可通过互联网连接其它 Tamayura；局域网功能始终可用。';
+  String get tailscaleDescription => '可选登陆，登陆后 Tamayura 可通过互联网连接。';
 
   @override
   String get tailscaleSignedOut => '未登录';
@@ -1685,7 +1685,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get tailscaleOpenLogin => '打开登录页面';
 
   @override
-  String get tailscaleRetry => '重新连接与检查设备';
+  String get tailscaleRetry => '检查连接与设备';
 
   @override
   String get tailscaleLogout => '退出 Tailscale';
@@ -1699,35 +1699,28 @@ class AppLocalizationsZh extends AppLocalizations {
       '远程同步和下载会使用当前网络，包括移动数据，可能产生流量费用。自动相册同步沿用现有间隔。远端媒体共享仍需逐台确认。';
 
   @override
-  String get tailscaleCandidates => '发现的远程设备';
+  String get tailscaleCandidates => '发现远程共享设备';
 
   @override
-  String get tailscaleConfirm => '确认并允许远程共享';
+  String get tailscaleConfirm => '允许远程共享';
 
   @override
   String get tailscaleConfirmMessage =>
       '请核对下方信息，确认这是你的设备。允许后，对方可通过 Tailscale 访问本机的共享目录（双向访问需对端也允许本机，相册同步需另行开启）。';
 
   @override
-  String get tailscaleExistingDevice => '将与已有设备记录关联；请核对两端的设备身份。';
-
-  @override
-  String get tailscaleReplacesNode =>
-      '此设备原先关联的 Tailscale 节点已失效（可能是对端重新登录更换了节点）。请对照对端「设置」核对设备与节点身份。';
+  String get tailscaleExistingDevice => '允许后将关联已有的设备记录。';
 
   @override
   String get tailscaleReplaceConfirmMessage =>
-      '请确认下方信息与对端「设置」中的设备及节点身份一致。确认后将改用新节点共享本机目录，并撤销旧节点的权限（原相册同步设置保持不变）。';
+      '请确认这是你的设备。允许后，新节点可以访问本机共享目录，旧节点的权限将被撤销。原有相册同步设置会保留。';
 
   @override
   String get tailscaleIdentityConflict =>
-      '设备身份冲突：有 Tailscale 节点返回的设备身份与已关联记录不符，已忽略该节点。请核对两端「设置」中的设备与节点身份。局域网和离线相册不受影响。';
+      '设备身份与已有的远程共享记录冲突，已忽略该节点。请确认对端设备后重新检查连接与设备。';
 
   @override
   String get tailscaleRevoke => '撤销远程共享';
-
-  @override
-  String get tailscaleAuthorized => '已允许远程共享的设备';
 
   @override
   String get tailscaleLanOnline => '局域网在线';
@@ -1747,9 +1740,6 @@ class AppLocalizationsZh extends AppLocalizations {
   @override
   String get tailscaleControlDisconnected =>
       'Tailscale 控制服务连接暂时中断；已连接的设备可能仍可通信，在线状态以实际连接为准。';
-
-  @override
-  String get tailscaleLocalIdentity => '本机设备与 Tailscale 节点身份';
 
   @override
   String get tailscaleSharingReady => '本机远程共享入口已就绪';
